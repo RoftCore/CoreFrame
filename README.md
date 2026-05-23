@@ -58,7 +58,6 @@ Abrir en el navegador: http://127.0.0.1:5000
 - Bind a `127.0.0.1` (no accesible desde LAN/Internet)
 - CORS restringido a `http://127.0.0.1:5000`
 - Token SHA-256 generado al arrancar, exigido en toda API (`X-CoreFrame-Token`)
-- Las extensiones no tienen acceso directo al sistema de archivos fuera de su directorio
 
 ## Estructura
 
