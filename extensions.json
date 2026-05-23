@@ -1,0 +1,20 @@
+{
+  "network_monitor": {
+    "name": "Network Monitor",
+    "version": "1.2",
+    "author": "Arnau",
+    "category": "ciberseguridad"
+  },
+  "system_monitor": {
+    "name": "System Monitor",
+    "version": "1.1",
+    "author": "Arnau",
+    "category": "sistema"
+  },
+  "vault_manager": {
+    "name": "Vault Manager",
+    "version": "1.0",
+    "author": "Arnau",
+    "category": "sistema"
+  }
+}

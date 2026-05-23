@@ -1,0 +1,21 @@
+{
+  "id": "network_monitor",
+  "name": "Network Monitor",
+  "icon": "network",
+  "description": "IP publica, VPN, puertos, fugas DNS",
+  "version": "1.2",
+  "author": "Arnau",
+  "category": "ciberseguridad",
+  "refresh_interval": 5000,
+  "menu_items": [
+    { "label": "Escanear puertos", "action": "get_open_ports" },
+    { "label": "Ver conexiones", "action": "get_connections" },
+    { "label": "Test fuga DNS", "action": "dns_leak" },
+    { "label": "Forzar DNS (1.1.1.1)", "action": "set_vpn_dns" }
+  ],
+  "widgets": [
+    { "id": "public_ip", "type": "text", "label": "IP Publica", "action": "get_ip" },
+    { "id": "vpn_status", "type": "badge", "label": "VPN", "action": "check_vpn" },
+    { "id": "open_ports", "type": "list", "label": "Puertos comunes", "action": "get_open_ports" }
+  ]
+}

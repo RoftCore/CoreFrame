@@ -1,0 +1,8 @@
+{
+  "provider": "proton",
+  "connect_command": "",
+  "disconnect_command": "",
+  "adapter_keywords": "vpn,proton,wireguard,wintun,tun,tap",
+  "last_action": "",
+  "killswitch": "False"
+}

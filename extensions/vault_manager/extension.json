@@ -1,0 +1,19 @@
+{
+  "id": "vault_manager",
+  "name": "Vault Manager",
+  "icon": "vault",
+  "description": "Gestión de notas cifradas y secretos",
+  "version": "1.0",
+  "author": "Arnau",
+  "category": "sistema",
+  "refresh_interval": 0,
+  "menu_items": [
+    { "label": "Nueva nota", "action": "new_note" },
+    { "label": "Listar notas", "action": "list_notes" },
+    { "label": "Exportar todo", "action": "export_all" }
+  ],
+  "widgets": [
+    { "id": "note_count", "type": "text", "label": "Notas guardadas", "action": "note_count" },
+    { "id": "recent_notes", "type": "list", "label": "Últimas notas", "action": "recent_notes" }
+  ]
+}
