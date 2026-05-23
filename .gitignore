@@ -4,3 +4,5 @@ __pycache__/
 *.pyo
 .env
 .show
+AGENTS.md
+CONTINUE.md
