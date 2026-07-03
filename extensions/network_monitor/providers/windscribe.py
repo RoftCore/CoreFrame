@@ -21,7 +21,7 @@ class WindscribeProvider(BaseProvider):
         msgs = []
         adapters = extension._active_vpn_adapters()
         if any("windscribe" in a.lower() for a in adapters):
-            msgs.append("Windscribe ya conectado")
+            msgs.append("Windscribe already connected")
         else:
-            msgs.append("Windscribe: abre la app y conecta manualmente")
+            msgs.append("Windscribe: open the app and connect manually")
         return msgs

@@ -93,9 +93,9 @@ class Extension:
                 ctypes.windll.kernel32.SetProcessWorkingSetSize(
                     ctypes.windll.kernel32.GetCurrentProcess(), -1, -1
                 )
-                return {"value": "Memoria liberada"}
+                return {"value": "Memory freed"}
             except Exception as e:
                 return {"value": f"Error: {e}"}
         else:
             os.system("sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null")
-            return {"value": "Memoria liberada"}
+            return {"value": "Memory freed"}

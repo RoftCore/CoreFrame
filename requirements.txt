@@ -3,3 +3,4 @@ flask-socketio
 psutil
 gputil
 requests
+Pillow

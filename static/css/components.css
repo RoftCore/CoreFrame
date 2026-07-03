@@ -3,10 +3,11 @@
   background: var(--bg-widget);
   border: 1px solid rgba(0, 212, 255, 0.1);
   border-radius: var(--radius-md);
-  padding: 14px;
+  padding: 10px;
   transition: all var(--transition-fast);
   backdrop-filter: blur(4px);
   position: relative;
+  overflow: hidden;
 }
 
 .widget::before {
@@ -30,7 +31,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -218,108 +219,6 @@
   cursor: not-allowed;
 }
 
-/* --- VPN Panel --- */
-.vpn-panel-body {
-  font-family: var(--font-mono);
-  white-space: normal;
-  font-size: 12px;
-}
-
-.vpn-status-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 14px;
-  color: var(--text-secondary);
-}
-
-.vpn-status-copy {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.vpn-form {
-  display: grid;
-  gap: 12px;
-}
-
-.vpn-form label {
-  display: grid;
-  gap: 4px;
-  color: var(--text-secondary);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.vpn-form input {
-  width: 100%;
-  padding: 8px 10px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(0, 212, 255, 0.15);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.vpn-form input:focus {
-  outline: none;
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 8px rgba(0, 212, 255, 0.15);
-}
-
-.vpn-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.vpn-actions button,
-.vpn-power-btn {
-  padding: 8px 10px;
-  background: rgba(0, 212, 255, 0.06);
-  border: 1px solid rgba(0, 212, 255, 0.15);
-  border-radius: var(--radius-sm);
-  color: var(--accent-cyan);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.vpn-power-btn {
-  flex-shrink: 0;
-}
-
-.vpn-actions button:hover,
-.vpn-power-btn:hover {
-  background: rgba(0, 212, 255, 0.15);
-  border-color: var(--accent-cyan);
-}
-
-.vpn-feedback {
-  min-height: 18px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-@media (max-width: 560px) {
-  .vpn-status-line {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .vpn-power-btn {
-    width: 100%;
-  }
-}
-
 /* --- Section --- */
 .section-title {
   font-size: 14px;
@@ -375,13 +274,97 @@
   margin-bottom: 20px;
 }
 
-.ext-group-header {
-  font-size: 10px;
+
+
+
+/* --- Sub-widget (inside extension card) --- */
+.widget-extension .widget-body-grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+/* --- Sub-widget (inside extension card) --- */
+.widget-sub {
+  flex: 1;
+  min-width: 100px;
+}
+
+.widget-sub-label {
+  font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 2px;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid rgba(0, 212, 255, 0.08);
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.widget-sub .widget-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  text-shadow: 0 0 8px rgba(0, 212, 255, 0.25);
+  line-height: 1.2;
+}
+
+.widget-sub .widget-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.widget-sub .widget-list-items {
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.widget-sub .list-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.04);
+  font-size: 11px;
   font-family: var(--font-mono);
 }
+
+.widget-sub .list-item:last-child {
+  border-bottom: none;
+}
+
+.widget-sub .list-item-key {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.widget-sub .list-item-value {
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.widget-sub .chart-container {
+  position: relative;
+}
+
+.widget-sub canvas {
+  width: 100% !important;
+  height: 50px !important;
+  border-radius: 2px;
+}
+
+.widget-sub .chart-value {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+  pointer-events: none;
+}
+
+

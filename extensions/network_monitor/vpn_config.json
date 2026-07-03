@@ -4,5 +4,5 @@
   "disconnect_command": "",
   "adapter_keywords": "vpn,proton,wireguard,wintun,tun,tap",
   "last_action": "",
-  "killswitch": "False"
+  "killswitch": false
 }

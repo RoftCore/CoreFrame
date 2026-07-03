@@ -2,19 +2,22 @@
   "id": "system_monitor",
   "name": "System Monitor",
   "icon": "monitor",
-  "description": "CPU, RAM, GPU, disco y procesos del sistema",
+  "description": "CPU, RAM, GPU, disk and system processes",
   "version": "1.1",
   "author": "Arnau",
-  "category": "sistema",
+  "category": "system",
   "refresh_interval": 2000,
+  "realtime": true,
+  "css_modules": ["style.css"],
   "menu_items": [
-    { "label": "Ver procesos activos", "action": "get_processes" },
-    { "label": "Liberar memoria caché", "action": "free_memory" }
+    { "label": "View active processes", "action": "get_processes" },
+    { "label": "Free cache memory", "action": "free_memory" }
   ],
+  "grid_size": { "w": 2, "h": 2 },
   "widgets": [
-    { "id": "cpu", "type": "chart", "label": "CPU Usage", "action": "get_cpu" },
-    { "id": "ram", "type": "chart", "label": "Memory Usage", "action": "get_ram" },
-    { "id": "gpu", "type": "chart", "label": "GPU Status", "action": "get_gpu" },
-    { "id": "disk", "type": "chart", "label": "Disk Usage", "action": "get_disk" }
+    { "id": "cpu", "type": "chart", "label": "CPU", "action": "get_cpu" },
+    { "id": "ram", "type": "chart", "label": "RAM", "action": "get_ram" },
+    { "id": "gpu", "type": "chart", "label": "GPU", "action": "get_gpu" },
+    { "id": "disk", "type": "chart", "label": "DISK", "action": "get_disk" }
   ]
 }

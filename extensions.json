@@ -1,20 +1,26 @@
 {
   "network_monitor": {
     "name": "Network Monitor",
+    "version": "1.4",
+    "author": "Arnau",
+    "category": "cybersecurity"
+  },
+  "process_manager": {
+    "name": "Process Manager",
     "version": "1.2",
     "author": "Arnau",
-    "category": "ciberseguridad"
+    "category": "processes"
   },
   "system_monitor": {
     "name": "System Monitor",
     "version": "1.1",
     "author": "Arnau",
-    "category": "sistema"
+    "category": "system"
   },
   "vault_manager": {
     "name": "Vault Manager",
     "version": "1.0",
     "author": "Arnau",
-    "category": "sistema"
+    "category": "system"
   }
 }

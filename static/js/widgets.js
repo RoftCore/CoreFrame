@@ -1,20 +1,55 @@
 const widgetHistory = {};
+const _widgetHash = {};
 
-function createWidget(widgetDef, extId) {
-  const { id, type, label, action } = widgetDef;
+const EXT_DEFAULT_GRID = { w: 4, h: 2 };
+
+function createExtensionCard(ext) {
+  const { id: extId, name, widgets, grid_size, overlayable } = ext;
+  const gs = grid_size || EXT_DEFAULT_GRID;
+
   const el = document.createElement('div');
-  el.className = `widget widget-${type}`;
-  el.dataset.widgetId = id;
+  el.className = `widget widget-extension ext-${extId}`;
   el.dataset.extId = extId;
-  el.dataset.action = action;
+  el.dataset.overlayable = overlayable ? 'true' : 'false';
+  if (overlayable) el.classList.add('widget-overlayable');
+  el.style.gridColumn = `span ${gs.w}`;
+  el.style.gridRow = `span ${gs.h}`;
 
   const header = document.createElement('div');
   header.className = 'widget-header';
-  header.innerHTML = `<span>${escapeHtml(label)}</span>`;
+  header.textContent = name || extId;
   el.appendChild(header);
 
   const body = document.createElement('div');
   body.className = 'widget-body';
+
+  if (widgets && widgets.length > 0) {
+    for (const wDef of widgets) {
+      const sub = createSubWidget(wDef, extId);
+      body.appendChild(sub);
+    }
+  }
+
+  el.appendChild(body);
+  return el;
+}
+
+function createSubWidget(widgetDef, extId) {
+  const { id, type, label, action } = widgetDef;
+
+  const el = document.createElement('div');
+  el.className = `widget-sub widget-${type}`;
+  el.dataset.widgetId = id;
+  el.dataset.extId = extId;
+  el.dataset.action = action;
+
+  const subLabel = document.createElement('div');
+  subLabel.className = 'widget-sub-label';
+  subLabel.textContent = label;
+  el.appendChild(subLabel);
+
+  const body = document.createElement('div');
+  body.className = 'widget-sub-body';
 
   switch (type) {
     case 'text':
@@ -29,25 +64,36 @@ function createWidget(widgetDef, extId) {
     case 'chart':
       body.innerHTML = `
         <div class="chart-container">
-          <canvas id="chart-${extId}-${id}" width="280" height="100"></canvas>
+          <canvas id="chart-${extId}-${id}" width="120" height="60"></canvas>
           <div class="chart-value">--</div>
-        </div>
-      `;
+        </div>`;
       break;
     case 'terminal':
       body.className = 'widget-terminal-output';
       body.id = 'term-' + id;
-      body.textContent = '> waiting for data...';
-      el.classList.add('widget-terminal');
-      break;
-    case 'iframe':
-      body.innerHTML = '<iframe id="ifr-' + id + '" style="width:100%;height:200px;border:none;border-radius:4px;background:#000;"></iframe>';
+      body.textContent = 'waiting for data...';
       break;
     case 'button':
       body.innerHTML = '<button class="widget-btn" data-ext="' + extId + '" data-action="' + action + '">' + escapeHtml(label) + '</button>';
       break;
     default:
-      body.innerHTML = '<div class="widget-value text-muted">Unknown type: ' + type + '</div>';
+      body.innerHTML = '<div class="widget-value text-muted">Unknown</div>';
+  }
+
+  if (widgetDef.click_action) {
+    el.dataset.clickAction = widgetDef.click_action;
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (typeof executeMenuAction === 'function') {
+        let menuLabel = widgetDef.click_action;
+        if (typeof extensionsData !== 'undefined' && extensionsData[extId] && extensionsData[extId].menu_items) {
+          const found = extensionsData[extId].menu_items.find(m => m.action === widgetDef.click_action);
+          if (found) menuLabel = found.label;
+        }
+        executeMenuAction(extId, widgetDef.click_action, menuLabel);
+      }
+    });
   }
 
   el.appendChild(body);
@@ -56,7 +102,12 @@ function createWidget(widgetDef, extId) {
 
 function updateWidgetValue(widgetEl, response) {
   if (!widgetEl || response.error) return;
-  const type = widgetEl.classList.contains('widget-text') ? 'text'
+
+  const extId = widgetEl.dataset.extId;
+  const id = widgetEl.dataset.widgetId;
+  const val = response.value;
+  const type =
+    widgetEl.classList.contains('widget-text') ? 'text'
     : widgetEl.classList.contains('widget-badge') ? 'badge'
     : widgetEl.classList.contains('widget-list') ? 'list'
     : widgetEl.classList.contains('widget-chart') ? 'chart'
@@ -64,36 +115,37 @@ function updateWidgetValue(widgetEl, response) {
     : widgetEl.classList.contains('widget-button') ? 'button'
     : 'unknown';
 
-  const extId = widgetEl.dataset.extId;
-  const id = widgetEl.dataset.widgetId;
-  const val = response.value;
+  const hashKey = `${extId}-${id}`;
+  const newHash = val !== null && val !== undefined ? (typeof val === 'object' ? JSON.stringify(val) : String(val)) : 'null';
 
   switch (type) {
-    case 'text': {
-      const el = widgetEl.querySelector('.widget-value');
-      if (!el) break;
-      formatValue(el, id, val);
-      break;
-    }
-    case 'badge': {
-      const dot = widgetEl.querySelector('.badge-dot');
-      const lbl = widgetEl.querySelector('.badge-label');
-      if (val && typeof val === 'object') {
-        if (dot) { dot.className = 'badge-dot ' + (val.status || 'warn'); }
-        if (lbl) lbl.textContent = val.text || val.status || '--';
-      } else {
-        if (lbl) lbl.textContent = String(val);
-      }
-      break;
-    }
+    case 'text':
+    case 'badge':
     case 'list': {
-      const container = widgetEl.querySelector('.widget-list-items');
-      if (container) {
-        const items = Array.isArray(val) ? val : [];
-        container.innerHTML = items.map(item => {
-          if (typeof item === 'string') return '<div class="list-item"><span class="list-item-value">' + escapeHtml(item) + '</span></div>';
-          return '<div class="list-item"><span class="list-item-key">' + escapeHtml(item.label || item.key || '') + '</span><span class="list-item-value">' + escapeHtml(item.value || '') + '</span></div>';
-        }).join('');
+      if (_widgetHash[hashKey] === newHash) break;
+      _widgetHash[hashKey] = newHash;
+      if (type === 'text') {
+        const el = widgetEl.querySelector('.widget-value');
+        if (!el) break;
+        formatValue(el, id, val);
+      } else if (type === 'badge') {
+        const dot = widgetEl.querySelector('.badge-dot');
+        const lbl = widgetEl.querySelector('.badge-label');
+        if (val && typeof val === 'object') {
+          if (dot) dot.className = 'badge-dot ' + (val.status || 'warn');
+          if (lbl) lbl.textContent = val.text || val.status || '--';
+        } else {
+          if (lbl) lbl.textContent = String(val);
+        }
+      } else if (type === 'list') {
+        const container = widgetEl.querySelector('.widget-list-items');
+        if (container) {
+          const items = Array.isArray(val) ? val : [];
+          container.innerHTML = items.map(item => {
+            if (typeof item === 'string') return '<div class="list-item"><span class="list-item-value">' + escapeHtml(item) + '</span></div>';
+            return '<div class="list-item"><span class="list-item-key">' + escapeHtml(item.label || item.key || '') + '</span><span class="list-item-value">' + escapeHtml(item.value || '') + '</span></div>';
+          }).join('');
+        }
       }
       break;
     }
@@ -113,12 +165,12 @@ function updateWidgetValue(widgetEl, response) {
       if (widgetHistory[historyKey].length > 30) widgetHistory[historyKey].shift();
 
       if (valueEl) formatValue(valueEl, id, val);
-      
+
       const colors = {
-        'cpu': '#00d4ff', // Cyan
-        'ram': '#6644ff', // Purple
-        'disk': '#00ff88', // Green
-        'gpu': '#ffbb00'  // Yellow
+        'cpu': '#00d4ff',
+        'ram': '#6644ff',
+        'disk': '#00ff88',
+        'gpu': '#ffbb00'
       };
       const color = colors[id] || getComputedStyle(document.documentElement).getPropertyValue('--accent-blue').trim() || '#3498db';
       drawMiniChart(canvas, widgetHistory[historyKey], color);
@@ -128,7 +180,7 @@ function updateWidgetValue(widgetEl, response) {
       const out = widgetEl.querySelector('.widget-terminal-output');
       if (out) {
         const text = typeof val === 'string' ? val : JSON.stringify(val, null, 2);
-        out.textContent = '> ' + text;
+        out.textContent = text;
       }
       break;
     }
@@ -136,12 +188,8 @@ function updateWidgetValue(widgetEl, response) {
 }
 
 function formatValue(el, id, val) {
-  if (val === undefined || val === null) {
-    el.textContent = '--';
-    return;
-  }
+  if (val === undefined || val === null) { el.textContent = '--'; return; }
 
-  // Common system monitor formatting
   if (id === 'cpu') {
     el.textContent = formatPercent(typeof val === 'object' ? val.percent : val);
   } else if (id === 'ram') {
@@ -190,7 +238,7 @@ function drawMiniChart(canvas, data, color) {
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.beginPath();
-  
+
   data.forEach((v, i) => {
     const x = (startIdx + i) * stepX;
     const y = h - ((v / range) * h);
@@ -198,7 +246,6 @@ function drawMiniChart(canvas, data, color) {
   });
   ctx.stroke();
 
-  // Gradient fill
   ctx.lineTo(w, h);
   ctx.lineTo(startIdx * stepX, h);
   ctx.closePath();
@@ -208,10 +255,8 @@ function drawMiniChart(canvas, data, color) {
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.1)';
   ctx.lineWidth = 1;
-  // Horizontal
   for (let i = 0; i <= 4; i++) {
     const y = (h / 4) * i;
     ctx.beginPath();
@@ -219,7 +264,6 @@ function drawMiniChart(canvas, data, color) {
     ctx.lineTo(w, y);
     ctx.stroke();
   }
-  // Vertical
   for (let i = 0; i <= 6; i++) {
     const x = (w / 6) * i;
     ctx.beginPath();

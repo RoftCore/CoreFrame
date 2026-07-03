@@ -13,16 +13,14 @@ STATIC_DIR = os.path.join(BASE_DIR, 'static')
 EXTENSIONS_DIR = os.path.join(BASE_DIR, 'extensions')
 
 app = Flask(__name__, static_folder=STATIC_DIR)
-app.config['SECRET_KEY'] = 'coreframe-secret'
-socketio = SocketIO(app, cors_allowed_origins="http://127.0.0.1:5000")
+app.config['SECRET_KEY'] = hashlib.sha256(os.urandom(32)).hexdigest()
+socketio = SocketIO(app, cors_allowed_origins=["http://127.0.0.1:5000", "http://localhost:5000"])
 
 # Token local generado al arrancar para proteger APIs
 _LOCAL_TOKEN = hashlib.sha256(os.urandom(32)).hexdigest()[:16]
 
 extensions = {}
-history_cache = {'cpu': [], 'ram': [], 'gpu': [], 'disk': []}
 latest_update = {}
-MAX_HISTORY = 40
 _client_count = 0
 
 def load_extensions():
@@ -72,7 +70,12 @@ def api_extensions():
             'category': cfg.get('category', 'general'),
             'menu_items': cfg.get('menu_items', []),
             'widgets': cfg.get('widgets', []),
-            'refresh_interval': cfg.get('refresh_interval', 5000)
+            'grid_size': cfg.get('grid_size'),
+            'overlayable': cfg.get('overlayable', False),
+            'realtime': cfg.get('realtime', False),
+            'refresh_interval': cfg.get('refresh_interval', 5000),
+            'js_modules': cfg.get('js_modules', []),
+            'css_modules': cfg.get('css_modules', [])
         }
     return jsonify(result)
 
@@ -93,6 +96,11 @@ def api_extension_action(ext_id, action):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/ext-static/<ext_id>/<path:path>')
+def ext_static(ext_id, path):
+    ext_dir = os.path.join(EXTENSIONS_DIR, ext_id)
+    return send_from_directory(os.path.join(ext_dir, 'static'), path)
+
 @app.route('/')
 def index():
     return send_from_directory(STATIC_DIR, 'index.html')
@@ -106,8 +114,6 @@ def handle_connect():
     global _client_count
     _client_count += 1
     print(f'[WS] Client connected ({_client_count})')
-    if _client_count > 1:
-        emit('history', history_cache)
     if latest_update:
         emit('realtime_update', latest_update)
 
@@ -118,47 +124,89 @@ def handle_disconnect():
     print(f'[WS] Client disconnected ({_client_count})')
 
 def realtime_broadcast():
+    for ext_id, ext_data in extensions.items():
+        cfg = ext_data['config']
+        interval = cfg.get('refresh_interval', 0)
+        if cfg.get('realtime', False) and interval > 0 and cfg.get('widgets', []):
+            t = threading.Thread(target=_poll_extension, args=(ext_id, ext_data, interval), daemon=True)
+            t.start()
     while True:
-        if 'system_monitor' in extensions:
+        time.sleep(3600)
+
+def _poll_extension(ext_id, ext_data, interval_ms):
+    inst = ext_data['instance']
+    cfg = ext_data['config']
+    interval = interval_ms / 1000.0
+    next_tick = time.monotonic()
+    while True:
+        tick = time.monotonic()
+        values = {}
+        for wDef in cfg.get('widgets', []):
+            action = wDef.get('action')
+            if not action:
+                continue
             try:
-                inst = extensions['system_monitor']['instance']
-                cpu = inst.get_cpu() if hasattr(inst, 'get_cpu') else {}
-                ram = inst.get_ram() if hasattr(inst, 'get_ram') else {}
-                gpu = inst.get_gpu() if hasattr(inst, 'get_gpu') else {}
-                disk = inst.get_disk() if hasattr(inst, 'get_disk') else {}
-                
-                cpu_val = cpu.get('value')
-                ram_val = ram.get('value')
-                gpu_val = gpu.get('value')
-                disk_val = disk.get('value')
-
-                for key, val in [('cpu', cpu_val), ('ram', ram_val), ('gpu', gpu_val), ('disk', disk_val)]:
-                    if val is not None:
-                        pct = val if isinstance(val, (int, float)) else (val.get('percent') if isinstance(val, dict) and 'percent' in val else None)
-                        if pct is not None:
-                            history_cache[key].append(pct)
-                            if len(history_cache[key]) > MAX_HISTORY:
-                                history_cache[key].pop(0)
-
-                update = {
-                    'cpu': cpu_val,
-                    'ram': ram_val,
-                    'gpu': gpu_val,
-                    'disk': disk_val
-                }
+                method = getattr(inst, action, None)
+                if method:
+                    result = method()
+                    val = result.get('value') if isinstance(result, dict) else result
+                    values[wDef['id']] = val
+            except Exception as e:
+                print(f"[-] {ext_id}/{action}: {e}")
+        if values:
+            update = {'ext': ext_id, 'values': values}
+            if ext_id == 'system_monitor':
                 latest_update.clear()
                 latest_update.update(update)
-                socketio.emit('realtime_update', update)
-            except:
-                pass
-        time.sleep(1)
+            socketio.emit('realtime_update', update)
+        next_tick = max(next_tick + interval, tick + interval)
+        remaining = next_tick - time.monotonic()
+        if remaining > 0:
+            time.sleep(remaining)
+
+WIDGET_STATE_PATH = os.path.join(BASE_DIR, 'widget_state.json')
+
+def load_widget_state():
+    try:
+        with open(WIDGET_STATE_PATH, encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def save_widget_state(data):
+    with open(WIDGET_STATE_PATH, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+
+@app.route('/api/widget-state')
+def api_get_widget_state():
+    return jsonify(load_widget_state())
+
+@app.route('/api/widget-state', methods=['POST'])
+def api_set_widget_state():
+    data = request.get_json(silent=True) or {}
+    save_widget_state(data)
+    return jsonify({'ok': True})
+
+@app.route('/api/restart', methods=['POST'])
+def api_restart():
+    import subprocess, threading
+    threading.Timer(0.5, lambda: [subprocess.Popen([sys.executable] + sys.argv), os._exit(0)]).start()
+    return jsonify({'ok': True})
 
 @app.route('/api/quit', methods=['POST'])
 def api_quit():
-    print("[*] Shutting down...")
+    print("[*] Shutting down gracefully...")
     socketio.stop()
     time.sleep(0.5)
-    os._exit(0)
+    for ext in extensions.values():
+        inst = ext.get('instance')
+        if hasattr(inst, 'on_stop'):
+            try:
+                inst.on_stop()
+            except Exception as e:
+                print(f"[-] Extension cleanup error: {e}")
+    import signal
+    os.kill(os.getpid(), signal.SIGTERM)
 
 if __name__ == '__main__':
     print("[*] CoreFrame - Loading extensions...")
@@ -172,10 +220,20 @@ if __name__ == '__main__':
             'author': cfg.get('author', ''),
             'category': cfg.get('category', 'general')
         }
-    with open(os.path.join(BASE_DIR, 'extensions.json'), 'w', encoding='utf-8') as f:
-        json.dump(registry, f, indent=2)
-    print(f"[*] Registry saved: {len(registry)} extensions")
+    registry_path = os.path.join(BASE_DIR, 'extensions.json')
+    new_content = json.dumps(registry, indent=2)
+    try:
+        with open(registry_path, encoding='utf-8') as f:
+            old_content = f.read()
+    except (FileNotFoundError, OSError):
+        old_content = ''
+    if new_content != old_content:
+        with open(registry_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        print(f"[*] Registry saved: {len(registry)} extensions")
+    else:
+        print(f"[*] Registry unchanged")
     rt_thread = threading.Thread(target=realtime_broadcast, daemon=True)
     rt_thread.start()
     print("[*] Server running at http://127.0.0.1:5000")
-    socketio.run(app, host='127.0.0.1', port=5000, debug=True)
+    socketio.run(app, host='127.0.0.1', port=5000, debug=False)

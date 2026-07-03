@@ -23,7 +23,7 @@ try {
     $mutex = New-Object System.Threading.Mutex($false, "CoreFrameControllerMutex", [ref]$createdNew)
 } catch {}
 
-$sigFile = "E:\Programming\CoreFrame\.show"
+$sigFile = Join-Path $PSScriptRoot ".show"
 
 if (-not $createdNew -and $mutex -ne $null) {
     try { "1" | Set-Content $sigFile -Force } catch {}
@@ -31,7 +31,7 @@ if (-not $createdNew -and $mutex -ne $null) {
     exit
 }
 
-$batPath = "E:\Programming\CoreFrame\run.bat"
+$batPath = Join-Path $PSScriptRoot "run.bat"
 $process = Start-Process -FilePath $batPath -WindowStyle Hidden -PassThru
 
 $form = New-Object System.Windows.Forms.Form
@@ -44,7 +44,7 @@ $form.TopMost = $true
 
 $trayIcon = New-Object System.Windows.Forms.NotifyIcon
 $trayIcon.Text = "CoreFrame"
-$trayIcon.Icon = [System.Drawing.Icon]::new("E:\Programming\CoreFrame\CoreFrame.ico")
+$trayIcon.Icon = [System.Drawing.Icon]::new((Join-Path $PSScriptRoot "CoreFrame.ico"))
 $trayIcon.Visible = $true
 
 $trayMenu = New-Object System.Windows.Forms.ContextMenuStrip

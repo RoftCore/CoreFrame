@@ -10,7 +10,8 @@
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/utilities.css">
   <link rel="stylesheet" href="/css/jarvis-effects.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+  <link rel="stylesheet" href="/css/widget-control.css">
+  <script src="/js/socket.io.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -21,27 +22,10 @@
       </div>
       <nav class="topbar-nav" id="sidebar-nav"></nav>
 
-      <div id="hud-network">
-        <div class="hud-item" id="hud-ip" style="cursor:pointer" title="Click para forzar actualización">
-          <span class="hud-label">IP</span>
-          <span class="hud-value" id="hud-ip-value">--</span>
-        </div>
-        <div class="hud-item" id="hud-vpn">
-          <span class="hud-label">VPN</span>
-          <span class="hud-dot" id="hud-vpn-dot"></span>
-          <span class="hud-value" id="hud-vpn-value">--</span>
-        </div>
-        <div class="hud-item" id="hud-ports">
-          <span class="hud-label">Puertos</span>
-          <span class="hud-value" id="hud-ports-value">--</span>
-        </div>
-        <div class="hud-item">
-          <span class="hud-label" id="connection-label">SYNC DATA</span>
-          <span class="hud-dot" id="connection-dot"></span>
-        </div>
-        <div class="hud-item">
-          <span class="hud-value" id="header-clock" style="font-size:12px">--:--:--</span>
-        </div>
+      <div class="topbar-info">
+        <span class="hud-dot" id="connection-dot"></span>
+        <span id="header-clock">--:--:--</span>
+        <button class="topbar-reload" id="btn-reload" title="Recargar servidor">⟳</button>
       </div>
     </header>
 
@@ -52,42 +36,7 @@
     </main>
   </div>
 
-  <div id="sys-grid">
-    <div class="sys-card" id="sys-cpu">
-      <div class="sys-card-header">
-        <span class="sys-card-label">CPU</span>
-        <span class="sys-card-value" id="sys-cpu-value">0.0%</span>
-      </div>
-      <span class="sys-card-temp" id="sys-cpu-temp"></span>
-      <canvas id="sys-cpu-chart" width="156" height="44"></canvas>
-      <div class="sys-card-bar"><div class="sys-card-bar-fill" id="sys-cpu-bar" style="width:0%;background:var(--accent-cyan)"></div></div>
-    </div>
-    <div class="sys-card" id="sys-ram">
-      <div class="sys-card-header">
-        <span class="sys-card-label">RAM</span>
-        <span class="sys-card-value" id="sys-ram-value">0.0%</span>
-      </div>
-      <canvas id="sys-ram-chart" width="156" height="44"></canvas>
-      <div class="sys-card-bar"><div class="sys-card-bar-fill" id="sys-ram-bar" style="width:0%;background:var(--accent-purple)"></div></div>
-    </div>
-    <div class="sys-card" id="sys-gpu">
-      <div class="sys-card-header">
-        <span class="sys-card-label">GPU</span>
-        <span class="sys-card-value" id="sys-gpu-value">0.0%</span>
-      </div>
-      <span class="sys-card-temp" id="sys-gpu-temp"></span>
-      <canvas id="sys-gpu-chart" width="156" height="44"></canvas>
-      <div class="sys-card-bar"><div class="sys-card-bar-fill" id="sys-gpu-bar" style="width:0%;background:var(--accent-yellow)"></div></div>
-    </div>
-    <div class="sys-card" id="sys-disk">
-      <div class="sys-card-header">
-        <span class="sys-card-label">DISK</span>
-        <span class="sys-card-value" id="sys-disk-value">0.0%</span>
-      </div>
-      <canvas id="sys-disk-chart" width="156" height="44"></canvas>
-      <div class="sys-card-bar"><div class="sys-card-bar-fill" id="sys-disk-bar" style="width:0%;background:var(--accent-green)"></div></div>
-    </div>
-  </div>
+
 
   <div id="overlay"></div>
   <div id="result-panel">
@@ -102,5 +51,6 @@
   <script src="/js/widgets.js"></script>
   <script src="/js/menu.js"></script>
   <script src="/js/core.js"></script>
+  <script src="/js/widget-control.js"></script>
 </body>
 </html>

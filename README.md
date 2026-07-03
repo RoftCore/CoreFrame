@@ -1,104 +1,104 @@
 # CoreFrame
 
-Centro de control personal con panel HUD, monitoreo del sistema, control VPN universal, gestor de notas y análisis de red.
+Personal control center with HUD panel, system monitoring, universal VPN control, note manager, and network analysis.
 
 ## Stack
 
 - **Backend:** Python 3 (Flask + Flask-SocketIO)
-- **Frontend:** HTML, CSS, JavaScript vanilla (sin frameworks)
-- **WebSocket:** Tiempo real para CPU, RAM, GPU, disco
-- **Extensiones:** Sistema modular con carga dinámica vía importlib
+- **Frontend:** HTML, CSS, vanilla JavaScript (no frameworks)
+- **WebSocket:** Real-time for CPU, RAM, GPU, disk
+- **Extensions:** Modular system with dynamic loading via importlib
 
-## Captura
+## Screenshot
 
-Panel tipo HUD con widgets en tiempo real, menú lateral de extensiones, panel de resultados deslizable, y conexión WebSocket permanente.
+HUD-style panel with real-time widgets, sidebar menu, sliding result panel, and persistent WebSocket connection.
 
-## Requisitos
+## Requirements
 
 ```
 pip install -r requirements.txt
 ```
 
-## Uso
+## Usage
 
-Ejecutar `run.vbs` (se auto-eleva con UAC para permisos de administrador).
+Run `run.vbs` (self-elevates with UAC for admin privileges).
 
-Alternativa manual:
+Manual alternative:
 ```
 python app.py
 ```
 
-Abrir en el navegador: http://127.0.0.1:5000
+Open in browser: http://127.0.0.1:5000
 
-## Características
+## Features
 
 ### Network Monitor
-- **IP pública** — widget con detección de ubicación y proxy/VPN
-- **VPN universal** — conecta/desconecta Proton, Nord, Mullvad, Windscribe y más
-  - Arquitectura por módulos: cada VPN es un provider separado en `providers/`
-  - Detección automática de proveedor activo por servicios y adaptadores
-  - Killswitch vía CLI (Proton) con detección disponible/no disponible
-  - Smart GUI restart: solo relanza el cliente si ya estaba abierto
-- **DNS leak test** — verifica si las consultas DNS viajan por el túnel VPN
-- **Conexiones activas** — tabla con proto, IPs, estado y proceso (PID)
-- **Escaneo de puertos** — puertos comunes abiertos en localhost
-- **Forzar DNS** — establece Cloudflare 1.1.1.1 en el adaptador VPN
+- **Public IP** — widget with location and proxy/VPN detection
+- **Universal VPN** — connect/disconnect Proton, Nord, Mullvad, Windscribe and more
+  - Modular architecture: each VPN is a separate provider in `providers/`
+  - Automatic detection of active provider by services and adapters
+  - Killswitch via CLI (Proton) with availability detection
+  - Smart GUI restart: only relaunches client if it was already open
+- **DNS leak test** — checks whether DNS queries travel through the VPN tunnel
+- **Active connections** — table with proto, IPs, state and process (PID)
+- **Port scanning** — common ports open on localhost
+- **Force DNS** — sets Cloudflare 1.1.1.1 on the VPN adapter
 
 ### System Monitor
-- CPU, RAM, GPU, disco en tiempo real
-- Histogramas con los últimos 40 valores
-- Broadcast vía WebSocket cada 1s
+- CPU, RAM, GPU, disk in real time
+- Histograms with the last 40 values
+- Broadcast via WebSocket every 1s
 
 ### Vault Manager
-- Gestor de notas con persistencia JSON
-- Creación, listado, exportación
+- Note manager with JSON persistence
+- Creation, listing, export
 
-## Seguridad
+## Security
 
-- Bind a `127.0.0.1` (no accesible desde LAN/Internet)
-- CORS restringido a `http://127.0.0.1:5000`
-- Token SHA-256 generado al arrancar, exigido en toda API (`X-CoreFrame-Token`)
+- Bind to `127.0.0.1` (not accessible from LAN/Internet)
+- CORS restricted to `http://127.0.0.1:5000`
+- SHA-256 token generated at startup, required on all APIs (`X-CoreFrame-Token`)
 
-## Estructura
+## Structure
 
 ```
 coreframe/
-├── app.py                  # Servidor Flask + SocketIO
-├── controller.ps1          # Icono en bandeja + manejo de parada
-├── run.vbs                 # Lanzador con auto-elevación UAC
+├── app.py                  # Flask + SocketIO server
+├── controller.ps1          # System tray icon + stop handling
+├── run.vbs                 # Launcher with UAC self-elevation
 ├── requirements.txt
 ├── extensions.json
 ├── static/
 │   ├── index.html          # SPA
-│   ├── css/                # paleta, layout, componentes, efectos
+│   ├── css/                # palette, layout, components, effects
 │   └── js/                 # core.js, menu.js, widgets.js, utils.js
 └── extensions/
     ├── network_monitor/
-    │   ├── main.py         # Lógica universal (IP, VPN, DNS, puertos)
+    │   ├── main.py         # Universal logic (IP, VPN, DNS, ports)
     │   ├── extension.json
-    │   └── providers/      # Módulos por VPN
-    │       ├── base.py     # Clase base BaseProvider
+    │   └── providers/      # VPN modules
+    │       ├── base.py     # BaseProvider class
     │       ├── proton.py
     │       ├── windscribe.py
     │       ├── nord.py
-    │       └── ... (13 proveedores)
+    │       └── ... (13 providers)
     ├── system_monitor/
-    │   ├── main.py         # CPU, RAM, GPU, disco
+    │   ├── main.py         # CPU, RAM, GPU, disk
     │   └── extension.json
     └── vault_manager/
-        ├── main.py         # Notas con persistencia
+        ├── main.py         # Notes with persistence
         └── extension.json
 ```
 
-## Crear una extensión
+## Creating an extension
 
-1. Crear carpeta en `extensions/mi_extension/`
-2. Crear `extension.json` con widgets, menús y acciones
-3. Crear `main.py` con clase `Extension` y métodos para cada acción
-4. El núcleo la carga automáticamente al iniciar
+1. Create folder in `extensions/my_extension/`
+2. Create `extension.json` with widgets, menus and actions
+3. Create `main.py` with `Extension` class and methods for each action
+4. The core loads it automatically at startup
 
-## Añadir un proveedor VPN
+## Adding a VPN provider
 
-1. Crear `extensions/network_monitor/providers/mi_vpn.py`
-2. Heredar de `BaseProvider` y definir atributos (keywords, servicios, procesos, CLI)
-3. No tocar `main.py`
+1. Create `extensions/network_monitor/providers/my_vpn.py`
+2. Inherit from `BaseProvider` and define attributes (keywords, services, processes, CLI)
+3. Don't modify `main.py`

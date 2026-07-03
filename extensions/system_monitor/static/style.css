@@ -1,0 +1,18 @@
+.ext-system_monitor .widget-body {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.ext-system_monitor .chart-value {
+  font-size: 12px;
+  left: 40%;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  text-shadow: 0 0 8px rgba(0, 212, 255, 0.25);
+}
+
+.ext-system_monitor .widget-sub {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}

@@ -84,4 +84,4 @@ $bw.Dispose()
 $fs.Dispose()
 foreach ($bmp in $bitmaps) { $bmp.Dispose() }
 
-Write-Host "Icono multi-res generado: $iconPath"
+Write-Host "Multi-res icon generated: $iconPath"

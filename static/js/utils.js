@@ -55,6 +55,27 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+function getProcessIcon(name) {
+  const n = (name || '').toLowerCase();
+  if (/chrome|edge|firefox|opera|safari|brave|vivaldi|msedge|iexplore|navigator/.test(n)) return '🌐';
+  if (/code|cursor|windsurf|sublime|atom|notepad\+\+|notepad|textedit|gedit|vim|nvim|nano/.test(n)) return '📝';
+  if (/terminal|cmd|powershell|gitbash|wsl|bash|zsh|sh\.exe|conhost|windowsterminal/.test(n)) return '💻';
+  if (/spotify|music|wmplayer|itunes|audacity/.test(n)) return '🎵';
+  if (/discord|slack|telegram|whatsapp|signal|messenger|wechat|teams|thunderbird|outlook/.test(n)) return '💬';
+  if (/vlc|mpv|mplayer|wmplayer|potplayer|plex/.test(n)) return '🎬';
+  if (/steam|epic|battlenet|origin|uplay|gog|game|unity|ue4|unreal/.test(n)) return '🎮';
+  if (/winword|excel|powerpoint|word|excel|ppt|onenote|office|libreoffice|acrobat|pdf|acrord/.test(n)) return '📄';
+  if (/explorer|finder|nautilus|thunar|dolphin|totalcmd|filezilla/.test(n)) return '📁';
+  if (/python|node|java|javaw|dotnet|go|rustc|gcc|clang|make|cmake|gradle|mvn|rake/.test(n)) return '⚙️';
+  if (/mysqld|postgres|mongod|redis|sqlservr|oracle|mariadb/.test(n)) return '🗄️';
+  if (/nginx|apache|httpd|iis|tomcat|jenkins|docker|containerd/.test(n)) return '🌍';
+  if (/sshd|ssh|putty|kitty|winscp|bitvise/.test(n)) return '🔐';
+  if (/photoshop|illustrator|figma|gimp|blender|paint|mspaint|coreldraw|affinity|sketchup/.test(n)) return '🎨';
+  if (/system|kernel|svchost|services|lsass|wininit|systemd|init|kthreadd|kworker|kern/.test(n)) return '⚡';
+  if (/sleep|idle|suspended|stopped|parked/.test(n)) return '💤';
+  return '⚪';
+}
+
 function clockTick() {
   const now = new Date();
   const h = String(now.getHours()).padStart(2, '0');

@@ -1,0 +1,15 @@
+{
+  "id": "my_extension",
+  "name": "My Extension",
+  "icon": "extension",
+  "description": "Description of what this extension does",
+  "version": "1.0",
+  "author": "Your Name",
+  "category": "general",
+  "js_modules": [],
+  "css_modules": [],
+  "refresh_interval": 5000,
+  "widgets": [
+    { "id": "my_widget", "type": "metric", "label": "My Metric", "action": "my_action" }
+  ]
+}

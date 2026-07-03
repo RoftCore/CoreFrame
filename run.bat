@@ -1,11 +1,11 @@
 @echo off
-cd /d "E:\Programming\CoreFrame"
+cd /d "%~dp0"
 if not exist "venv" (
-    echo [*] Creando entorno virtual...
+    echo [*] Creating virtual environment...
     python -m venv venv
 )
 call venv\Scripts\activate.bat
 pip install -r requirements.txt --quiet
-echo [*] Iniciando CoreFrame...
+echo [*] Starting CoreFrame...
 python app.py
 pause

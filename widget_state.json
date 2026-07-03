@@ -1,0 +1,23 @@
+{
+  "layout": {
+    "network_monitor": {
+      "col": 3,
+      "h": 2,
+      "row": 2,
+      "w": 1
+    },
+    "process_manager": {
+      "col": 9,
+      "h": 5,
+      "row": 2,
+      "w": 3
+    },
+    "system_monitor": {
+      "col": 5,
+      "row": 3,
+      "w": 2,
+      "h": 3
+    }
+  },
+  "hidden": {}
+}

@@ -1,0 +1,173 @@
+/* --- Context Menu --- */
+.ctx-menu {
+  display: none;
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  min-width: 180px;
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.ctx-menu.visible {
+  display: block;
+}
+.ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  letter-spacing: 0.5px;
+}
+.ctx-menu-item:hover {
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--accent-cyan);
+}
+.ctx-menu-separator {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 8px;
+}
+.ctx-menu-item:active {
+  background: rgba(0, 212, 255, 0.15);
+}
+
+/* --- Mode Indicator --- */
+.mode-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: rgba(0, 212, 255, 0.12);
+  border-bottom: 1px solid var(--accent-cyan);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-cyan);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  animation: modePulse 2s ease-in-out infinite;
+}
+@keyframes modePulse {
+  0%, 100% { background: rgba(0, 212, 255, 0.08); }
+  50% { background: rgba(0, 212, 255, 0.18); }
+}
+.mode-indicator .mode-exit-btn {
+  padding: 4px 12px;
+  background: rgba(255, 51, 85, 0.15);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-sm);
+  color: var(--accent-red);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all var(--transition-fast);
+}
+.mode-indicator .mode-exit-btn:hover {
+  background: rgba(255, 51, 85, 0.3);
+}
+
+/* --- Move Mode --- */
+body.move-mode .widget-grid {
+  grid-auto-rows: 85px !important;
+}
+body.move-mode .widget {
+  cursor: grab;
+  user-select: none;
+}
+body.move-mode .widget:active {
+  cursor: grabbing;
+}
+body.move-mode .widget.widget-moving {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.3), var(--shadow-lg);
+}
+
+/* --- Resize Mode (PowerPoint-style) --- */
+body.resize-mode .widget-grid {
+  grid-auto-rows: 85px !important;
+}
+body.resize-mode .widget-resizing {
+  pointer-events: auto;
+  border-color: var(--accent-cyan) !important;
+  box-shadow: 0 0 0 1px var(--accent-cyan), 0 0 20px rgba(0, 212, 255, 0.3), var(--shadow-lg) !important;
+  cursor: default;
+  transition: none !important;
+}
+body.resize-mode .widget-resizing:hover {
+  border-color: var(--accent-cyan) !important;
+}
+body.resize-mode .widget-resizing::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 3px;
+  border-radius: var(--radius-md);
+  pointer-events: none;
+}
+
+/* Cascade animation */
+.widget-extension {
+  transition: grid-column 0.15s ease, grid-row 0.15s ease;
+}
+
+/* --- Hidden Items in Panel --- */
+.ctx-hidden-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.05);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+.ctx-hidden-item:hover {
+  background: rgba(0, 212, 255, 0.06);
+  color: var(--accent-cyan);
+}
+.ctx-hidden-item .ctx-show-action {
+  color: var(--accent-cyan);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* --- Overlayable widgets --- */
+.widget-overlayable {
+  z-index: 5;
+}
+.widget-overlayable.widget-moving {
+  z-index: 100;
+}
+body.move-mode .widget-overlayable {
+  z-index: 50;
+}
+
+/* --- Collision feedback --- */
+.widget-collision {
+  border-color: var(--accent-red) !important;
+  box-shadow: 0 0 20px rgba(255, 51, 85, 0.4) !important;
+}
+
+/* --- Disable right-click on sub-widgets with click_action --- */
+.widget-sub[data-click-action] {
+  position: relative;
+}
