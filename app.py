@@ -28,7 +28,10 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-DATA_DIR = os.path.join(os.path.expanduser('~'), 'Documents', 'CoreFrame')
+if sys.platform.startswith('win'):
+    DATA_DIR = os.path.join(os.path.expanduser('~'), 'Documents', 'CoreFrame')
+else:
+    DATA_DIR = os.path.join(os.path.expanduser('~'), '.local', 'share', 'CoreFrame')
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
 EXTENSIONS_DIR = os.path.join(DATA_DIR, 'extensions')
 REGISTRY_PATH = os.path.join(DATA_DIR, 'extensions.json')

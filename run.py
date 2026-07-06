@@ -17,13 +17,18 @@ import json
 import logging
 import logging.handlers
 import os
+import shutil
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = Path.home() / "Documents" / "CoreFrame"
+if sys.platform.startswith("win"):
+    DATA_DIR = Path.home() / "Documents" / "CoreFrame"
+else:
+    DATA_DIR = Path.home() / ".local" / "share" / "CoreFrame"
 CONFIG_PATH = BASE_DIR / "coreframe.json"
 LOG_DIR = BASE_DIR / "logs"
 PID_FILE = BASE_DIR / "coreframe.pid"
@@ -143,10 +148,9 @@ def _is_pid_alive(pid):
     if not pid:
         return False
     try:
-        r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                           capture_output=True, text=True, timeout=5)
-        return str(pid) in r.stdout
-    except Exception:
+        os.kill(pid, 0)
+        return True
+    except (OSError, PermissionError):
         return False
 
 
@@ -160,29 +164,33 @@ def _is_server_alive(host, port):
 
 
 def _pythonw():
-    """Find pythonw.exe (same dir as python.exe)."""
-    exe = Path(sys.executable)
-    w = exe.with_name("pythonw.exe")
-    return str(w) if w.exists() else str(exe)
+    """Find pythonw.exe (Windows) or return sys.executable (Linux)."""
+    if sys.platform.startswith("win"):
+        exe = Path(sys.executable)
+        w = exe.with_name("pythonw.exe")
+        return str(w) if w.exists() else str(exe)
+    return sys.executable
 
 
 def _find_browser_app():
-    candidates = [
-        os.path.join(os.environ.get("PROGRAMFILES", "C:\\Program Files"), "Google", "Chrome", "Application", "chrome.exe"),
-        os.path.join(os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
-        os.path.join(os.environ.get("PROGRAMFILES", "C:\\Program Files"), "Microsoft", "Edge", "Application", "msedge.exe"),
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    try:
-        return subprocess.run(["where", "chrome"], capture_output=True, text=True, timeout=5).stdout.strip().splitlines()[0]
-    except Exception:
-        pass
-    try:
-        return subprocess.run(["where", "msedge"], capture_output=True, text=True, timeout=5).stdout.strip().splitlines()[0]
-    except Exception:
-        pass
+    if sys.platform.startswith("win"):
+        candidates = [
+            os.path.join(os.environ.get("PROGRAMFILES", "C:\\Program Files"), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(os.environ.get("PROGRAMFILES", "C:\\Program Files"), "Microsoft", "Edge", "Application", "msedge.exe"),
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                return path
+        for name in ("chrome", "msedge"):
+            found = shutil.which(name)
+            if found:
+                return found
+    else:
+        for name in ("google-chrome", "chromium", "firefox", "brave-browser"):
+            found = shutil.which(name)
+            if found:
+                return found
     return None
 
 
@@ -196,12 +204,15 @@ def cmd_open(cfg):
     if not _is_server_alive(host, port):
         pythonw = _pythonw()
         script = str(BASE_DIR / "coreframe_server.py")
+        kwargs = {}
+        if sys.platform.startswith("win"):
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         proc = subprocess.Popen(
             [pythonw, script],
             cwd=str(BASE_DIR),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+            **kwargs,
         )
         _write_pid(proc.pid)
         print(f"[*] CoreFrame starting...")
@@ -226,8 +237,11 @@ def cmd_open(cfg):
 
     browser = _find_browser_app()
     if browser:
+        args = [browser, f"http://{host}:{port}"]
+        if sys.platform.startswith("win"):
+            args = [browser, f"--app=http://{host}:{port}"]
         subprocess.Popen(
-            [browser, f"--app=http://{host}:{port}", "--new-window"],
+            args,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         print(f"[*] CoreFrame opened — close window or run 'coreframe close'")
@@ -237,13 +251,19 @@ def cmd_open(cfg):
         print("[*] No app-mode browser found, opened in default browser")
 
 
+def _kill_pid(pid):
+    if sys.platform.startswith("win"):
+        subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"],
+                       capture_output=True, timeout=5)
+    else:
+        os.kill(pid, signal.SIGTERM)
+
 def cmd_close(cfg):
     """Stop the background server."""
     pid = _read_pid()
     if pid and _is_pid_alive(pid):
         try:
-            subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"],
-                           capture_output=True, timeout=5)
+            _kill_pid(pid)
             print(f"[+] Server stopped (PID {pid})")
         except Exception as e:
             print(f"[-] Failed to stop: {e}")
@@ -331,11 +351,7 @@ def cmd_install(cfg):
     # 1. Create PATH launcher
     LAUNCHER_DIR.mkdir(parents=True, exist_ok=True)
     launcher_content = f"""@echo off
-"%~dp0..\\..\\E:\\Programming\\CoreFrame\\venv\\Scripts\\python.exe" "%~dp0..\\..\\E:\\Programming\\CoreFrame\\run.py" %*
-"""
-    # Use absolute path for robustness
-    launcher_content = f"""@echo off
-"E:\\Programming\\CoreFrame\\venv\\Scripts\\python.exe" "E:\\Programming\\CoreFrame\\run.py" %*
+"{sys.executable}" "{BASE_DIR / 'run.py'}" %*
 """
     LAUNCHER_PATH.write_text(launcher_content)
     print(f"[+] Created: {LAUNCHER_PATH}")
