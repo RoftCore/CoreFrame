@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coreframe"
+version = "1.0.0"
+description = "Personal control center with HUD panel, system monitoring, VPN control and network analysis"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+  {name = "RoftCore"}
+]
+requires-python = ">=3.9"
+dependencies = [
+  "flask",
+  "flask-socketio",
+  "eventlet",
+  "psutil",
+  "gputil",
+  "requests",
+  "Pillow",
+]
+keywords = ["dashboard", "monitoring", "vpn", "system-monitor"]
+
+[project.urls]
+Homepage = "https://github.com/RoftCore/CoreFrame"
+Source = "https://github.com/RoftCore/CoreFrame"
+
+[project.scripts]
+coreframe = "coreframe:main"
+
+[tool.setuptools.packages.find]
+include = ["coreframe*"]
+
+[tool.setuptools.package-data]
+coreframe = ["static/**/*"]
+
+[tool.setuptools.exclude-package-data]
+coreframe = []
