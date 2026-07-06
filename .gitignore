@@ -7,3 +7,17 @@ __pycache__/
 AGENTS.md
 CONTINUE.md
 CoreFrameTray.exe
+extensions/spotify_downloader/Downloads_playlists/
+extensions/spotify_downloader/config.json
+
+# PyInstaller
+dist/
+build/
+build-tmp/
+dist-tmp/
+*.manifest
+
+# User data
+logs/
+widget_state.json
+coreframe.log

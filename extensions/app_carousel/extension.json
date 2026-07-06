@@ -1,0 +1,17 @@
+{
+  "id": "app_carousel",
+  "name": "App Carousel",
+  "icon": "circle",
+  "description": "Quick-switch between extensions with a circular carousel",
+  "version": "1.0",
+  "author": "SentinelGD",
+  "category": "ui",
+  "overlayable": false,
+  "grid_size": { "w": 1, "h": 1 },
+  "js_modules": ["script.js"],
+  "css_modules": ["style.css"],
+  "refresh_interval": 0,
+  "widgets": [
+    { "id": "ui", "type": "text", "label": "", "action": "" }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "host": "127.0.0.1",
+  "port": 5000,
+  "log_dir": "logs",
+  "log_level": "INFO",
+  "max_log_size_mb": 10,
+  "max_log_files": 5,
+  "workers": 4
+}

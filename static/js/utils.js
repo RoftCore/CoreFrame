@@ -12,8 +12,15 @@ async function ensureToken() {
 async function apiFetch(url, options = {}) {
   await ensureToken();
   try {
-    const headers = { ...options.headers };
+    var headers = {};
+    if (options.headers && typeof options.headers === 'object') {
+      for (var k in options.headers) headers[k] = options.headers[k];
+    }
     if (_COREFRAME_TOKEN) headers['X-CoreFrame-Token'] = _COREFRAME_TOKEN;
+    if (typeof options.body === 'string' && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    delete options.headers;
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();

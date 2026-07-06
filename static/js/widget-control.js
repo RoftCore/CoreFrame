@@ -66,6 +66,7 @@
       var w = document.querySelector('.widget-extension.ext-' + extId);
       if (w) {
         w.style.minHeight = '';
+        w.style.maxHeight = '';
         w.style.gridColumn = pos.col + ' / span ' + (pos.w || 2);
         w.style.gridRow = pos.row + ' / span ' + (pos.h || 2);
       }
@@ -239,8 +240,8 @@
     if (resizeMode) exitResizeMode();
     if (moveMode) return;
     moveMode = true;
-    document.body.classList.add('move-mode');
     freezeAllPositions();
+    document.body.classList.add('move-mode');
 
     const bar = document.createElement('div');
     bar.id = 'mode-indicator-bar';
@@ -275,7 +276,7 @@
       if (!grid) { dragEl = null; return; }
       gridRect = grid.getBoundingClientRect();
       colWidth = gridRect.width / 12;
-      rowHeight = 93;
+      rowHeight = getGridRowPitch(grid);
 
       const cs = getComputedStyle(widget);
       const gc = cs.gridColumn || widget.style.gridColumn || 'auto / span 2';
@@ -360,30 +361,53 @@
     const bar = document.getElementById('mode-indicator-bar');
     if (bar) bar.remove();
     document.querySelectorAll('.widget-moving').forEach(function (el) { return el.classList.remove('widget-moving'); });
+    restoreWidgetOverrides();
+  }
+
+  function getGridRowPitch(grid) {
+    var gs = window.getComputedStyle(grid);
+    var ar = parseFloat(gs.gridAutoRows) || 85;
+    var gap = parseFloat(gs.rowGap || gs.gap) || 8;
+    return ar + gap;
   }
 
   // Freeze all widget positions so CSS Grid doesn't reflow others on resize/move
   function freezeAllPositions() {
+    var grid = document.querySelector('.widget-grid');
+    if (!grid) return;
+    var gridRect = grid.getBoundingClientRect();
+    var colWidth = gridRect.width / 12;
+
+    // PASS 1: read all geometry and collect row Ys
+    var rowTops = [];
+    var entries = [];
     document.querySelectorAll('.widget-extension').forEach(function (w) {
       if (w.style.display === 'none') return;
-      w.style.minHeight = '';
+      var wr = w.getBoundingClientRect();
       var gc = w.style.gridColumn;
       var gr = w.style.gridRow;
-      var needsFreeze = /^span\s+\d+$/.test(gc);
-      if (needsFreeze) {
-        var grid = w.closest('.widget-grid');
-        if (!grid) return;
-        var gridRect = grid.getBoundingClientRect();
-        var colWidth = gridRect.width / 12;
-        var rowHeight = 93;
-        var wr = w.getBoundingClientRect();
-        var col = Math.max(1, Math.round((wr.left - gridRect.left) / colWidth) + 1);
-        var row = Math.max(1, Math.round((wr.top - gridRect.top) / rowHeight) + 1);
-        var spanW = parseInt((gc.match(/\d+/) || ['2'])[0], 10);
-        var spanH = parseInt((gr.match(/\d+/) || ['2'])[0], 10);
-        w.style.gridColumn = col + ' / span ' + spanW;
-        w.style.gridRow = row + ' / span ' + spanH;
-      }
+      var top = Math.round(wr.top - gridRect.top);
+      if (rowTops.indexOf(top) === -1) rowTops.push(top);
+      entries.push({
+        el: w,
+        needsFreeze: /^span\s+\d+$/.test(gc),
+        col: Math.max(1, Math.round((wr.left - gridRect.left) / colWidth) + 1),
+        top: top,
+        spanW: parseInt((gc.match(/span\s+(\d+)/) || ['', '2'])[1], 10),
+        spanH: parseInt((gr.match(/span\s+(\d+)/) || ['', '2'])[1], 10)
+      });
+    });
+    rowTops.sort(function (a, b) { return a - b; });
+
+    // PASS 2: apply all style changes (no reads between writes)
+    entries.forEach(function (e) {
+      e.el.style.minHeight = '';
+      e.el.style.maxHeight = '';
+      if (!e.needsFreeze) return;
+      var row = rowTops.indexOf(e.top) + 1;
+      if (row < 1) row = 1;
+      e.el.style.gridColumn = e.col + ' / span ' + e.spanW;
+      e.el.style.gridRow = row + ' / span ' + e.spanH;
     });
   }
 
@@ -473,8 +497,9 @@
     if (!widget) widget = document.querySelector('.widget-extension:not([style*="display: none"])');
     if (!widget) return;
     resizeMode = true;
-    document.body.classList.add('resize-mode');
     freezeAllPositions();
+    document.body.classList.add('resize-mode');
+    resizeTarget = widget;
     widget.classList.add('widget-resizing');
 
     var bar = document.createElement('div');
@@ -495,12 +520,13 @@
     var dragEdges = {};
     var dragStartCol, dragStartRow, dragStartW, dragStartH;
     var EDGE_GAP = 10;
-    var ROW_H = 93;
 
-    function getGridColRow(mx, my, gridRect, colW) {
+    function getGridColRow(mx, my, grid, colW) {
+      var gridRect = grid.getBoundingClientRect();
+      var rowPitch = getGridRowPitch(grid);
       return {
-        col: Math.max(1, Math.min(12, Math.round((mx - gridRect.left) / colW) + 1)),
-        row: Math.max(1, Math.min(100, Math.round((my - gridRect.top) / ROW_H) + 1))
+        col: Math.max(1, Math.round((mx - gridRect.left) / colW) + 1),
+        row: Math.max(1, Math.round((my - gridRect.top) / rowPitch) + 1)
       };
     }
 
@@ -541,11 +567,54 @@
       document.addEventListener('mouseup', onUp, true);
     }
 
+    function onDrag(e) {
+      if (!isDragging) return;
+      var target = document.querySelector('.widget-resizing');
+      if (!target) return;
+      var grid = target.closest('.widget-grid');
+      if (!grid) return;
+      var colW = grid.getBoundingClientRect().width / 12;
+      var pos = getGridColRow(e.clientX, e.clientY, grid, colW);
+      var newCol = dragStartCol, newRow = dragStartRow;
+      var newW = dragStartW, newH = dragStartH;
+
+      if (dragEdges.right) {
+        newW = Math.max(1, Math.min(12 - newCol + 1, pos.col - newCol));
+      }
+      if (dragEdges.left) {
+        var maxCol = dragStartCol + dragStartW - 1;
+        var delta = dragStartCol - pos.col;
+        newCol = Math.max(1, Math.min(maxCol, dragStartCol - delta));
+        newW = Math.max(1, Math.min(12 - newCol + 1, dragStartW + delta));
+      }
+      if (dragEdges.bottom) {
+        newH = Math.max(1, Math.min(100 - newRow + 1, pos.row - newRow));
+      }
+      if (dragEdges.top) {
+        var maxRow = dragStartRow + dragStartH - 1;
+        var delta = dragStartRow - pos.row;
+        newRow = Math.max(1, Math.min(maxRow, dragStartRow - delta));
+        newH = Math.max(1, Math.min(100 - newRow + 1, dragStartH + delta));
+      }
+
+      var overlayable = target.dataset.overlayable === 'true';
+      if (!overlayable && hasCollisionWithNonOverlayable(target.dataset.extId, newCol, newRow, newW, newH)) {
+        target.classList.add('widget-collision');
+        return;
+      }
+      target.classList.remove('widget-collision');
+      target.style.gridColumn = newCol + ' / span ' + newW;
+      target.style.gridRow = newRow + ' / span ' + newH;
+    }
+
     function onUp() {
       isDragging = false;
       document.removeEventListener('mousemove', onDrag, true);
       document.removeEventListener('mouseup', onUp, true);
-      if (resizeTarget) saveAllLayouts();
+      if (resizeTarget) {
+        resizeTarget.classList.remove('widget-collision');
+        saveAllLayouts();
+      }
     }
 
     document.addEventListener('mousemove', onHover);
@@ -559,6 +628,20 @@
     };
   }
 
+  function restoreWidgetOverrides() {
+    var grid = document.querySelector('.widget-grid');
+    if (!grid) return;
+    var pitch = getGridRowPitch(grid); // rowHeight + gap
+    document.querySelectorAll('.widget-extension').forEach(function (w) {
+      if (w.style.display === 'none') return;
+      var gr = (w.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      if (gr) {
+        var spanH = parseInt(gr[2], 10);
+        w.style.maxHeight = (spanH * pitch - 8) + 'px';
+      }
+    });
+  }
+
   function exitResizeMode() {
     if (!resizeMode) return;
     resizeMode = false;
@@ -569,6 +652,7 @@
     document.querySelectorAll('.widget-resizing').forEach(function (el) { return el.classList.remove('widget-resizing'); });
     document.body.style.cursor = '';
     resizeTarget = null;
+    restoreWidgetOverrides();
   }
 
   // ----- init -----

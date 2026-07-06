@@ -4,13 +4,8 @@
   "icon": "vault",
   "description": "Encrypted notes and secrets management",
   "version": "1.0",
-  "author": "Arnau",
+  "author": "SentinelGD",
   "category": "system",
   "refresh_interval": 0,
-  "menu_items": [
-    { "label": "New note", "action": "new_note" },
-    { "label": "List notes", "action": "list_notes" },
-    { "label": "Export all", "action": "export_all" }
-  ],
   "widgets": []
 }

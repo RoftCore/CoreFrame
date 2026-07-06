@@ -1,1 +1,0 @@
-& "$PSScriptRoot\controller.ps1"

@@ -1,0 +1,55 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+a = Analysis(
+    ['E:\\Programming\\CoreFrame\\run_coreframe.pyw'],
+    pathex=[],
+    binaries=[],
+    datas=[('static', 'static')],
+    hiddenimports=[
+        'engineio.async_drivers.eventlet',
+        'engineio.async_drivers.threading',
+        'engineio.async_drivers.gevent',
+        'engineio.async_drivers.gevent_uwsgi',
+        'eventlet',
+        'psutil',
+        'gputil',
+        'requests',
+        'pycowsay',
+        'SpotipyFree',
+        'PIL.Image',
+        'PIL._imaging',
+        'PIL._imagingcms',
+        'PIL._imagingft',
+        'webview.platforms.winforms',
+        'webview.platforms.win32',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'numpy',
+        'pythoncom',
+        'dns.win32util',
+    ],
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    name='CoreFrame',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)

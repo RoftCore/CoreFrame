@@ -1,6 +1,7 @@
 let _procSort = { key: 'cpu', dir: 'desc' };
 let _widgetSort = { key: 'cpu', dir: 'desc' };
 let _procData = [];
+let _systemStats = {};
 const _iconCache = {};
 let _expandedGroups = {};
 const _iconPending = new Set();
@@ -167,6 +168,7 @@ async function refreshProcessPanel() {
   const data = await apiFetch('/api/extension/process_manager/get_processes');
   if (data.error) return;
   _procData = Array.isArray(data.value) ? data.value : [];
+  _systemStats = data.system || {};
   cacheProcessData(_procData);
   renderProcTable();
   refreshModalContent();
@@ -202,8 +204,8 @@ function renderProcTable() {
   const panelRam = document.getElementById('ext-pm-ram-total');
   const panelTbody = document.getElementById('ext-pm-tbody');
   if (panelTotal) panelTotal.textContent = _procData.length;
-  if (panelCpu) panelCpu.textContent = _procData.reduce((s, p) => s + p.cpu, 0).toFixed(1) + '%';
-  if (panelRam) panelRam.textContent = _procData.reduce((s, p) => s + p.mem, 0).toFixed(1) + '%';
+  if (panelCpu) panelCpu.textContent = (_systemStats.cpu || _procData.reduce((s, p) => s + p.cpu, 0)).toFixed(1) + '%';
+  if (panelRam) panelRam.textContent = (_systemStats.ram || _procData.reduce((s, p) => s + p.mem, 0)).toFixed(1) + '%';
   if (panelTbody) {
     panelTbody.innerHTML = renderPanelGroupRows(groups);
     lazyLoadIcons(panelTbody, _iconCache, 4);
@@ -216,8 +218,8 @@ function renderProcTable() {
   const widgetSearch = document.getElementById('ext-pm-widget-search');
   const widgetTbody = document.getElementById('ext-pm-widget-tbody');
   if (widgetTotal) widgetTotal.textContent = _procData.length;
-  if (widgetCpu) widgetCpu.textContent = _procData.reduce((s, p) => s + p.cpu, 0).toFixed(1) + '%';
-  if (widgetRam) widgetRam.textContent = _procData.reduce((s, p) => s + p.mem, 0).toFixed(1) + '%';
+  if (widgetCpu) widgetCpu.textContent = (_systemStats.cpu || _procData.reduce((s, p) => s + p.cpu, 0)).toFixed(1) + '%';
+  if (widgetRam) widgetRam.textContent = (_systemStats.ram || _procData.reduce((s, p) => s + p.mem, 0)).toFixed(1) + '%';
   if (widgetTbody && widgetSearch) {
     const wq = widgetSearch.value.toLowerCase();
     const wk = _widgetSort.key;
@@ -490,14 +492,18 @@ function lazyLoadIcons(tbody, iconCache, batchSize) {
   if (newNames.length === 0) return;
   newNames.forEach(n => _iconPending.add(n));
 
+  // Build a quick PID lookup: first PID per name from current data
+  var pidByName = {};
+  _procData.forEach(function (p) { if (!(p.name in pidByName)) pidByName[p.name] = p.pid; });
+
   function processBatch(start) {
     const batch = newNames.slice(start, start + batchSize);
     if (batch.length === 0) return;
     Promise.allSettled(batch.map(name =>
-      apiFetch('/api/extension/process_manager/get_icon_by_name', {
+      apiFetch('/api/extension/process_manager/get_process_icon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ pid: pidByName[name] })
       }).then(resp => {
         iconCache[name] = resp.value || null;
         _iconPending.delete(name);

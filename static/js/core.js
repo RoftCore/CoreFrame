@@ -92,7 +92,7 @@ function startWidgetIntervals(data) {
 function initWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}`;
-  const socket = io(wsUrl, { transports: ['websocket'] });
+  const socket = io(wsUrl, { transports: ['polling'] });
 
   socket.on('connect', () => {
     document.getElementById('connection-dot').className = 'hud-dot ok';
@@ -125,6 +125,102 @@ function closeResultPanel() {
   document.getElementById('overlay').classList.remove('open');
 }
 
+function showInstallOverlay(msg) {
+  var el = document.getElementById('install-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'install-overlay';
+    el.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e0e0e0;font-family:monospace;font-size:14px';
+    el.innerHTML = '<div class="spinner" style="width:32px;height:32px;border:3px solid rgba(0,212,255,0.2);border-top-color:#00d4ff;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px"></div><div id="install-overlay-msg"></div>';
+    document.body.appendChild(el);
+  }
+  document.getElementById('install-overlay-msg').textContent = msg || 'Installing...';
+  el.style.display = 'flex';
+}
+
+function hideInstallOverlay() {
+  var el = document.getElementById('install-overlay');
+  if (el) el.style.display = 'none';
+}
+
+document.getElementById('btn-install').addEventListener('click', function () {
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.zip';
+  input.style.display = 'none';
+  input.addEventListener('change', function () {
+    if (!input.files || !input.files[0]) return;
+    var file = input.files[0];
+    var formData = new FormData();
+    formData.append('extension', file);
+    showInstallOverlay('Installing extension...');
+    apiFetch('/api/install_extension', {
+      method: 'POST',
+      body: formData
+    }).then(function (data) {
+      if (data && data.error) {
+        hideInstallOverlay();
+        alert('Error: ' + data.error);
+        return;
+      }
+      showInstallOverlay('Extension installed!');
+      setTimeout(function () { location.reload(); }, 400);
+    });
+  });
+  document.body.appendChild(input);
+  input.click();
+  setTimeout(function () { input.remove(); }, 2000);
+});
+
+document.getElementById('btn-package').addEventListener('click', function () {
+  var overlay = document.createElement('div');
+  overlay.className = 'pkg-overlay';
+  var dialog = document.createElement('div');
+  dialog.className = 'pkg-dialog';
+  dialog.innerHTML =
+    '<div class="pkg-header">Package extension</div>' +
+    '<div class="pkg-body" id="pkg-body">Loading...</div>' +
+    '<div class="pkg-footer"><button class="pkg-btn" id="pkg-close">Close</button></div>';
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  document.getElementById('pkg-close').addEventListener('click', function () { overlay.remove(); });
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+
+  apiFetch('/api/extensions').then(function (data) {
+    if (!data || data.error) { document.getElementById('pkg-body').textContent = 'Failed to load extensions.'; return; }
+    var body = document.getElementById('pkg-body');
+    body.innerHTML = '';
+    var ids = Object.keys(data).sort();
+    if (!ids.length) { body.innerHTML = '<div class="pkg-empty">No extensions installed.</div>'; return; }
+    ids.forEach(function (id) {
+      var ext = data[id];
+      var row = document.createElement('div');
+      row.className = 'pkg-row';
+      var info = document.createElement('div');
+      info.className = 'pkg-info';
+      info.innerHTML = '<strong>' + (ext.name || id) + '</strong> <span class="text-muted">' + id + '</span>';
+      var btn = document.createElement('button');
+      btn.className = 'pkg-btn pkg-btn-primary';
+      btn.textContent = 'Package';
+      btn.addEventListener('click', function () {
+        btn.textContent = '...';
+        btn.disabled = true;
+        var a = document.createElement('a');
+        a.href = '/api/package_extension/' + encodeURIComponent(id);
+        a.download = id + '.zip';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { a.remove(); btn.textContent = 'Package'; btn.disabled = false; }, 3000);
+      });
+      row.appendChild(info);
+      row.appendChild(btn);
+      body.appendChild(row);
+    });
+  });
+});
+
 document.getElementById('btn-reload').addEventListener('click', async () => {
   const btn = document.getElementById('btn-reload');
   btn.textContent = '↻';
@@ -137,4 +233,57 @@ document.getElementById('btn-reload').addEventListener('click', async () => {
     fetch('/api/token').then(r => { if (r.ok) location.reload(); else if (++attempts < 30) setTimeout(poll, 1000); else location.reload(); }).catch(() => { if (++attempts < 30) setTimeout(poll, 1000); else location.reload(); });
   };
   setTimeout(poll, 1500);
+});
+
+// ── Window mode state & F11 ─────────────────────────────────────────
+
+let currentWindowMode = new URLSearchParams(window.location.search).get('mode') || 'windowed';
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'F11') {
+    e.preventDefault();
+    if (window.pywebview) {
+      const next = currentWindowMode === 'fullscreen' ? 'windowed' : 'fullscreen';
+      pywebview.api.set_window_mode(next).then(() => {
+        currentWindowMode = next;
+      }).catch(() => {});
+    }
+  }
+});
+
+// ── Settings dropdown ─────────────────────────────────────────────────
+
+const settingsBtn = document.getElementById('btn-settings');
+const settingsDropdown = document.getElementById('settings-dropdown');
+
+// Sync active class on load
+settingsDropdown.querySelectorAll('.settings-option').forEach(o => {
+  if (o.dataset.mode === currentWindowMode) o.classList.add('active');
+});
+
+settingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  settingsDropdown.classList.toggle('visible');
+});
+
+document.addEventListener('click', () => {
+  settingsDropdown.classList.remove('visible');
+});
+
+settingsDropdown.querySelectorAll('.settings-option').forEach(opt => {
+  opt.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const mode = opt.dataset.mode;
+    settingsDropdown.querySelectorAll('.settings-option').forEach(o => o.classList.remove('active'));
+    opt.classList.add('active');
+    if (window.pywebview) {
+      try {
+        await pywebview.api.set_window_mode(mode);
+        currentWindowMode = mode;
+      } catch (err) {
+        console.warn('set_window_mode failed:', err);
+      }
+    }
+    settingsDropdown.classList.remove('visible');
+  });
 });

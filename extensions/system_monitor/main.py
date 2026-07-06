@@ -70,32 +70,6 @@ class Extension:
             "used": usage.used
         }}
 
-    def get_processes(self):
-        procs = []
-        for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
-            try:
-                info = p.info
-                procs.append({
-                    "pid": info['pid'],
-                    "name": info['name'],
-                    "cpu": round(info['cpu_percent'] or 0, 1),
-                    "mem": round(info['memory_percent'] or 0, 1)
-                })
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-        procs.sort(key=lambda x: x['cpu'], reverse=True)
-        return {"value": procs[:20]}
+    
 
-    def free_memory(self):
-        if os.name == 'nt':
-            import ctypes
-            try:
-                ctypes.windll.kernel32.SetProcessWorkingSetSize(
-                    ctypes.windll.kernel32.GetCurrentProcess(), -1, -1
-                )
-                return {"value": "Memory freed"}
-            except Exception as e:
-                return {"value": f"Error: {e}"}
-        else:
-            os.system("sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null")
-            return {"value": "Memory freed"}
+    

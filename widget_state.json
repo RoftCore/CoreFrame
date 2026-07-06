@@ -1,23 +1,43 @@
 {
   "layout": {
-    "network_monitor": {
-      "col": 3,
-      "h": 2,
+    "app_carousel": {
+      "col": 5,
+      "h": 5,
       "row": 2,
+      "w": 4
+    },
+    "fortune_cookie": {
+      "col": 2,
+      "h": 2,
+      "row": 1,
+      "w": 2
+    },
+    "network_monitor": {
+      "col": 1,
+      "h": 2,
+      "row": 1,
       "w": 1
     },
     "process_manager": {
-      "col": 9,
-      "h": 5,
-      "row": 2,
+      "col": 1,
+      "row": 3,
+      "w": 3,
+      "h": 5
+    },
+    "spotify_downloader": {
+      "col": 1,
+      "h": 1,
+      "row": 3,
       "w": 3
     },
     "system_monitor": {
-      "col": 5,
-      "row": 3,
-      "w": 2,
-      "h": 3
+      "col": 10,
+      "h": 2,
+      "row": 1,
+      "w": 3
     }
   },
-  "hidden": {}
+  "hidden": {
+    "spotify_downloader": true
+  }
 }

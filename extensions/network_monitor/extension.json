@@ -4,7 +4,7 @@
   "icon": "network",
   "description": "Public IP, VPN, ports, DNS leaks",
   "version": "1.4",
-  "author": "Arnau",
+  "author": "SentinelGD",
   "category": "cybersecurity",
   "realtime": true,
   "refresh_interval": 5000,

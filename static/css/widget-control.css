@@ -83,7 +83,7 @@
 
 /* --- Move Mode --- */
 body.move-mode .widget-grid {
-  grid-auto-rows: 85px !important;
+  grid-auto-rows: 90px !important;
 }
 body.move-mode .widget {
   cursor: grab;
@@ -99,7 +99,7 @@ body.move-mode .widget.widget-moving {
 
 /* --- Resize Mode (PowerPoint-style) --- */
 body.resize-mode .widget-grid {
-  grid-auto-rows: 85px !important;
+  grid-auto-rows: 90px !important;
 }
 body.resize-mode .widget-resizing {
   pointer-events: auto;

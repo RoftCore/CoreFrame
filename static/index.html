@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CoreFrame // JARVIS</title>
+  <title>CoreFrame</title>
   <link rel="stylesheet" href="/css/palette.css">
   <link rel="stylesheet" href="/css/reset.css">
   <link rel="stylesheet" href="/css/layout.css">
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/utilities.css">
-  <link rel="stylesheet" href="/css/jarvis-effects.css">
+  <link rel="stylesheet" href="/css/core-effects.css">
   <link rel="stylesheet" href="/css/widget-control.css">
   <script src="/js/socket.io.min.js"></script>
 </head>
@@ -25,7 +25,17 @@
       <div class="topbar-info">
         <span class="hud-dot" id="connection-dot"></span>
         <span id="header-clock">--:--:--</span>
-        <button class="topbar-reload" id="btn-reload" title="Recargar servidor">⟳</button>
+        <button class="topbar-reload" id="btn-install" title="Install extension (.zip)">+</button>
+        <button class="topbar-reload" id="btn-package" title="Package extension">&#x1F4E6;</button>
+        <button class="topbar-reload" id="btn-reload" title="Restart server">⟳</button>
+        <div class="settings-container">
+          <button class="topbar-reload" id="btn-settings" title="Settings">&#x2699;</button>
+          <div class="settings-dropdown" id="settings-dropdown">
+            <div class="settings-option" data-mode="windowed">Windowed</div>
+            <div class="settings-option" data-mode="frameless">Frameless</div>
+            <div class="settings-option" data-mode="fullscreen">Fullscreen</div>
+          </div>
+        </div>
       </div>
     </header>
 

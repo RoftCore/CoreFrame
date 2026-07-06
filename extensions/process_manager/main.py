@@ -145,7 +145,10 @@ class Extension:
                 pass
         self._disk_cache = {pid: v for pid, v in self._disk_cache.items() if pid in pids_this_round}
         procs.sort(key=lambda x: x['cpu'], reverse=True)
-        return {"value": procs}
+        return {"value": procs, "system": {
+            "cpu": psutil.cpu_percent(),
+            "ram": psutil.virtual_memory().percent
+        }}
 
     def get_top_processes(self):
         all_procs = self.get_processes()['value']

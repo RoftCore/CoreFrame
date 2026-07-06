@@ -1,6 +1,20 @@
 const widgetHistory = {};
 const _widgetHash = {};
 
+// Restore chart history from localStorage so it survives page reload
+(function loadPersistedHistory() {
+  try {
+    var saved = localStorage.getItem('coreframe-widget-history');
+    if (saved) Object.assign(widgetHistory, JSON.parse(saved));
+  } catch (_) {}
+})();
+
+function persistWidgetHistory() {
+  try {
+    localStorage.setItem('coreframe-widget-history', JSON.stringify(widgetHistory));
+  } catch (_) {}
+}
+
 const EXT_DEFAULT_GRID = { w: 4, h: 2 };
 
 function createExtensionCard(ext) {
@@ -163,6 +177,7 @@ function updateWidgetValue(widgetEl, response) {
       if (!widgetHistory[historyKey]) widgetHistory[historyKey] = [];
       widgetHistory[historyKey].push(numericVal);
       if (widgetHistory[historyKey].length > 30) widgetHistory[historyKey].shift();
+      persistWidgetHistory();
 
       if (valueEl) formatValue(valueEl, id, val);
 
