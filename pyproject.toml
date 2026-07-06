@@ -3,11 +3,11 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "coreframe"
+name = "coreframe-roftcore"
 version = "1.0.0"
 description = "Personal control center with HUD panel, system monitoring, VPN control and network analysis"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
   {name = "RoftCore"}
 ]

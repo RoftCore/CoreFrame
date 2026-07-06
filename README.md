@@ -13,22 +13,23 @@ Personal control center with HUD panel, system monitoring, universal VPN control
 
 HUD-style panel with real-time widgets, sidebar menu, sliding result panel, and persistent WebSocket connection.
 
-## Requirements
+## Quick Install (pip)
+
+```
+pip install coreframe-roftcore
+coreframe
+```
+
+Open http://127.0.0.1:5000
+
+## Dev Install
 
 ```
 pip install -r requirements.txt
-```
-
-## Usage
-
-Run `run.vbs` (self-elevates with UAC for admin privileges).
-
-Manual alternative:
-```
 python app.py
 ```
 
-Open in browser: http://127.0.0.1:5000
+Or run `run.vbs` (self-elevates with UAC for admin privileges).
 
 ## Features
 
