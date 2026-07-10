@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['E:\\Programming\\CoreFrame\\run_coreframe.pyw'],
+    ['run_coreframe.pyw'],
     pathex=[],
     binaries=[],
     datas=[
         ('static', 'static'),
-        ('E:\\Programming\\CoreFrame\\extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
+        ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
     ],
     hiddenimports=[
         'engineio.async_drivers.threading',
@@ -51,7 +51,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     name='CoreFrame',
-    icon='E:\\Programming\\CoreFrame\\CoreFrame.ico',
+    icon='CoreFrame.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,
