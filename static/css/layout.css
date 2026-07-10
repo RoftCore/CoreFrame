@@ -325,3 +325,5 @@
 .mkt-btn-market:hover { background: rgba(0,230,118,0.08); border-color: var(--accent-green, #00e676); }
 .mkt-row .pkg-info { flex: 1; }
 .mkt-row .mkt-install-btn { flex-shrink: 0; margin-left: 8px; }
+.mkt-hidden { opacity: 0.5; }
+.mkt-hidden:hover { opacity: 1; }

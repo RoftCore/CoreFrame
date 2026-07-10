@@ -266,36 +266,63 @@ function showMarketplaceList(choiceOverlay) {
       body.innerHTML = '<div class="pkg-empty">No extensions available.</div>';
       return;
     }
-    body.innerHTML = '';
-    exts.forEach(function (ext) {
-      var row = document.createElement('div');
-      row.className = 'pkg-row mkt-row';
-      var info = document.createElement('div');
-      info.className = 'pkg-info';
-      info.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span><br><span style="font-size:9px;color:var(--text-muted)">' + (ext.description || '') + '</span>';
-      var btn = document.createElement('button');
-      btn.className = 'pkg-btn pkg-btn-primary mkt-install-btn';
-      btn.textContent = 'Install';
-      btn.addEventListener('click', function () {
-        btn.textContent = '...';
-        btn.disabled = true;
-        showInstallOverlay('Downloading ' + ext.name + '...');
-        apiFetch('/api/marketplace/install/' + encodeURIComponent(ext.id), { method: 'POST' }).then(function (res) {
-          if (res && res.error) {
-            hideInstallOverlay();
-            alert('Error: ' + res.error);
-            btn.textContent = 'Install';
-            btn.disabled = false;
-            return;
-          }
-          showInstallOverlay(ext.name + ' installed!');
-          setTimeout(function () { location.reload(); }, 400);
+    var showHidden = false;
+    function renderMarketplace() {
+      body.innerHTML = '';
+      var filtered = showHidden ? exts : exts.filter(function(e) { return !e.hidden; });
+      if (!filtered.length) {
+        body.innerHTML = '<div class="pkg-empty">No extensions available.</div>';
+        return;
+      }
+      filtered.forEach(function (ext) {
+        var row = document.createElement('div');
+        row.className = 'pkg-row mkt-row' + (ext.hidden ? ' mkt-hidden' : '');
+        var info = document.createElement('div');
+        info.className = 'pkg-info';
+        var badge = ext.hidden ? ' <span style="font-size:8px;color:#ff9800;border:1px solid #ff9800;border-radius:2px;padding:0 4px;margin-left:4px">hidden</span>' : '';
+        info.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span>' + badge + '<br><span style="font-size:9px;color:var(--text-muted)">' + (ext.description || '') + '</span>';
+        var btn = document.createElement('button');
+        btn.className = 'pkg-btn pkg-btn-primary mkt-install-btn';
+        btn.textContent = 'Install';
+        btn.addEventListener('click', function () {
+          btn.textContent = '...';
+          btn.disabled = true;
+          showInstallOverlay('Downloading ' + ext.name + '...');
+          apiFetch('/api/marketplace/install/' + encodeURIComponent(ext.id), { method: 'POST' }).then(function (res) {
+            if (res && res.error) {
+              hideInstallOverlay();
+              alert('Error: ' + res.error);
+              btn.textContent = 'Install';
+              btn.disabled = false;
+              return;
+            }
+            showInstallOverlay(ext.name + ' installed!');
+            setTimeout(function () { location.reload(); }, 400);
+          });
         });
+        row.appendChild(info);
+        row.appendChild(btn);
+        body.appendChild(row);
       });
-      row.appendChild(info);
-      row.appendChild(btn);
-      body.appendChild(row);
-    });
+      // Toggle
+      var toggleRow = document.createElement('div');
+      toggleRow.style.cssText = 'padding:8px 0;border-top:1px solid var(--border-color);margin-top:4px';
+      var label = document.createElement('label');
+      label.style.cssText = 'font-size:10px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:6px';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = showHidden;
+      cb.style.cssText = 'accent-color:#ff9800';
+      cb.addEventListener('change', function () {
+        showHidden = cb.checked;
+        renderMarketplace();
+      });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode('Show hidden extensions'));
+      toggleRow.appendChild(label);
+      body.appendChild(toggleRow);
+    }
+    renderMarketplace();
   });
 }
 
