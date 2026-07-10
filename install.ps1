@@ -57,7 +57,7 @@ if (-not $NoPath) {
   $launcher = "$launcherDir\coreframe.cmd"
   @"
 @echo off
-"$InstallDir\venv\Scripts\python.exe" "$InstallDir\run.py" %*
+"$InstallDir\venv\Scripts\python.exe" "$InstallDir\run_coreframe.pyw" %*
 "@ | Out-File -FilePath $launcher -Encoding ASCII
   Write-Host "[+] Created: $launcher" -ForegroundColor Green
 
@@ -74,4 +74,4 @@ Write-Host ""
 Write-Host "==> Done!" -ForegroundColor Cyan
 Write-Host "    Type 'coreframe' to start CoreFrame"
 Write-Host "    Type 'coreframe --dev' for debug mode"
-Write-Host "    Open http://127.0.0.1:5000 in your browser"
+Write-Host "    Open http://127.0.0.1:8420 in your browser"
