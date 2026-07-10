@@ -3,6 +3,7 @@
   "name": "App Carousel",
   "icon": "circle",
   "description": "Quick-switch between extensions with a circular carousel",
+  "platforms": ["windows", "linux"],
   "version": "1.0",
   "author": "SentinelGD",
   "category": "ui",

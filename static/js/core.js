@@ -5,19 +5,43 @@ document.addEventListener('DOMContentLoaded', async () => {
   clockTick();
   setInterval(clockTick, 1000);
 
+  // ── Debug mode check ──
+  const dbg = await apiFetch('/api/debug');
+  if (dbg && !dbg.debug) {
+    var pkgBtn = document.getElementById('btn-package');
+    if (pkgBtn) pkgBtn.style.display = 'none';
+  }
+  if (dbg && dbg.debug) {
+    document.body.classList.add('mode-debug');
+  }
+
   initResultPanel();
   initWebSocket();
 
-  const data = await apiFetch('/api/extensions');
-  if (data.error) {
-    document.getElementById('main-content').innerHTML = `<div class="loading"><div class="spinner"></div>Failed to connect: ${escapeHtml(data.error)}</div>`;
-    return;
-  }
-  extensionsData = data;
-  window.extensionsData = data;
-  buildSidebar(data);
-  renderWidgets(data);
-  loadExtensionAssets(data);
+  const loadingEl = document.getElementById('main-content');
+  let attempts = 0;
+  const maxAttempts = 30;
+
+  const tryLoad = async () => {
+    const data = await apiFetch('/api/extensions');
+    if (!data.error) {
+      extensionsData = data;
+      window.extensionsData = data;
+      buildSidebar(data);
+      renderWidgets(data);
+      loadExtensionAssets(data);
+      return;
+    }
+    attempts++;
+    if (attempts < maxAttempts) {
+      loadingEl.innerHTML = `<div class="loading"><div class="spinner"></div>Connecting to server (${attempts}/${maxAttempts})...</div>`;
+      setTimeout(tryLoad, 1000);
+    } else {
+      loadingEl.innerHTML = `<div class="loading"><div class="spinner"></div>Failed to connect after ${maxAttempts}s. <button onclick="location.reload()" style="background:#00d4ff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;margin-top:8px">Retry</button></div>`;
+    }
+  };
+
+  tryLoad();
 });
 
 function loadExtensionAssets(data) {
@@ -92,7 +116,13 @@ function startWidgetIntervals(data) {
 function initWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}`;
-  const socket = io(wsUrl, { transports: ['polling'] });
+  const socket = io(wsUrl, {
+    transports: ['polling'],
+    reconnection: true,
+    reconnectionAttempts: 30,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+  });
 
   socket.on('connect', () => {
     document.getElementById('connection-dot').className = 'hud-dot ok';
@@ -239,14 +269,47 @@ document.getElementById('btn-reload').addEventListener('click', async () => {
 
 let currentWindowMode = new URLSearchParams(window.location.search).get('mode') || 'windowed';
 
+function showToast(msg) {
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:#e0e0e0;padding:8px 16px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);font-size:12px;z-index:9999;transition:opacity 0.3s';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function(){ t.style.opacity = '0'; setTimeout(function(){ t.remove(); }, 400); }, 2500);
+}
+
+function applyWindowModeFallback(mode) {
+  if (mode === 'fullscreen') {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(function(){});
+    } else {
+      document.documentElement.requestFullscreen().catch(function(){});
+    }
+  } else {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(function(){});
+    }
+  }
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'F11') {
     e.preventDefault();
     if (window.pywebview) {
       const next = currentWindowMode === 'fullscreen' ? 'windowed' : 'fullscreen';
-      pywebview.api.set_window_mode(next).then(() => {
+      pywebview.api.set_window_mode(next).then(function(applied) {
         currentWindowMode = next;
-      }).catch(() => {});
+        if (!applied && next !== 'fullscreen') {
+          showToast('Reinicia CoreFrame para aplicar');
+        }
+      }).catch(function(err) {
+        console.warn('set_window_mode pywebview failed:', err);
+        applyWindowModeFallback(next);
+        currentWindowMode = next;
+      });
+    } else {
+      const next = currentWindowMode === 'fullscreen' ? 'windowed' : 'fullscreen';
+      applyWindowModeFallback(next);
+      currentWindowMode = next;
     }
   }
 });
@@ -276,13 +339,24 @@ settingsDropdown.querySelectorAll('.settings-option').forEach(opt => {
     const mode = opt.dataset.mode;
     settingsDropdown.querySelectorAll('.settings-option').forEach(o => o.classList.remove('active'));
     opt.classList.add('active');
+    var applied = false;
     if (window.pywebview) {
       try {
-        await pywebview.api.set_window_mode(mode);
+        applied = await pywebview.api.set_window_mode(mode);
         currentWindowMode = mode;
       } catch (err) {
-        console.warn('set_window_mode failed:', err);
+        console.warn('set_window_mode pywebview failed:', err);
+        applyWindowModeFallback(mode);
+        currentWindowMode = mode;
+        applied = true;
       }
+    } else {
+      applyWindowModeFallback(mode);
+      currentWindowMode = mode;
+      applied = true;
+    }
+    if (!applied) {
+      showToast('Reinicia CoreFrame para aplicar ' + mode);
     }
     settingsDropdown.classList.remove('visible');
   });

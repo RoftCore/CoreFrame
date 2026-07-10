@@ -5,3 +5,4 @@ psutil
 gputil
 requests
 Pillow
+pywebview

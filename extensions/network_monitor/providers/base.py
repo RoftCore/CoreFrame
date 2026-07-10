@@ -31,7 +31,7 @@ class BaseProvider:
         if not self.killswitch_cli or not getattr(self, f"killswitch_{action}", []):
             return False, f"{self.id}: killswitch not available via CLI"
         try:
-            r = subprocess.run([cli_path] + getattr(self, f"killswitch_{action}"), capture_output=True, text=True, timeout=15)
+            r = subprocess.run([cli_path] + getattr(self, f"killswitch_{action}"), capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
             if r.returncode == 0:
                 return True, f"{self.id}: killswitch {'enabled' if action == 'on' else 'disabled'}"
             return False, f"{self.id}: {r.stderr.strip() or r.stdout.strip()[:100]}"

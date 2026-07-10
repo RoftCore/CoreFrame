@@ -3,6 +3,7 @@
   "name": "Network Monitor",
   "icon": "network",
   "description": "Public IP, VPN, ports, DNS leaks",
+  "platforms": ["windows"],
   "version": "1.4",
   "author": "SentinelGD",
   "category": "cybersecurity",

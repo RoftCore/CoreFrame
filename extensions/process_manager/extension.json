@@ -3,6 +3,7 @@
   "name": "Process Manager",
   "icon": "cpu",
   "description": "System process management: view, filter, kill and monitor usage",
+  "platforms": ["windows", "linux"],
   "version": "1.2",
   "author": "SentinelGD",
   "category": "processes",

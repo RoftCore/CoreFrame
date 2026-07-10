@@ -153,7 +153,7 @@ class Extension:
             except Exception:
                 pass
         try:
-            r = subprocess.run("netsh interface show interface", shell=True, capture_output=True, text=True, timeout=10)
+            r = subprocess.run(["netsh", "interface", "show", "interface"], capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
             for line in r.stdout.splitlines():
                 if "Connected" in line or "connected" in line:
                     parts = line.split()
@@ -189,7 +189,7 @@ class Extension:
                 if bn in client_targets:
                     installed.add(client_targets[bn])
         try:
-            r = subprocess.run('sc query state= all', shell=True, capture_output=True, text=True, timeout=5)
+            r = subprocess.run(["sc", "query", "state=all"], capture_output=True, text=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
             blocks = r.stdout.split("\n\n")
             for pid, prov in PROVIDERS.items():
                 for svc in prov.tunnel_services + prov.app_services:
@@ -203,7 +203,7 @@ class Extension:
         except Exception:
             pass
         try:
-            r = subprocess.run('tasklist /NH /FO CSV', shell=True, capture_output=True, text=True, timeout=5)
+            r = subprocess.run(["tasklist", "/NH", "/FO", "CSV"], capture_output=True, text=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
             for line in r.stdout.splitlines():
                 parts = line.strip('"').split('","')
                 if len(parts) >= 1:
@@ -310,9 +310,9 @@ class Extension:
             args = getattr(prov, f"cli_{action}", [])
             if not args:
                 continue
-            try:
-                r = subprocess.run([cli_path] + args, capture_output=True, text=True, timeout=30)
-                out = (r.stdout + r.stderr).strip()
+        try:
+            r = subprocess.run([cli_path] + args, capture_output=True, text=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+            out = (r.stdout + r.stderr).strip()
                 results.append({"ok": r.returncode == 0, "provider": pid, "message": out[:200]})
             except Exception as e:
                 results.append({"ok": False, "provider": pid, "message": str(e)})
@@ -395,7 +395,7 @@ class Extension:
         stopped = []
         for svc in target_services:
             try:
-                r = subprocess.run(f'sc stop "{svc}"', shell=True, capture_output=True, text=True, timeout=15)
+                r = subprocess.run(["sc", "stop", svc], capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                 out = (r.stdout + r.stderr).lower()
                 if r.returncode == 0 or "stopped" in out or "pending" in out or "not running" in out:
                     stopped.append(svc)
@@ -409,7 +409,7 @@ class Extension:
         still_active = self._active_vpn_adapters()
 
         try:
-            r = subprocess.run(["rasdial", "/d"], capture_output=True, text=True, timeout=10)
+            r = subprocess.run(["rasdial", "/d"], capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
             if r.returncode == 0:
                 results.append("✓ rasdial: disconnected")
                 any_ok = True
@@ -423,13 +423,13 @@ class Extension:
             kw_parts = "+".join(kw for pid in targets for kw in (PROVIDERS.get(pid).keywords if PROVIDERS.get(pid) else []))
             if kw_parts:
                 try:
-                    r = subprocess.run(f'netsh interface show interface | findstr /i "{kw_parts}"', shell=True, capture_output=True, text=True, timeout=10)
+                    r = subprocess.run(f'netsh interface show interface | findstr /i "{kw_parts}"', shell=True, capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                     if r.stdout.strip():
                         for line in r.stdout.strip().splitlines():
                             parts = line.split()
                             if len(parts) >= 4 and "connect" in parts[1].lower():
                                 ifname = parts[-1]
-                                subprocess.run(f'netsh interface set interface name="{ifname}" admin=disabled', shell=True, capture_output=True, text=True, timeout=10)
+                                subprocess.run(f'netsh interface set interface name="{ifname}" admin=disabled', shell=True, capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                                 results.append(f"✓ adapter disabled: {ifname}")
                                 any_ok = True
                 except Exception as e:
@@ -442,7 +442,7 @@ class Extension:
             killed = []
             for pname in target_procs:
                 try:
-                    r = subprocess.run(["taskkill", "/F", "/IM", pname], capture_output=True, text=True, timeout=10)
+                    r = subprocess.run(["taskkill", "/F", "/IM", pname], capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                     if r.returncode == 0:
                         killed.append(pname)
                         any_ok = True
@@ -460,7 +460,7 @@ class Extension:
                 killed = []
                 for pname in target_procs:
                     try:
-                        r = subprocess.run(["taskkill", "/F", "/IM", pname], capture_output=True, text=True, timeout=10)
+                        r = subprocess.run(["taskkill", "/F", "/IM", pname], capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                         if r.returncode == 0:
                             killed.append(pname)
                             any_ok = True
@@ -472,7 +472,7 @@ class Extension:
         cmd = self.vpn_config.get("disconnect_command", "").strip()
         if cmd:
             try:
-                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                 results.append("✓ custom command executed")
                 any_ok = True
             except Exception as e:
@@ -498,7 +498,7 @@ class Extension:
         started = []
         for svc in target_services:
             try:
-                r = subprocess.run(f'sc start "{svc}"', shell=True, capture_output=True, text=True, timeout=15)
+                r = subprocess.run(["sc", "start", svc], capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                 out = (r.stdout + r.stderr).lower()
                 if r.returncode == 0 or "already running" in out or "running" in out:
                     started.append(svc)
@@ -514,13 +514,13 @@ class Extension:
         kw_parts = "+".join(kw for pid in targets for kw in (PROVIDERS.get(pid).keywords if PROVIDERS.get(pid) else []))
         if kw_parts:
             try:
-                r = subprocess.run(f'netsh interface show interface | findstr /i "{kw_parts}"', shell=True, capture_output=True, text=True, timeout=10)
+                r = subprocess.run(f'netsh interface show interface | findstr /i "{kw_parts}"', shell=True, capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                 if r.stdout.strip():
                     for line in r.stdout.strip().splitlines():
                         parts = line.split()
                         if len(parts) >= 4 and "disabled" in parts[0].lower():
                             ifname = parts[-1]
-                            subprocess.run(f'netsh interface set interface name="{ifname}" admin=enabled', shell=True, capture_output=True, text=True, timeout=10)
+                            subprocess.run(f'netsh interface set interface name="{ifname}" admin=enabled', shell=True, capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                             results.append(f"✓ adapter enabled: {ifname}")
                             any_ok = True
             except Exception as e:
@@ -545,12 +545,12 @@ class Extension:
         # Method 5: rasdial (skip per provider)
         if not (prov and prov.skip_rasdial):
             try:
-                r = subprocess.run('rasdial /enum', shell=True, capture_output=True, text=True, timeout=10)
+                r = subprocess.run('rasdial /enum', shell=True, capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                 for line in (r.stdout or "").splitlines():
                     kw = self._vpn_keywords() + ["conexion", "connection"]
                     if any(k in line.lower() for k in kw):
                         conn_name = line.strip().rstrip(":")
-                        subprocess.run(["rasdial", conn_name], capture_output=True, text=True, timeout=15)
+                        subprocess.run(["rasdial", conn_name], capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                         results.append(f"✓ rasdial: connecting '{conn_name}'")
                         any_ok = True
                         break
@@ -559,7 +559,7 @@ class Extension:
             provider = self.vpn_config.get("provider", "").strip()
             if provider:
                 try:
-                    r = subprocess.run(["rasdial", provider], capture_output=True, text=True, timeout=15)
+                    r = subprocess.run(["rasdial", provider], capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                     if r.returncode == 0:
                         results.append(f"✓ rasdial: connected '{provider}'")
                         any_ok = True
@@ -572,7 +572,7 @@ class Extension:
         cmd = self.vpn_config.get("connect_command", "").strip()
         if cmd:
             try:
-                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+                subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                 results.append("✓ custom command executed")
                 any_ok = True
             except Exception as e:
@@ -585,13 +585,13 @@ class Extension:
             adapter = self._get_vpn_adapter_name()
             if adapter:
                 try:
-                    subprocess.run(f'netsh interface ip set dns name="{adapter}" static 1.1.1.1 primary', shell=True, capture_output=True, text=True, timeout=15)
-                    subprocess.run(f'netsh interface ip add dns name="{adapter}" 1.0.0.1 index=2', shell=True, capture_output=True, text=True, timeout=15)
+                    subprocess.run(["netsh", "interface", "ip", "set", "dns", f'name="{adapter}"', "static", "1.1.1.1", "primary"], capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+                    subprocess.run(["netsh", "interface", "ip", "add", "dns", f'name="{adapter}"', "1.0.0.1", "index=2"], capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                     results.append(f"✓ DNS: Cloudflare on {adapter}")
                 except Exception:
                     pass
             try:
-                subprocess.run('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient" /v "DisableSmartNameResolution" /t REG_DWORD /d 1 /f', shell=True, capture_output=True, text=True, timeout=10)
+                subprocess.run(["reg", "add", "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient", "/v", "DisableSmartNameResolution", "/t", "REG_DWORD", "/d", "1", "/f"], capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                 results.append("✓ DNS leak protection enabled")
             except Exception:
                 pass
@@ -606,7 +606,7 @@ class Extension:
             return False
         client_exe = os.path.basename(client_path).lower()
         try:
-            r = subprocess.run(f'tasklist /FI "IMAGENAME eq {client_exe}" /NH', shell=True, capture_output=True, text=True, timeout=5)
+            r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {client_exe}", "/NH"], capture_output=True, text=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
             return client_exe in r.stdout.lower()
         except Exception:
             return False
@@ -620,7 +620,7 @@ class Extension:
             return False
         client_exe = os.path.basename(client_path).lower()
         try:
-            subprocess.run(["taskkill", "/F", "/IM", client_exe], capture_output=True, text=True, timeout=5)
+            subprocess.run(["taskkill", "/F", "/IM", client_exe], capture_output=True, text=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
         except Exception:
             pass
         time.sleep(1)
@@ -630,7 +630,7 @@ class Extension:
         except Exception:
             pass
         try:
-            subprocess.Popen(['powershell', '-Command', f'Start-Process -FilePath "{client_path}"'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(['powershell', '-Command', f'Start-Process -FilePath "{client_path}"'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
             return True
         except Exception:
             return False
@@ -638,7 +638,7 @@ class Extension:
     def _pid_name_map(self):
         mapping = {}
         try:
-            r = subprocess.run('tasklist /NH /FO CSV', shell=True, capture_output=True, text=True, timeout=5)
+            r = subprocess.run(["tasklist", "/NH", "/FO", "CSV"], capture_output=True, text=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
             for line in r.stdout.splitlines():
                 parts = line.strip('"').split('","')
                 if len(parts) >= 2:
@@ -662,7 +662,7 @@ class Extension:
 
     def _flush_dns(self):
         try:
-            subprocess.run("ipconfig /flushdns", shell=True, capture_output=True, text=True, timeout=10)
+            subprocess.run(["ipconfig", "/flushdns"], capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
             return True
         except Exception:
             return False
@@ -676,7 +676,7 @@ class Extension:
             if pid in cfg or cfg in pid:
                 kw = "|".join(prov.keywords) or pid
                 try:
-                    r = subprocess.run(f'netsh interface show interface | findstr /i "{kw}"', shell=True, capture_output=True, text=True, timeout=10)
+                    r = subprocess.run(f'netsh interface show interface | findstr /i "{kw}"', shell=True, capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                     for line in r.stdout.splitlines():
                         parts = line.split()
                         if len(parts) >= 4:
@@ -720,7 +720,7 @@ class Extension:
             if not cli_path:
                 continue
             try:
-                r = subprocess.run([cli_path] + prov.killswitch_status, capture_output=True, text=True, timeout=15)
+                r = subprocess.run([cli_path] + prov.killswitch_status, capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                 output = r.stdout.lower()
                 if prov.killswitch_keyword in output:
                     return True
@@ -766,12 +766,12 @@ class Extension:
             return {"value": "Could not detect VPN adapter"}
         parts = []
         try:
-            subprocess.run(f'netsh interface ip set dns name="{adapter}" static 1.1.1.1 primary', shell=True, capture_output=True, text=True, timeout=15)
-            subprocess.run(f'netsh interface ip add dns name="{adapter}" 1.0.0.1 index=2', shell=True, capture_output=True, text=True, timeout=15)
+            subprocess.run(["netsh", "interface", "ip", "set", "dns", f'name="{adapter}"', "static", "1.1.1.1", "primary"], capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+            subprocess.run(["netsh", "interface", "ip", "add", "dns", f'name="{adapter}"', "1.0.0.1", "index=2"], capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
             parts.append(f"Cloudflare en {adapter}")
-            subprocess.run('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient" /v "DisableSmartNameResolution" /t REG_DWORD /d 1 /f', shell=True, capture_output=True, text=True, timeout=10)
+            subprocess.run(["reg", "add", "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient", "/v", "DisableSmartNameResolution", "/t", "REG_DWORD", "/d", "1", "/f"], capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
             parts.append("SmartMultiHomedNameResolution OFF")
-            subprocess.run("ipconfig /flushdns", shell=True, capture_output=True, text=True, timeout=10)
+            subprocess.run(["ipconfig", "/flushdns"], capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
             parts.append("DNS cache flushed")
             return {"value": " | ".join(parts)}
         except Exception as e:
@@ -785,7 +785,7 @@ class Extension:
             try:
                 r = subprocess.run(
                     ['nslookup', 'myip.opendns.com', 'resolver1.opendns.com'],
-                    capture_output=True, text=True, timeout=10
+                    capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW
                 )
                 for line in r.stdout.splitlines():
                     if line.strip().startswith("Address"):
@@ -801,7 +801,7 @@ class Extension:
 
             dns_servers = []
             try:
-                r = subprocess.run('netsh interface ip show dns', shell=True, capture_output=True, text=True, timeout=10)
+                r = subprocess.run(["netsh", "interface", "ip", "show", "dns"], capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
                 lines = r.stdout.splitlines()
                 current_iface = ""
                 for line in lines:

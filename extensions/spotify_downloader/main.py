@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import shutil
-import subprocess
+import subprocess as _subprocess
 import sys
 import threading
 import time
@@ -12,12 +12,29 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import urlparse
 
+# ── Force no console windows on every subprocess (yt-dlp spawns ffmpeg without CREATE_NO_WINDOW) ──
+if sys.platform.startswith('win'):
+    import ctypes
+    _CREATE_NO_WINDOW = 0x08000000
+    _SW_HIDE = 0
+    _STARTF_USESHOWWINDOW = 0x00000001
+    _si = _subprocess.STARTUPINFO()
+    _si.dwFlags |= _STARTF_USESHOWWINDOW
+    _si.wShowWindow = _SW_HIDE
+    _orig_init = _subprocess.Popen.__init__
+    def _patched_init(self, *args, **kwargs):
+        old = kwargs.get('creationflags', 0)
+        kwargs['creationflags'] = old | _CREATE_NO_WINDOW
+        if kwargs.get('startupinfo') is None:
+            kwargs['startupinfo'] = _si
+        return _orig_init(self, *args, **kwargs)
+    _subprocess.Popen.__init__ = _patched_init
+subprocess = _subprocess
+
 # Ensure the local spotify_scraper package is findable
 _ext_dir = Path(__file__).parent
 if str(_ext_dir) not in sys.path:
     sys.path.insert(0, str(_ext_dir))
-
-from spotify_scraper import SpotifyClient
 
 logger = logging.getLogger("spotify_downloader")
 
@@ -59,9 +76,17 @@ def _check_ytdlp():
 
 def _check_ffmpeg():
     try:
-        return subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=10).returncode == 0
+        return subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW).returncode == 0
     except Exception:
         return False
+
+_ffmpeg_cache = None
+
+def _ensure_ffmpeg():
+    global _ffmpeg_cache
+    if _ffmpeg_cache is None:
+        _ffmpeg_cache = _check_ffmpeg()
+    return _ffmpeg_cache
 
 
 def _clean_name(text):
@@ -71,7 +96,7 @@ def _clean_name(text):
 class Extension:
     def __init__(self, config):
         self.config = config
-        self._ffmpeg_ok = _check_ffmpeg()
+        self._ffmpeg_ok = None
         DOWNLOADS_DIR.mkdir(exist_ok=True)
 
     def _load_config(self):
@@ -137,6 +162,7 @@ class Extension:
         _set_state(status="downloading", progress=0, total=0, current="",
                    playlist_name="", zip_path="", error="", missing=[])
         try:
+            from spotify_scraper import SpotifyClient
             sp = SpotifyClient()
             playlist = sp.get_playlist_info(url)
             name = _clean_name(playlist.get("name", "playlist"))
@@ -362,7 +388,7 @@ class Extension:
         return None
 
     def _normalize_audio(self, path):
-        if not self._ffmpeg_ok:
+        if not _ensure_ffmpeg():
             return True
         if not path.exists():
             return False
@@ -370,7 +396,7 @@ class Extension:
             tmp = path.with_name(f"norm_{path.name}")
             cmd = ["ffmpeg", "-loglevel", "quiet", "-y", "-i", str(path),
                    "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", "44100", "-b:a", "192k", str(tmp)]
-            if subprocess.run(cmd, capture_output=True, timeout=60).returncode == 0 and tmp.exists():
+            if subprocess.run(cmd, capture_output=True, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW).returncode == 0 and tmp.exists():
                 time.sleep(1)
                 for _ in range(3):
                     try:

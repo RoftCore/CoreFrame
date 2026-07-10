@@ -5,10 +5,34 @@ import hashlib
 import logging
 import importlib.util
 import signal
-import subprocess
+import shutil
+import subprocess as _subprocess
 import sys
 import threading
 import time
+
+# ── Force no console windows on any subprocess ──
+if sys.platform.startswith('win'):
+    import ctypes
+    _CREATE_NO_WINDOW = 0x08000000
+    _DETACHED_PROCESS = 0x00000008
+    _orig_init = _subprocess.Popen.__init__
+    def _patched_init(self, *args, **kwargs):
+        old = kwargs.get('creationflags', 0)
+        newflags = old | _CREATE_NO_WINDOW | _DETACHED_PROCESS
+        kwargs['creationflags'] = newflags
+        # Log the call
+        try:
+            _cmd = args[0] if args else kwargs.get('args', '?')
+            if isinstance(_cmd, (list, tuple)):
+                _cmd = ' '.join(str(x) for x in _cmd)
+            import builtins as _b
+            _b.print(f"[POPEN] old=0x{old:08x} new=0x{newflags:08x} cmd={_cmd[:200]}", flush=True)
+        except Exception:
+            pass
+        return _orig_init(self, *args, **kwargs)
+    _subprocess.Popen.__init__ = _patched_init
+subprocess = _subprocess  # alias
 import zipfile
 from collections import defaultdict
 from pathlib import Path
@@ -29,16 +53,24 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 if sys.platform.startswith('win'):
-    DATA_DIR = os.path.join(os.path.expanduser('~'), 'Documents', 'CoreFrame')
+    _CSIDL_PERSONAL = 0x0005
+    _SHGFP_TYPE_CURRENT = 0
+    _buf = ctypes.create_unicode_buffer(260)
+    ctypes.windll.shell32.SHGetFolderPathW(None, _CSIDL_PERSONAL, None, _SHGFP_TYPE_CURRENT, _buf)
+    DATA_DIR = os.path.join(_buf.value, 'CoreFrame')
 else:
     DATA_DIR = os.path.join(os.path.expanduser('~'), '.local', 'share', 'CoreFrame')
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
 EXTENSIONS_DIR = os.path.join(DATA_DIR, 'extensions')
 REGISTRY_PATH = os.path.join(DATA_DIR, 'extensions.json')
 WIDGET_STATE_PATH = os.path.join(DATA_DIR, 'widget_state.json')
+SHARED_LIB_DIR = os.path.join(DATA_DIR, 'lib')
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(EXTENSIONS_DIR, exist_ok=True)
+os.makedirs(SHARED_LIB_DIR, exist_ok=True)
+if SHARED_LIB_DIR not in sys.path:
+    sys.path.insert(0, SHARED_LIB_DIR)
 
 LOG_PATH = os.path.join(DATA_DIR, 'coreframe.log')
 logging.basicConfig(
@@ -46,10 +78,19 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.FileHandler(LOG_PATH, encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
     ]
 )
 log = logging.getLogger('CoreFrame')
+
+# ── Extract bundled extensions (embedded .exe) ──
+_bundled_ext_dir = os.path.join(BASE_DIR, 'extensions')
+if getattr(sys, 'frozen', False) and os.path.isdir(_bundled_ext_dir):
+    for _name in os.listdir(_bundled_ext_dir):
+        _src = os.path.join(_bundled_ext_dir, _name)
+        _dst = os.path.join(EXTENSIONS_DIR, _name)
+        if os.path.isdir(_src) and not os.path.exists(_dst):
+            shutil.copytree(_src, _dst, ignore_dangling_symlinks=True)
+            log.info("Extracted bundled extension: %s", _name)
 
 # ── Flask ──────────────────────────────────────────────────────────────────
 
@@ -64,9 +105,23 @@ _client_count = 0
 
 # ── Extension loading ──────────────────────────────────────────────────────
 
+def _sync_extension_lib(ext_path):
+    ext_lib = os.path.join(ext_path, 'lib')
+    if os.path.isdir(ext_lib):
+        for item in os.listdir(ext_lib):
+            src = os.path.join(ext_lib, item)
+            dst = os.path.join(SHARED_LIB_DIR, item)
+            if not os.path.exists(dst):
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, ignore_dangling_symlinks=True)
+                else:
+                    shutil.copy2(src, dst)
+                log.debug("Synced %s to shared lib", item)
+
 def load_extensions():
     if not os.path.exists(EXTENSIONS_DIR):
         return
+    current_os = 'linux' if not sys.platform.startswith('win') else 'windows'
     for name in os.listdir(EXTENSIONS_DIR):
         ext_path = os.path.join(EXTENSIONS_DIR, name)
         if not os.path.isdir(ext_path):
@@ -78,6 +133,11 @@ def load_extensions():
         try:
             with open(config_path, encoding='utf-8-sig') as f:
                 config = json.load(f)
+            platforms = config.get('platforms')
+            if platforms is not None and current_os not in platforms:
+                log.info("Skipping %s: not compatible with %s", name, current_os)
+                continue
+            _sync_extension_lib(ext_path)
             spec = importlib.util.spec_from_file_location(f"extensions.{name}", main_path)
             module = importlib.util.module_from_spec(spec)
             sys.modules[f"extensions.{name}"] = module
@@ -97,6 +157,7 @@ def _load_single_extension(ext_id):
     try:
         with open(config_path, encoding='utf-8-sig') as f:
             config = json.load(f)
+        _sync_extension_lib(ext_path)
         mod_name = f"extensions.{ext_id}"
         spec = importlib.util.spec_from_file_location(mod_name, main_path)
         module = importlib.util.module_from_spec(spec)
@@ -116,9 +177,13 @@ def _load_single_extension(ext_id):
 def api_token():
     return jsonify({'token': _LOCAL_TOKEN})
 
+@app.route('/api/debug')
+def api_debug():
+    return jsonify({'debug': app.debug})
+
 @app.before_request
 def check_token():
-    if request.path.startswith('/api/') and request.path not in ('/api/token', '/api/health'):
+    if request.path.startswith('/api/') and request.path not in ('/api/token', '/api/health', '/api/debug'):
         if request.path.startswith('/api/package_extension/'):
             return
         token = request.headers.get('X-CoreFrame-Token', '')
@@ -143,6 +208,7 @@ def api_extensions():
             'overlayable': cfg.get('overlayable', False),
             'realtime': cfg.get('realtime', False),
             'refresh_interval': cfg.get('refresh_interval', 5000),
+            'platforms': cfg.get('platforms'),
             'js_modules': cfg.get('js_modules', []),
             'css_modules': cfg.get('css_modules', [])
         }
@@ -372,7 +438,7 @@ def api_set_widget_state():
 
 @app.route('/api/restart', methods=['POST'])
 def api_restart():
-    threading.Timer(0.5, lambda: [subprocess.Popen([sys.executable] + sys.argv), os._exit(0)]).start()
+    threading.Timer(0.5, lambda: [subprocess.Popen([sys.executable] + sys.argv, creationflags=subprocess.CREATE_NO_WINDOW), os._exit(0)]).start()
     return jsonify({'ok': True})
 
 @app.route('/api/quit', methods=['POST'])
@@ -397,7 +463,8 @@ def _sigint_handler(signum, frame):
     os._exit(0)
 
 def start_server(host='127.0.0.1', port=5000, debug=False):
-    signal.signal(signal.SIGINT, _sigint_handler)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, _sigint_handler)
 
     # Silence engineio/socketio packet noise, keep werkzeug requests visible in debug
     logging.getLogger('socketio').setLevel(logging.WARNING)

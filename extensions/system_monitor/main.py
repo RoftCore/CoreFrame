@@ -1,5 +1,6 @@
 ﻿import psutil
 import os
+import sys
 
 try:
     import GPUtil
@@ -14,31 +15,39 @@ class Extension:
 
     def get_cpu(self):
         result = {"percent": psutil.cpu_percent(interval=0.1)}
-        try:
-            import wmi
-            c = wmi.WMI(namespace="root\\OpenHardwareMonitor")
-            for s in c.Sensor():
-                if s.SensorType == 'Temperature' and 'CPU' in s.Name:
-                    result['temp'] = round(float(s.Value), 1)
-                    break
-        except:
-            pass
-        if 'temp' not in result:
+        if os.name == 'nt':
             try:
-                import subprocess
-                out = subprocess.check_output(
-                    'wmic /namespace:\\\\root\\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value',
-                    shell=True, stderr=subprocess.DEVNULL, timeout=3
-                ).decode()
-                for line in out.splitlines():
-                    if 'CurrentTemperature' in line and '=' in line:
-                        raw = float(line.split('=')[1].strip())
-                        temp = round(raw / 10.0 - 273.15, 1)
-                        if 0 < temp < 120:
-                            result['temp'] = temp
-                            break
+                import wmi
+                c = wmi.WMI(namespace="root\\OpenHardwareMonitor")
+                for s in c.Sensor():
+                    if s.SensorType == 'Temperature' and 'CPU' in s.Name:
+                        result['temp'] = round(float(s.Value), 1)
+                        break
             except:
                 pass
+            if 'temp' not in result:
+                try:
+                    import subprocess
+                    out = subprocess.run(
+                        'wmic /namespace:\\\\root\\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value',
+                        shell=True, capture_output=True, text=True, stderr=subprocess.DEVNULL, timeout=3, creationflags=subprocess.CREATE_NO_WINDOW
+                    ).stdout
+                    for line in out.splitlines():
+                        if 'CurrentTemperature' in line and '=' in line:
+                            raw = float(line.split('=')[1].strip())
+                            temp = round(raw / 10.0 - 273.15, 1)
+                            if 0 < temp < 120:
+                                result['temp'] = temp
+                                break
+                except:
+                    pass
+        else:
+            temps = psutil.sensors_temperatures()
+            for name, entries in temps.items():
+                if entries:
+                    result['temp'] = round(entries[0].current, 1)
+                    result['temp_label'] = name
+                    break
         return {"value": result}
 
     def get_ram(self):

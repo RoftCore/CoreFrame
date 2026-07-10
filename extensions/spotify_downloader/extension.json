@@ -3,6 +3,7 @@
   "name": "Spotify Downloader",
   "icon": "download",
   "description": "Download Spotify playlists as MP3 via YouTube",
+  "platforms": ["windows", "linux"],
   "version": "1.0",
   "author": "SentinelGD",
   "category": "media",

@@ -19,10 +19,22 @@ import logging.handlers
 import os
 import shutil
 import signal
-import subprocess
+import subprocess as _subprocess
 import sys
 import time
 from pathlib import Path
+
+# ── Hide all subprocess console windows ──
+if sys.platform.startswith('win'):
+    _SU = _subprocess.STARTUPINFO()
+    _SU.dwFlags |= _subprocess.STARTF_USESHOWWINDOW
+    _SU.wShowWindow = 0  # SW_HIDE
+    _orig_init = _subprocess.Popen.__init__
+    def _patched_init(self, *args, **kwargs):
+        kwargs.setdefault('startupinfo', _SU)
+        return _orig_init(self, *args, **kwargs)
+    _subprocess.Popen.__init__ = _patched_init
+subprocess = _subprocess
 
 BASE_DIR = Path(__file__).parent
 if sys.platform.startswith("win"):
@@ -243,6 +255,7 @@ def cmd_open(cfg):
         subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         print(f"[*] CoreFrame opened — close window or run 'coreframe close'")
     else:
@@ -254,7 +267,7 @@ def cmd_open(cfg):
 def _kill_pid(pid):
     if sys.platform.startswith("win"):
         subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"],
-                       capture_output=True, timeout=5)
+                       capture_output=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
     else:
         os.kill(pid, signal.SIGTERM)
 
@@ -310,7 +323,7 @@ def cmd_status(cfg):
     # Check scheduled task
     if sys.platform.startswith("win"):
         r = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME, "/V", "/FO", "LIST"],
-                           capture_output=True, text=True, timeout=10)
+                           capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
         if r.returncode == 0:
             for line in r.stdout.splitlines():
                 if "Status" in line and ":" in line:
@@ -368,7 +381,7 @@ def cmd_install(cfg):
 
     r = subprocess.run(
         ["schtasks", "/Create", "/TN", TASK_NAME, "/XML", str(xml_path), "/F"],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True, text=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW,
     )
     xml_path.unlink()
 
@@ -397,7 +410,7 @@ def cmd_remove():
     if sys.platform.startswith("win"):
         r = subprocess.run(
             ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW,
         )
         if r.returncode == 0:
             print(f"[-] Scheduled task '{TASK_NAME}' removed")

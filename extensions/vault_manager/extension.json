@@ -3,6 +3,7 @@
   "name": "Vault Manager",
   "icon": "vault",
   "description": "Encrypted notes and secrets management",
+  "platforms": ["windows", "linux"],
   "version": "1.0",
   "author": "SentinelGD",
   "category": "system",
