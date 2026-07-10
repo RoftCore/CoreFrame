@@ -71,7 +71,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(EXTENSIONS_DIR, exist_ok=True)
 os.makedirs(SHARED_LIB_DIR, exist_ok=True)
 
-MARKETPLACE_URL = 'https://raw.githubusercontent.com/Explotador72/extensions-coreframe/main/registry.json'
+MARKETPLACE_URL = 'https://raw.githubusercontent.com/RoftCore/extensions-coreframe/main/registry.json'
 if SHARED_LIB_DIR not in sys.path:
     sys.path.insert(0, SHARED_LIB_DIR)
 
