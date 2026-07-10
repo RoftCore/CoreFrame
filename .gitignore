@@ -29,3 +29,5 @@ coreframe.log
 
 # Extensions (users install their own)
 extensions/*
+downloads/
+launcher/

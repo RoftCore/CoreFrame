@@ -10,6 +10,7 @@ import subprocess as _subprocess
 import sys
 import threading
 import time
+import urllib.request
 
 # ── Force no console windows on any subprocess ──
 if sys.platform.startswith('win'):
@@ -69,6 +70,8 @@ SHARED_LIB_DIR = os.path.join(DATA_DIR, 'lib')
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(EXTENSIONS_DIR, exist_ok=True)
 os.makedirs(SHARED_LIB_DIR, exist_ok=True)
+
+MARKETPLACE_URL = 'https://raw.githubusercontent.com/Explotador72/extensions-coreframe/main/registry.json'
 if SHARED_LIB_DIR not in sys.path:
     sys.path.insert(0, SHARED_LIB_DIR)
 
@@ -96,7 +99,7 @@ if getattr(sys, 'frozen', False) and os.path.isdir(_bundled_ext_dir):
 
 app = Flask(__name__, static_folder=STATIC_DIR)
 app.config['SECRET_KEY'] = hashlib.sha256(os.urandom(32)).hexdigest()
-socketio = SocketIO(app, async_mode='threading', cors_allowed_origins=["http://127.0.0.1:5000", "http://localhost:5000", "http://127.0.0.1:8420", "http://localhost:8420"])
+socketio = SocketIO(app, async_mode='threading', cors_allowed_origins=["http://127.0.0.1:8420", "http://localhost:8420"])
 
 _LOCAL_TOKEN = hashlib.sha256(os.urandom(32)).hexdigest()[:16]
 extensions = {}
@@ -353,6 +356,89 @@ def api_package_extension(ext_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# ── Marketplace ────────────────────────────────────────────────────────────
+
+MARKETPLACE_CACHE = None
+MARKETPLACE_CACHE_TIME = 0
+
+@app.route('/api/marketplace/list')
+def api_marketplace_list():
+    global MARKETPLACE_CACHE, MARKETPLACE_CACHE_TIME
+    now = time.time()
+    if MARKETPLACE_CACHE and now - MARKETPLACE_CACHE_TIME < 120:
+        return jsonify(MARKETPLACE_CACHE)
+    try:
+        req = urllib.request.Request(MARKETPLACE_URL)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read())
+        MARKETPLACE_CACHE = data
+        MARKETPLACE_CACHE_TIME = now
+        return jsonify(data)
+    except Exception as e:
+        log.error("Marketplace fetch failed: %s", e)
+        return jsonify({'error': str(e)}), 502
+
+@app.route('/api/marketplace/install/<ext_id>', methods=['POST'])
+def api_marketplace_install(ext_id):
+    # First fetch registry to get the download_url
+    try:
+        req = urllib.request.Request(MARKETPLACE_URL)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            registry = json.loads(r.read())
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch registry: {e}'}), 502
+
+    ext_info = None
+    for ex in registry.get('extensions', []):
+        if ex['id'] == ext_id:
+            ext_info = ex
+            break
+    if not ext_info:
+        return jsonify({'error': f'Extension "{ext_id}" not found in marketplace'}), 404
+
+    target = os.path.join(EXTENSIONS_DIR, ext_id)
+    if os.path.exists(target):
+        return jsonify({'error': f'Extension "{ext_id}" is already installed'}), 400
+
+    url = ext_info.get('download_url')
+    if not url:
+        return jsonify({'error': 'No download URL for this extension'}), 404
+
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+    except Exception as e:
+        return jsonify({'error': f'Download failed: {e}'}), 502
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+        names = zf.namelist()
+        prefix = ''
+        for n in names:
+            if n.endswith('/'):
+                continue
+            parts = n.split('/')
+            if len(parts) >= 2:
+                prefix = parts[0] + '/'
+                break
+        os.makedirs(target, exist_ok=True)
+        for n in names:
+            if n.endswith('/'):
+                continue
+            rel = n[len(prefix):] if prefix and n.startswith(prefix) else n
+            dest = os.path.join(target, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, 'wb') as out:
+                out.write(zf.read(n))
+        zf.close()
+        _load_single_extension(ext_id)
+        log.info("Marketplace installed: %s v%s", ext_id, ext_info.get('version', '?'))
+        return jsonify({'ok': True, 'name': ext_info.get('name', ext_id)})
+    except Exception as e:
+        shutil.rmtree(target, ignore_errors=True)
+        return jsonify({'error': f'Install failed: {e}'}), 500
+
 # ── WebSocket ──────────────────────────────────────────────────────────────
 
 @socketio.on('connect')
@@ -462,7 +548,7 @@ def _sigint_handler(signum, frame):
     log.info("Shutting down...")
     os._exit(0)
 
-def start_server(host='127.0.0.1', port=5000, debug=False):
+def start_server(host='127.0.0.1', port=8420, debug=False):
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGINT, _sigint_handler)
 

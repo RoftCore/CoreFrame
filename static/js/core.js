@@ -174,6 +174,39 @@ function hideInstallOverlay() {
 }
 
 document.getElementById('btn-install').addEventListener('click', function () {
+  showInstallChoice();
+});
+
+function showInstallChoice() {
+  var overlay = document.createElement('div');
+  overlay.className = 'pkg-overlay';
+  var dialog = document.createElement('div');
+  dialog.className = 'pkg-dialog';
+  dialog.innerHTML =
+    '<div class="pkg-header">Install Extension</div>' +
+    '<div class="pkg-body" style="text-align:center;padding:24px 14px">' +
+      '<button class="mkt-btn mkt-btn-file" id="mkt-file-btn">📁 From file</button>' +
+      '<div style="margin:12px 0;color:var(--text-muted);font-size:10px">or</div>' +
+      '<button class="mkt-btn mkt-btn-market" id="mkt-market-btn">📦 Marketplace</button>' +
+    '</div>' +
+    '<div class="pkg-footer"><button class="pkg-btn" id="mkt-close">Cancel</button></div>';
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  document.getElementById('mkt-close').addEventListener('click', function () { overlay.remove(); });
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+
+  document.getElementById('mkt-file-btn').addEventListener('click', function () {
+    overlay.remove();
+    triggerFileInstall();
+  });
+
+  document.getElementById('mkt-market-btn').addEventListener('click', function () {
+    showMarketplaceList(overlay);
+  });
+}
+
+function triggerFileInstall() {
   var input = document.createElement('input');
   input.type = 'file';
   input.accept = '.zip';
@@ -200,7 +233,71 @@ document.getElementById('btn-install').addEventListener('click', function () {
   document.body.appendChild(input);
   input.click();
   setTimeout(function () { input.remove(); }, 2000);
-});
+}
+
+function showMarketplaceList(choiceOverlay) {
+  var overlay = choiceOverlay || document.createElement('div');
+  if (!choiceOverlay) {
+    overlay.className = 'pkg-overlay';
+    document.body.appendChild(overlay);
+  }
+  var dialog = overlay.querySelector('.pkg-dialog');
+  if (!dialog) {
+    dialog = document.createElement('div');
+    dialog.className = 'pkg-dialog';
+    overlay.appendChild(dialog);
+  }
+  dialog.innerHTML =
+    '<div class="pkg-header">Marketplace</div>' +
+    '<div class="pkg-body" id="mkt-body">Loading...</div>' +
+    '<div class="pkg-footer"><button class="pkg-btn" id="mkt-close2">Close</button></div>';
+
+  document.getElementById('mkt-close2').addEventListener('click', function () { overlay.remove(); });
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+
+  apiFetch('/api/marketplace/list').then(function (registry) {
+    var body = document.getElementById('mkt-body');
+    if (!registry || registry.error) {
+      body.innerHTML = '<div class="pkg-empty">Failed to load marketplace: ' + (registry ? registry.error : 'unknown') + '</div>';
+      return;
+    }
+    var exts = registry.extensions || [];
+    if (!exts.length) {
+      body.innerHTML = '<div class="pkg-empty">No extensions available.</div>';
+      return;
+    }
+    body.innerHTML = '';
+    exts.forEach(function (ext) {
+      var row = document.createElement('div');
+      row.className = 'pkg-row mkt-row';
+      var info = document.createElement('div');
+      info.className = 'pkg-info';
+      info.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span><br><span style="font-size:9px;color:var(--text-muted)">' + (ext.description || '') + '</span>';
+      var btn = document.createElement('button');
+      btn.className = 'pkg-btn pkg-btn-primary mkt-install-btn';
+      btn.textContent = 'Install';
+      btn.addEventListener('click', function () {
+        btn.textContent = '...';
+        btn.disabled = true;
+        showInstallOverlay('Downloading ' + ext.name + '...');
+        apiFetch('/api/marketplace/install/' + encodeURIComponent(ext.id), { method: 'POST' }).then(function (res) {
+          if (res && res.error) {
+            hideInstallOverlay();
+            alert('Error: ' + res.error);
+            btn.textContent = 'Install';
+            btn.disabled = false;
+            return;
+          }
+          showInstallOverlay(ext.name + ' installed!');
+          setTimeout(function () { location.reload(); }, 400);
+        });
+      });
+      row.appendChild(info);
+      row.appendChild(btn);
+      body.appendChild(row);
+    });
+  });
+}
 
 document.getElementById('btn-package').addEventListener('click', function () {
   var overlay = document.createElement('div');
