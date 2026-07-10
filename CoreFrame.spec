@@ -26,7 +26,6 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=['E:\\Programming\\CoreFrame\\runtime_hook.py'],
     excludes=[
         'numpy',
         'pythoncom',
