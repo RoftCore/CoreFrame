@@ -1,17 +1,5 @@
-import sys
 import os
-
-# ── Kill any console that may appear and redirect stdout/stderr ──
-if sys.platform.startswith('win'):
-    import ctypes
-    _chwnd = ctypes.windll.kernel32.GetConsoleWindow()
-    if _chwnd:
-        ctypes.windll.user32.ShowWindow(_chwnd, 0)
-        ctypes.windll.kernel32.FreeConsole()
-    _nul = open(os.devnull, 'w')
-    sys.stdout = _nul
-    sys.stderr = _nul
-
+import sys
 import json
 import threading
 import time
