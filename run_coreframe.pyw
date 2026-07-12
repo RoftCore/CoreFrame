@@ -46,7 +46,8 @@ def _show_error(title, msg):
     except Exception:
         pass
 
-t = threading.Thread(target=start_server, kwargs={'host': HOST, 'port': PORT}, daemon=True)
+debug_mode = not getattr(sys, 'frozen', False)
+t = threading.Thread(target=start_server, kwargs={'host': HOST, 'port': PORT, 'debug': debug_mode}, daemon=True)
 t.start()
 
 if not _wait_for_server():

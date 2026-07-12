@@ -1,4 +1,15 @@
 /* --- Context Menu --- */
+/* hide number input spinners */
+#size-editor-cols::-webkit-inner-spin-button,
+#size-editor-rows::-webkit-inner-spin-button,
+#size-editor-cols::-webkit-outer-spin-button,
+#size-editor-rows::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+#size-editor-cols, #size-editor-rows {
+  -moz-appearance: textfield;
+}
 .ctx-menu {
   display: none;
   position: fixed;
@@ -83,7 +94,15 @@
 
 /* --- Move Mode --- */
 body.move-mode .widget-grid {
-  grid-auto-rows: 90px !important;
+  overflow: hidden;
+  position: relative;
+}
+body.move-mode .widget-grid .grid-overlay,
+body.resize-mode .widget-grid .grid-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
 }
 body.move-mode .widget {
   cursor: grab;
@@ -97,9 +116,11 @@ body.move-mode .widget.widget-moving {
   box-shadow: 0 0 20px rgba(0, 212, 255, 0.3), var(--shadow-lg);
 }
 
+
 /* --- Resize Mode (PowerPoint-style) --- */
 body.resize-mode .widget-grid {
-  grid-auto-rows: 90px !important;
+  overflow: hidden;
+  position: relative;
 }
 body.resize-mode .widget-resizing {
   pointer-events: auto;
@@ -124,6 +145,7 @@ body.resize-mode .widget-resizing::after {
 /* Cascade animation */
 .widget-extension {
   transition: grid-column 0.15s ease, grid-row 0.15s ease;
+  z-index: 11;
 }
 
 /* --- Hidden Items in Panel --- */
@@ -149,6 +171,11 @@ body.resize-mode .widget-resizing::after {
   text-transform: uppercase;
   letter-spacing: 1px;
 }
+.ctx-hidden-item svg {
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+}
 
 /* --- Overlayable widgets --- */
 .widget-overlayable {
@@ -170,4 +197,10 @@ body.move-mode .widget-overlayable {
 /* --- Disable right-click on sub-widgets with click_action --- */
 .widget-sub[data-click-action] {
   position: relative;
+}
+
+/* --- Feather icons in picker --- */
+.icon-picker-item svg {
+  width: 16px;
+  height: 16px;
 }

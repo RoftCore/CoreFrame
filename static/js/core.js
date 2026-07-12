@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   clockTick();
   setInterval(clockTick, 1000);
 
-  // ── Debug mode check ──
+  // Debug mode check 
   const dbg = await apiFetch('/api/debug');
   if (dbg && !dbg.debug) {
     var pkgBtn = document.getElementById('btn-package');
@@ -112,7 +112,7 @@ function startWidgetIntervals(data) {
   }
 }
 
-// --- WebSocket (generic realtime bus) ---
+//  WebSocket
 function initWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}`;
@@ -244,7 +244,7 @@ function showMarketplaceList(choiceOverlay) {
   var dialog = overlay.querySelector('.pkg-dialog');
   if (!dialog) {
     dialog = document.createElement('div');
-    dialog.className = 'pkg-dialog';
+    dialog.className = 'pkg-dialog mkt-dialog';
     overlay.appendChild(dialog);
   }
   dialog.innerHTML =
@@ -274,37 +274,49 @@ function showMarketplaceList(choiceOverlay) {
         body.innerHTML = '<div class="pkg-empty">No extensions available.</div>';
         return;
       }
+      var grid = document.createElement('div');
+      grid.className = 'mkt-grid';
       filtered.forEach(function (ext) {
-        var row = document.createElement('div');
-        row.className = 'pkg-row mkt-row' + (ext.hidden ? ' mkt-hidden' : '');
-        var info = document.createElement('div');
-        info.className = 'pkg-info';
-        var badge = ext.hidden ? ' <span style="font-size:8px;color:#ff9800;border:1px solid #ff9800;border-radius:2px;padding:0 4px;margin-left:4px">hidden</span>' : '';
-        info.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span>' + badge + '<br><span style="font-size:9px;color:var(--text-muted)">' + (ext.description || '') + '</span>';
+        var installed = !!(extensionsData && extensionsData[ext.id]);
+        var card = document.createElement('div');
+        card.className = 'mkt-card' + (ext.hidden ? ' mkt-hidden' : '') + (installed ? ' mkt-installed' : '');
+        var nameEl = document.createElement('div');
+        nameEl.className = 'mkt-card-name';
+        nameEl.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span>';
+        var descEl = document.createElement('div');
+        descEl.className = 'mkt-card-desc';
+        descEl.textContent = ext.description || '';
         var btn = document.createElement('button');
-        btn.className = 'pkg-btn pkg-btn-primary mkt-install-btn';
-        btn.textContent = 'Install';
-        btn.addEventListener('click', function () {
-          btn.textContent = '...';
+        if (installed) {
+          btn.className = 'pkg-btn mkt-installed-btn';
+          btn.textContent = 'Installed';
           btn.disabled = true;
-          showInstallOverlay('Downloading ' + ext.name + '...');
-          apiFetch('/api/marketplace/install/' + encodeURIComponent(ext.id), { method: 'POST' }).then(function (res) {
-            if (res && res.error) {
-              hideInstallOverlay();
-              alert('Error: ' + res.error);
-              btn.textContent = 'Install';
-              btn.disabled = false;
-              return;
-            }
-            showInstallOverlay(ext.name + ' installed!');
-            setTimeout(function () { location.reload(); }, 400);
+        } else {
+          btn.className = 'pkg-btn pkg-btn-primary';
+          btn.textContent = 'Install';
+          btn.addEventListener('click', function () {
+            btn.textContent = '...';
+            btn.disabled = true;
+            showInstallOverlay('Downloading ' + ext.name + '...');
+            apiFetch('/api/marketplace/install/' + encodeURIComponent(ext.id), { method: 'POST' }).then(function (res) {
+              if (res && res.error) {
+                hideInstallOverlay();
+                alert('Error: ' + res.error);
+                btn.textContent = 'Install';
+                btn.disabled = false;
+                return;
+              }
+              showInstallOverlay(ext.name + ' installed!');
+              setTimeout(function () { location.reload(); }, 400);
+            });
           });
-        });
-        row.appendChild(info);
-        row.appendChild(btn);
-        body.appendChild(row);
+        }
+        card.appendChild(nameEl);
+        card.appendChild(descEl);
+        card.appendChild(btn);
+        grid.appendChild(card);
       });
-      // Toggle
+      body.appendChild(grid);
       var toggleRow = document.createElement('div');
       toggleRow.style.cssText = 'padding:8px 0;border-top:1px solid var(--border-color);margin-top:4px';
       var label = document.createElement('label');
@@ -389,7 +401,7 @@ document.getElementById('btn-reload').addEventListener('click', async () => {
   setTimeout(poll, 1500);
 });
 
-// ── Window mode state & F11 ─────────────────────────────────────────
+//  Window mode state & F11 
 
 let currentWindowMode = new URLSearchParams(window.location.search).get('mode') || 'windowed';
 
@@ -438,50 +450,5 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ── Settings dropdown ─────────────────────────────────────────────────
-
+// ── Settings dropdown (accessible via right-click on gear)
 const settingsBtn = document.getElementById('btn-settings');
-const settingsDropdown = document.getElementById('settings-dropdown');
-
-// Sync active class on load
-settingsDropdown.querySelectorAll('.settings-option').forEach(o => {
-  if (o.dataset.mode === currentWindowMode) o.classList.add('active');
-});
-
-settingsBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  settingsDropdown.classList.toggle('visible');
-});
-
-document.addEventListener('click', () => {
-  settingsDropdown.classList.remove('visible');
-});
-
-settingsDropdown.querySelectorAll('.settings-option').forEach(opt => {
-  opt.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const mode = opt.dataset.mode;
-    settingsDropdown.querySelectorAll('.settings-option').forEach(o => o.classList.remove('active'));
-    opt.classList.add('active');
-    var applied = false;
-    if (window.pywebview) {
-      try {
-        applied = await pywebview.api.set_window_mode(mode);
-        currentWindowMode = mode;
-      } catch (err) {
-        console.warn('set_window_mode pywebview failed:', err);
-        applyWindowModeFallback(mode);
-        currentWindowMode = mode;
-        applied = true;
-      }
-    } else {
-      applyWindowModeFallback(mode);
-      currentWindowMode = mode;
-      applied = true;
-    }
-    if (!applied) {
-      showToast('Reinicia CoreFrame para aplicar ' + mode);
-    }
-    settingsDropdown.classList.remove('visible');
-  });
-});

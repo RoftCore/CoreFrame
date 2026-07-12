@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/css/utilities.css">
   <link rel="stylesheet" href="/css/core-effects.css">
   <link rel="stylesheet" href="/css/widget-control.css">
+  <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
   <script src="/js/socket.io.min.js"></script>
 </head>
 <body>
@@ -20,6 +21,7 @@
         <div class="topbar-logo">CF</div>
         <span class="topbar-title">CoreFrame</span>
       </div>
+      <div class="scene-bar" id="scene-bar"></div>
       <nav class="topbar-nav" id="sidebar-nav"></nav>
 
       <div class="topbar-info">
@@ -56,6 +58,7 @@
     </div>
     <div class="result-panel-body" id="result-panel-body"></div>
   </div>
+  <input type="file" id="scene-img-input" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" style="display:none">
 
   <script src="/js/utils.js"></script>
   <script src="/js/widgets.js"></script>

@@ -187,7 +187,7 @@ def api_debug():
 @app.before_request
 def check_token():
     if request.path.startswith('/api/') and request.path not in ('/api/token', '/api/health', '/api/debug'):
-        if request.path.startswith('/api/package_extension/'):
+        if request.path.startswith('/api/package_extension/') or request.path.startswith('/api/scenes/image/'):
             return
         token = request.headers.get('X-CoreFrame-Token', '')
         if token != _LOCAL_TOKEN:
@@ -520,6 +520,170 @@ def api_set_widget_state():
     save_widget_state(data)
     return jsonify({'ok': True})
 
+# ── Scenes ──────────────────────────────────────────────────────────────────
+
+ALLOWED_SCENE_IMG = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
+MAX_SCENE_IMG_SIZE = 256 * 1024  # 256 KiB
+
+def _migrate_scenes(state):
+    """Convert old layout/hidden format to scenes."""
+    scenes = {
+        'default': {
+            'label': '🎮',
+            'name': 'Default',
+            'image': None,
+            'cols': 12,
+            'rows': 6,
+            'widgets': {}
+        }
+    }
+    old_layout = state.get('layout') or {}
+    old_hidden = state.get('hidden') or {}
+    for ext_id, pos in old_layout.items():
+        scenes['default']['widgets'][ext_id] = {
+            'col': pos.get('col', 1), 'row': pos.get('row', 1),
+            'w': pos.get('w', 2), 'h': pos.get('h', 2),
+            'hidden': ext_id in old_hidden
+        }
+    for ext_id in old_hidden:
+        if ext_id not in scenes['default']['widgets']:
+            scenes['default']['widgets'][ext_id] = {
+                'col': 1, 'row': 1, 'w': 2, 'h': 2, 'hidden': True
+            }
+    state['scenes'] = scenes
+    state['activeScene'] = 'default'
+    # Clean old keys
+    state.pop('layout', None)
+    state.pop('hidden', None)
+    save_widget_state(state)
+    return scenes
+
+@app.route('/api/scenes')
+def api_get_scenes():
+    state = load_widget_state()
+    scenes = state.get('scenes')
+    if not scenes:
+        scenes = _migrate_scenes(state)
+    # Ensure scenes have the 'name' field (migration)
+    for sid, sc in scenes.items():
+        if 'name' not in sc:
+            sc['name'] = sid.replace('_', ' ').title()
+        if 'cols' not in sc:
+            sc['cols'] = 12
+        if 'rows' not in sc:
+            sc['rows'] = 6
+    state['scenes'] = scenes
+    active = state.get('activeScene')
+    # Ensure active scene exists
+    if active not in scenes:
+        active = list(scenes.keys())[0] if scenes else None
+    return jsonify({'scenes': scenes, 'active': active})
+
+@app.route('/api/scenes', methods=['POST'])
+def api_create_scene():
+    state = load_widget_state()
+    scenes = state.get('scenes')
+    if not scenes:
+        scenes = _migrate_scenes(state)
+    # Build id from existing count
+    n = len(scenes) + 1
+    sid = f'scene_{n}'
+    while sid in scenes:
+        n += 1
+        sid = f'scene_{n}'
+    scenes[sid] = {'label': 'home', 'name': sid.replace('_', ' ').title(), 'image': None, 'cols': 12, 'rows': 6, 'widgets': {}}
+    state['scenes'] = scenes
+    save_widget_state(state)
+    return jsonify({'ok': True, 'id': sid})
+
+@app.route('/api/scenes/<scene_id>', methods=['PUT'])
+def api_update_scene(scene_id):
+    data = request.get_json(silent=True) or {}
+    state = load_widget_state()
+    scenes = state.get('scenes') or {}
+    if scene_id not in scenes:
+        return jsonify({'error': 'Scene not found'}), 404
+    if 'label' in data:
+        scenes[scene_id]['label'] = data['label']
+    if 'name' in data:
+        scenes[scene_id]['name'] = data['name']
+    if 'image' in data:
+        scenes[scene_id]['image'] = data['image']
+    if 'cols' in data:
+        scenes[scene_id]['cols'] = data['cols']
+    if 'rows' in data:
+        scenes[scene_id]['rows'] = data['rows']
+    state['scenes'] = scenes
+    save_widget_state(state)
+    return jsonify({'ok': True})
+
+@app.route('/api/scenes/<scene_id>', methods=['DELETE'])
+def api_delete_scene(scene_id):
+    state = load_widget_state()
+    scenes = state.get('scenes') or {}
+    if scene_id not in scenes:
+        return jsonify({'error': 'Scene not found'}), 404
+    if len(scenes) <= 1:
+        return jsonify({'error': 'Cannot delete last scene'}), 400
+    del scenes[scene_id]
+    if state.get('activeScene') == scene_id:
+        keys = list(scenes.keys())
+        state['activeScene'] = keys[0]
+    state['scenes'] = scenes
+    save_widget_state(state)
+    return jsonify({'ok': True})
+
+@app.route('/api/scenes/activate', methods=['POST'])
+def api_activate_scene():
+    data = request.get_json(silent=True) or {}
+    sid = data.get('id')
+    state = load_widget_state()
+    scenes = state.get('scenes') or {}
+    if sid not in scenes:
+        return jsonify({'error': 'Scene not found'}), 404
+    state['activeScene'] = sid
+    save_widget_state(state)
+    return jsonify({'ok': True})
+
+@app.route('/api/scenes/<scene_id>/widgets', methods=['PUT'])
+def api_save_scene_widgets(scene_id):
+    data = request.get_json(silent=True) or {}
+    state = load_widget_state()
+    scenes = state.get('scenes') or {}
+    if scene_id not in scenes:
+        return jsonify({'error': 'Scene not found'}), 404
+    scenes[scene_id]['widgets'] = data.get('widgets', {})
+    state['scenes'] = scenes
+    save_widget_state(state)
+    return jsonify({'ok': True})
+
+@app.route('/api/scenes/upload-image', methods=['POST'])
+def api_upload_scene_image():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image file'}), 400
+    f = request.files['image']
+    if not f.filename:
+        return jsonify({'error': 'Empty filename'}), 400
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+    if ext not in ALLOWED_SCENE_IMG:
+        return jsonify({'error': f'Invalid format: .{ext}. Allowed: {",".join(sorted(ALLOWED_SCENE_IMG))}'}), 400
+    # Read and check size
+    data_bytes = f.read()
+    if len(data_bytes) > MAX_SCENE_IMG_SIZE:
+        return jsonify({'error': f'Image too large (max {MAX_SCENE_IMG_SIZE//1024} KiB)'}), 400
+    # Save to DATA_DIR/scenes/ (STATIC_DIR is read-only in .exe)
+    name = f'scene_img_{int(time.time()*1000)}.{ext}'
+    dest_dir = os.path.join(DATA_DIR, 'scenes')
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, name)
+    with open(dest, 'wb') as out:
+        out.write(data_bytes)
+    return jsonify({'ok': True, 'path': f'/api/scenes/image/{name}'})
+
+@app.route('/api/scenes/image/<filename>')
+def api_serve_scene_image(filename):
+    return send_from_directory(os.path.join(DATA_DIR, 'scenes'), filename)
+
 # ── Restart / Quit ─────────────────────────────────────────────────────────
 
 @app.route('/api/restart', methods=['POST'])
@@ -592,4 +756,4 @@ def start_server(host='127.0.0.1', port=8420, debug=False):
         os._exit(0)
 
 if __name__ == '__main__':
-    start_server()
+    start_server(debug=True)
