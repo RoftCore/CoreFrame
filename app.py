@@ -324,7 +324,7 @@ def api_debug():
 @app.before_request
 def check_token():
     if request.path.startswith('/api/') and request.path not in ('/api/token', '/api/health', '/api/debug'):
-        if request.path.startswith('/api/scenes/image/'):
+        if request.path.startswith('/api/package_extension/') or request.path.startswith('/api/scenes/image/'):
             return
         token = request.headers.get('X-CoreFrame-Token', '')
         if token != _LOCAL_TOKEN:
@@ -528,6 +528,63 @@ def index():
 @app.route('/<path:path>')
 def static_files(path):
     return send_from_directory(STATIC_DIR, path)
+
+# ── Package extension ──────────────────────────────────────────────────────
+
+@app.route('/api/package_extension/<ext_id>')
+def api_package_extension(ext_id):
+    ext_path = os.path.join(EXTENSIONS_DIR, ext_id)
+    if not os.path.isdir(ext_path):
+        return jsonify({'error': 'Extension not found'}), 404
+
+    author = request.args.get('author', '').strip()
+
+    # Load current extension.json to merge author
+    config_path = os.path.join(ext_path, 'extension.json')
+    config = {}
+    try:
+        with open(config_path, encoding='utf-8') as f:
+            config = json.load(f)
+    except Exception:
+        pass
+
+    # Build the zip in memory
+    try:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(ext_path):
+                dirs[:] = [d for d in dirs if d not in ('__pycache__', 'Downloads_playlists') and not d.startswith('.')]
+                for f in files:
+                    if f.endswith(('.pyc', '.pyo', '.zip', '.mp3', '.webp', '.jpg', '.jpeg', '.png')):
+                        continue
+                    if f in ('config.json',):
+                        continue
+                    full = os.path.join(root, f)
+                    rel = os.path.relpath(full, ext_path)
+                    zf.write(full, rel)
+
+            # Inject / update author in extension.json
+            if author:
+                config['author'] = author
+            zf.writestr('extension.json', json.dumps(config, indent=2))
+
+            # Ensure lib/ subdirectories have __init__.py
+            ext_lib = os.path.join(ext_path, 'lib')
+            if os.path.isdir(ext_lib):
+                for sub_root, sub_dirs, sub_files in os.walk(ext_lib):
+                    for sd in sub_dirs:
+                        init_path = os.path.join(sub_root, sd, '__init__.py')
+                        rel_init = os.path.relpath(init_path, ext_path).replace('\\', '/')
+                        # Only add if not already present in the walk
+                        try:
+                            zf.getinfo(rel_init)
+                        except KeyError:
+                            zf.writestr(rel_init, '')
+
+        buf.seek(0)
+        return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=f'{ext_id}.zip')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # ── Marketplace ────────────────────────────────────────────────────────────
 
