@@ -36,7 +36,8 @@ jobs:
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: pyinstaller CoreFrame.spec
+        run: |
+          pyinstaller --noconfirm CoreFrame.spec
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
