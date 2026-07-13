@@ -1600,7 +1600,9 @@
     '<div class="ctx-menu-item" data-action="scenes">\u{1F3E0}  Scene settings</div>' +
     '<div class="ctx-menu-item" data-action="extensions">\u{1F4E6}  Extensions</div>' +
     '<div class="ctx-menu-separator"></div>' +
-    '<div class="ctx-menu-item" data-action="window">\u{1F5A5}  Window settings</div>';
+    '<div class="ctx-menu-item" data-action="window">\u{1F5A5}  Window settings</div>' +
+    '<div class="ctx-menu-separator"></div>' +
+    '<div class="ctx-menu-item" id="autostart-item" data-action="autostart">\u{23F1}  Loading...</div>';
 
   var _settingsWindowHTML =
     '<div class="ctx-menu-item" data-action="back" style="color:var(--text-muted);font-size:10px">\u{2190}  Back</div>' +
@@ -1640,6 +1642,10 @@
         } else if (action === 'windowed' || action === 'frameless' || action === 'fullscreen') {
           closeSettingsDropdown();
           setWindowMode(action);
+        } else if (action === 'autostart') {
+          apiFetch('/api/autostart', { method: 'POST' }).then(function (res) {
+            if (res && !res.error) updateAutostartItem(res);
+          });
         }
       });
     }
@@ -1647,6 +1653,21 @@
     menu.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(rect.bottom + 4, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');
+    apiFetch('/api/autostart').then(function (res) {
+      if (res && !res.error) updateAutostartItem(res);
+    });
+  }
+
+  function updateAutostartItem(res) {
+    var item = document.getElementById('autostart-item');
+    if (!item) return;
+    if (res.available === false) {
+      item.textContent = '\u{23F1}  Start on boot (not available)';
+      item.style.opacity = '0.4';
+      return;
+    }
+    item.style.opacity = '1';
+    item.textContent = res.enabled ? '\u2705  Start on boot' : '\u{2B1C}  Start on boot';
   }
 
   function closeSettingsDropdown() {
