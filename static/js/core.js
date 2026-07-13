@@ -8,8 +8,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Debug mode check 
   const dbg = await apiFetch('/api/debug');
   if (dbg && !dbg.debug) {
-    var pkgBtn = document.getElementById('btn-package');
-    if (pkgBtn) pkgBtn.style.display = 'none';
   }
   if (dbg && dbg.debug) {
     document.body.classList.add('mode-debug');
@@ -357,98 +355,6 @@ function showMarketplaceList(choiceOverlay) {
     renderMarketplace();
   });
 }
-
-document.getElementById('btn-package').addEventListener('click', function () {
-  var overlay = document.createElement('div');
-  overlay.className = 'pkg-overlay';
-  var dialog = document.createElement('div');
-  dialog.className = 'pkg-dialog';
-  dialog.innerHTML =
-    '<div class="pkg-header">Package extension</div>' +
-    '<div class="pkg-body" id="pkg-body">Loading...</div>' +
-    '<div class="pkg-footer"><button class="pkg-btn" id="pkg-close">Close</button></div>';
-  overlay.appendChild(dialog);
-  document.body.appendChild(overlay);
-
-  document.getElementById('pkg-close').addEventListener('click', function () { overlay.remove(); });
-  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
-
-  apiFetch('/api/extensions').then(function (data) {
-    if (!data || data.error) { document.getElementById('pkg-body').textContent = 'Failed to load extensions.'; return; }
-    var body = document.getElementById('pkg-body');
-    body.innerHTML = '';
-    var ids = Object.keys(data).sort();
-    if (!ids.length) { body.innerHTML = '<div class="pkg-empty">No extensions installed.</div>'; return; }
-    ids.forEach(function (id) {
-      var ext = data[id];
-      var row = document.createElement('div');
-      row.className = 'pkg-row';
-      var info = document.createElement('div');
-      info.className = 'pkg-info';
-      var authorLine = ext.author ? '<br><span class="text-muted" style="font-size:11px">author: ' + escapeHtml(ext.author) + '</span>' : '';
-      info.innerHTML = '<strong>' + escapeHtml(ext.name || id) + '</strong> <span class="text-muted">' + escapeHtml(id) + '</span>' + authorLine;
-      var btn = document.createElement('button');
-      btn.className = 'pkg-btn pkg-btn-primary';
-      btn.textContent = 'Package';
-
-      var authorRow = document.createElement('div');
-      authorRow.className = 'pkg-author-row';
-      authorRow.style.display = 'none';
-      var authorInput = document.createElement('input');
-      authorInput.type = 'text';
-      authorInput.placeholder = 'Author name...';
-      authorInput.className = 'pkg-author-input';
-      authorInput.value = ext.author || '';
-      var authorConfirm = document.createElement('button');
-      authorConfirm.className = 'pkg-btn pkg-btn-primary';
-      authorConfirm.textContent = 'OK';
-      authorConfirm.style.marginLeft = '6px';
-      authorRow.appendChild(authorInput);
-      authorRow.appendChild(authorConfirm);
-
-      function doPackage(author) {
-        btn.textContent = '...';
-        btn.disabled = true;
-        authorRow.style.display = 'none';
-        var a = document.createElement('a');
-        a.href = '/api/package_extension/' + encodeURIComponent(id) + '?author=' + encodeURIComponent(author);
-        a.download = id + '.zip';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(function () { a.remove(); btn.textContent = 'Package'; btn.disabled = false; }, 3000);
-      }
-
-      btn.addEventListener('click', function () {
-        if (ext.author) {
-          doPackage(ext.author);
-        } else {
-          authorRow.style.display = 'flex';
-          authorInput.focus();
-        }
-      });
-
-      authorConfirm.addEventListener('click', function () {
-        var val = authorInput.value.trim();
-        if (!val) { authorInput.focus(); return; }
-        doPackage(val);
-      });
-
-      authorInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-          var val = authorInput.value.trim();
-          if (!val) return;
-          doPackage(val);
-        }
-      });
-
-      row.appendChild(info);
-      row.appendChild(btn);
-      row.appendChild(authorRow);
-      body.appendChild(row);
-    });
-  });
-});
 
 document.getElementById('btn-reload').addEventListener('click', async () => {
   const btn = document.getElementById('btn-reload');

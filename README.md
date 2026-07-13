@@ -205,7 +205,7 @@ rl.on('line', (line) => {
 });
 ```
 
-Extensions are packaged as `.zip` from the UI (Package button) and distributed via GitHub or the community marketplace.
+Extensions are distributed as `.zip` archives via GitHub or the community marketplace.
 
 ## License
 

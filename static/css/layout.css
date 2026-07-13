@@ -311,61 +311,6 @@
 
 #overlay.open { display: block; }
 
-/* --- Package dialog --- */
-.pkg-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200;
-  display: flex; align-items: center; justify-content: center;
-}
-
-.pkg-dialog {
-  background: var(--bg-secondary); border: 1px solid var(--border-color);
-  border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
-  min-width: 340px; max-width: 480px; width: 90%; max-height: 70vh;
-  display: flex; flex-direction: column; overflow: hidden;
-}
-
-.pkg-header {
-  padding: 10px 14px; border-bottom: 1px solid var(--border-color);
-  font-size: 12px; font-weight: 600; color: var(--text-primary);
-}
-
-.pkg-body {
-  flex: 1; overflow-y: auto; padding: 8px 14px;
-  font-size: 11px; color: var(--text-secondary);
-}
-
-.pkg-empty { text-align: center; padding: 20px 0; color: var(--text-muted); }
-
-.pkg-footer {
-  padding: 8px 14px; border-top: 1px solid var(--border-color);
-  display: flex; justify-content: flex-end;
-}
-
-.pkg-author-row {
-  display: none; align-items: center; margin-top: 4px; width: 100%;
-}
-.pkg-author-input {
-  flex: 1; padding: 4px 8px; border: 1px solid var(--border-color);
-  border-radius: 4px; background: var(--bg-primary); color: var(--text-primary);
-  font-family: var(--font-mono); font-size: 11px; outline: none;
-}
-.pkg-author-input:focus { border-color: var(--accent-cyan); }
-
-.pkg-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 0; border-bottom: 1px solid var(--border-color);
-}
-.pkg-row:last-child { border-bottom: none; }
-
-.pkg-info strong { color: var(--text-primary); }
-
-.pkg-btn {
-  padding: 4px 12px; border: 1px solid var(--border-color);
-  border-radius: 4px; background: transparent; color: var(--text-secondary);
-  font-family: var(--font-mono); font-size: 10px; cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.pkg-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
 .pkg-btn-primary {
   background: rgba(0,212,255,0.12); border-color: var(--accent-cyan); color: var(--accent-cyan);
 }
