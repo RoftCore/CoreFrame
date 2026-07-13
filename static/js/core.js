@@ -8,6 +8,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Debug mode check 
   const dbg = await apiFetch('/api/debug');
   if (dbg && !dbg.debug) {
+    var pkgBtn = document.getElementById('btn-package');
+    if (pkgBtn) pkgBtn.style.display = 'none';
   }
   if (dbg && dbg.debug) {
     document.body.classList.add('mode-debug');

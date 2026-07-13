@@ -349,9 +349,6 @@
 .pkg-row:last-child { border-bottom: none; }
 .pkg-info strong { color: var(--text-primary); }
 
-#btn-package { display: none; }
-.mode-debug #btn-package { display: flex; }
-
 .pkg-btn-primary {
   background: rgba(0,212,255,0.12); border-color: var(--accent-cyan); color: var(--accent-cyan);
 }
