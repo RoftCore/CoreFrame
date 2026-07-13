@@ -1,14 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os, sys, glob
+
+_py_dll_dir = os.path.join(sys.base_prefix, 'DLLs')
+_ssl_files = glob.glob(os.path.join(_py_dll_dir, 'libcrypto*')) + \
+             glob.glob(os.path.join(_py_dll_dir, 'libssl*'))
+_ssl_bins = [(f, '.') for f in _ssl_files]
 
 a = Analysis(
     ['run_coreframe.pyw'],
     pathex=[],
-    binaries=[],
+    binaries=_ssl_bins,
     datas=[
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
     ],
     hiddenimports=[
+        'ssl',
+        '_ssl',
         'engineio.async_drivers.threading',
         'eventlet',
         'psutil',
