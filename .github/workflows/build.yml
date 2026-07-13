@@ -5,6 +5,7 @@ on:
     branches: [main]
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -61,9 +62,10 @@ jobs:
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: |
-          pyinstaller --noconfirm --onefile --windowed \
+          pyinstaller --noconfirm --onefile \
             --name CoreFrame \
             --collect-all ssl \
+            --additional-hooks-dir hooks \
             --add-data "static:static" \
             --add-data "extensions/fortune_cookie:extensions/fortune_cookie" \
             --hidden-import engineio.async_drivers.threading \
@@ -74,6 +76,15 @@ jobs:
             --hidden-import PIL._imaging \
             --hidden-import PIL._imagingcms \
             --hidden-import PIL._imagingft \
+            --hidden-import gi \
+            --hidden-import gi.repository.GLib \
+            --hidden-import gi.repository.GObject \
+            --hidden-import gi.repository.Gio \
+            --hidden-import gi.repository.Gdk \
+            --hidden-import gi.repository.Gtk \
+            --hidden-import gi.repository.WebKit2 \
+            --hidden-import webview \
+            --hidden-import webview.platforms.gtk \
             --exclude numpy \
             --exclude pythoncom \
             run_coreframe.pyw
