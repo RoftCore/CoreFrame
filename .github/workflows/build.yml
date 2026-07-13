@@ -25,7 +25,6 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          # Try webkit2gtk 4.1 (Ubuntu 24.04+) or fallback to 4.0 (22.04)
           sudo apt-get install -y python3-gi python3-gi-cairo \
             gir1.2-webkit2-4.1 || sudo apt-get install -y \
             python3-gi python3-gi-cairo gir1.2-webkit2-4.0
@@ -36,14 +35,35 @@ jobs:
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          pyinstaller --noconfirm CoreFrame.spec
+          pyinstaller --noconfirm --onefile --windowed --name CoreFrame `
+            --icon CoreFrame.ico `
+            --collect-all ssl `
+            --add-data "static;static" `
+            --add-data "extensions\fortune_cookie;extensions\fortune_cookie" `
+            --hidden-import engineio.async_drivers.threading `
+            --hidden-import eventlet `
+            --hidden-import psutil `
+            --hidden-import winreg `
+            --hidden-import tkinter `
+            --hidden-import tkinter.filedialog `
+            --hidden-import webview `
+            --hidden-import webview.platforms.winforms `
+            --hidden-import webview.platforms.win32 `
+            --exclude numpy `
+            --exclude pythoncom `
+            --exclude dns.win32util `
+            --exclude curl_cffi `
+            --exclude pycowsay `
+            run_coreframe.pyw
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: |
-          pyinstaller --onefile --windowed \
+          pyinstaller --noconfirm --onefile --windowed \
             --name CoreFrame \
+            --collect-all ssl \
             --add-data "static:static" \
             --add-data "extensions/fortune_cookie:extensions/fortune_cookie" \
             --hidden-import engineio.async_drivers.threading \
