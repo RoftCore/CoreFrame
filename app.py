@@ -523,7 +523,8 @@ def api_delete_extension(ext_id):
 
 @app.route('/api/debug.js')
 def api_debug_js():
-    debug_status = 'true' if app.debug else 'false'
+    frozen = getattr(sys, 'frozen', False)
+    debug_status = 'false' if frozen else 'true'
     return Response(f'const _COREFRAME_DEBUG = {debug_status};', mimetype='application/javascript')
 
 @app.route('/')
