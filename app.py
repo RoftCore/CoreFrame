@@ -37,7 +37,7 @@ subprocess = _subprocess  # alias
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from flask import Flask, jsonify, request, send_from_directory, send_file
+from flask import Flask, Response, jsonify, request, send_from_directory, send_file
 from flask_socketio import SocketIO, emit
 
 # Force bundle eventlet for PyInstaller (needed by flask-socketio)
@@ -520,6 +520,11 @@ def api_delete_extension(ext_id):
     return jsonify({'ok': True, 'id': ext_id})
 
 # ── Static frontend ────────────────────────────────────────────────────────
+
+@app.route('/api/debug.js')
+def api_debug_js():
+    debug_status = 'true' if app.debug else 'false'
+    return Response(f'const _COREFRAME_DEBUG = {debug_status};', mimetype='application/javascript')
 
 @app.route('/')
 def index():

@@ -5,13 +5,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   clockTick();
   setInterval(clockTick, 1000);
 
-  // Debug mode check 
-  const dbg = await apiFetch('/api/debug');
-  if (dbg && !dbg.debug) {
+  if (!_COREFRAME_DEBUG) {
     var pkgBtn = document.getElementById('btn-package');
     if (pkgBtn) pkgBtn.style.display = 'none';
   }
-  if (dbg && dbg.debug) {
+  if (_COREFRAME_DEBUG) {
     document.body.classList.add('mode-debug');
   }
 
