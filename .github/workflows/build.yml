@@ -2,9 +2,7 @@ name: Build CoreFrame
 
 on:
   push:
-    branches: [main]
-  release:
-    types: [published]
+    tags: ['v*']
   workflow_dispatch:
 
 jobs:
@@ -97,14 +95,24 @@ jobs:
             dist/CoreFrame.exe
             dist/CoreFrame
 
-      - name: Attach binaries to release
-        if: github.event_name == 'release'
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            gh release upload "${{ github.event.release.tag_name }}" dist/CoreFrame.exe#CoreFrame-Windows.exe
-          else
-            gh release upload "${{ github.event.release.tag_name }}" dist/CoreFrame#CoreFrame-Linux
-          fi
+          TAG="${GITHUB_REF_NAME}"
+          gh release create "$TAG" \
+            artifacts/CoreFrame-Windows/CoreFrame.exe#CoreFrame-Windows.exe \
+            artifacts/CoreFrame-Linux/CoreFrame#CoreFrame-Linux \
+            --title "CoreFrame $TAG" \
+            --notes "" 2>/dev/null || true
