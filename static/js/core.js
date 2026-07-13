@@ -5,9 +5,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   clockTick();
   setInterval(clockTick, 1000);
 
-  if (_COREFRAME_DEBUG) {
-    var pkgBtn = document.getElementById('btn-package');
-    if (pkgBtn) pkgBtn.style.display = '';
+  if (typeof _COREFRAME_DEBUG !== 'undefined' && _COREFRAME_DEBUG) {
+    document.getElementById('btn-package').style.display = '';
+    document.getElementById('btn-reload').style.display = '';
     document.body.classList.add('mode-debug');
   }
 

@@ -323,7 +323,7 @@ def api_debug():
 
 @app.before_request
 def check_token():
-    if request.path.startswith('/api/') and request.path not in ('/api/token', '/api/health', '/api/debug'):
+    if request.path.startswith('/api/') and request.path not in ('/api/token', '/api/health', '/api/debug', '/api/debug.js'):
         if request.path.startswith('/api/package_extension/') or request.path.startswith('/api/scenes/image/'):
             return
         token = request.headers.get('X-CoreFrame-Token', '')
