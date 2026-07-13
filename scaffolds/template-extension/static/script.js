@@ -1,17 +1,17 @@
-// Tu lógica JavaScript aquí
+(function() {
+  var EXT_ID = 'my_extension';
 
-async function initMyExtension() {
-  // Inicialización
-  const data = await apiFetch('/api/extension/my_extension/my_action');
-  if (data.error) return;
-  console.log('My extension data:', data);
-}
-
-// Auto-init
-(function waitForInit() {
-  if (typeof extensionsData !== 'undefined' && Object.keys(extensionsData).length) {
-    initMyExtension();
-    return;
+  function wait() {
+    if (typeof extensionsData !== 'undefined' && extensionsData[EXT_ID]) {
+      init();
+      return;
+    }
+    setTimeout(wait, 200);
   }
-  setTimeout(waitForInit, 200);
+
+  function init() {
+    console.log('[EXT] ' + EXT_ID + ' loaded');
+  }
+
+  wait();
 })();

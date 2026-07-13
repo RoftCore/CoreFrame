@@ -6,10 +6,13 @@
   "version": "1.0",
   "author": "Your Name",
   "category": "general",
-  "js_modules": [],
-  "css_modules": [],
+  "language": "python",
+  "main": "main.py",
+  "js_modules": ["script.js"],
+  "css_modules": ["style.css"],
+  "grid_size": { "w": 2, "h": 1 },
   "refresh_interval": 5000,
   "widgets": [
-    { "id": "my_widget", "type": "metric", "label": "My Metric", "action": "my_action" }
+    { "id": "my_widget", "type": "text", "label": "My Metric", "action": "my_action" }
   ]
 }

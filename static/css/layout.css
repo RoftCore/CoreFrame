@@ -341,6 +341,16 @@
   display: flex; justify-content: flex-end;
 }
 
+.pkg-author-row {
+  display: none; align-items: center; margin-top: 4px; width: 100%;
+}
+.pkg-author-input {
+  flex: 1; padding: 4px 8px; border: 1px solid var(--border-color);
+  border-radius: 4px; background: var(--bg-primary); color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 11px; outline: none;
+}
+.pkg-author-input:focus { border-color: var(--accent-cyan); }
+
 .pkg-row {
   display: flex; align-items: center; justify-content: space-between;
   padding: 6px 0; border-bottom: 1px solid var(--border-color);

@@ -64,6 +64,8 @@ function loadExtensionAssets(data) {
 
 function renderWidgets(data) {
   const container = document.getElementById('main-content');
+  if (typeof clearProgressTimers === 'function') clearProgressTimers();
+  if (typeof clearDropdownMenus === 'function') clearDropdownMenus();
   container.innerHTML = '';
 
   const grid = document.createElement('div');
@@ -94,8 +96,14 @@ function refreshAllWidgets(data) {
 async function refreshWidget(extId, wDef) {
   const el = document.querySelector(`[data-widget-id="${wDef.id}"][data-ext-id="${extId}"]`);
   if (!el) return;
-  const response = await apiFetch(`/api/extension/${extId}/${wDef.action}`);
-  updateWidgetValue(el, response);
+  if (wDef.action) {
+    try {
+      const response = await apiFetch(`/api/extension/${extId}/${wDef.action}`);
+      updateWidgetValue(el, response);
+    } catch (e) {
+      updateWidgetValue(el, { error: 'Connection error' });
+    }
+  }
 }
 
 function startWidgetIntervals(data) {
@@ -221,9 +229,14 @@ function triggerFileInstall() {
       method: 'POST',
       body: formData
     }).then(function (data) {
+      if (data && data.exists) {
+        hideInstallOverlay();
+        showToast(data.message || 'This extension has already been imported.');
+        return;
+      }
       if (data && data.error) {
         hideInstallOverlay();
-        alert('Error: ' + data.error);
+        showToast('Error: ' + data.error);
         return;
       }
       showInstallOverlay('Extension installed!');
@@ -299,9 +312,16 @@ function showMarketplaceList(choiceOverlay) {
             btn.disabled = true;
             showInstallOverlay('Downloading ' + ext.name + '...');
             apiFetch('/api/marketplace/install/' + encodeURIComponent(ext.id), { method: 'POST' }).then(function (res) {
+              if (res && res.exists) {
+                hideInstallOverlay();
+                showToast(res.message || 'This extension has already been imported.');
+                btn.textContent = 'Install';
+                btn.disabled = false;
+                return;
+              }
               if (res && res.error) {
                 hideInstallOverlay();
-                alert('Error: ' + res.error);
+                showToast('Error: ' + res.error);
                 btn.textContent = 'Install';
                 btn.disabled = false;
                 return;
@@ -365,23 +385,66 @@ document.getElementById('btn-package').addEventListener('click', function () {
       row.className = 'pkg-row';
       var info = document.createElement('div');
       info.className = 'pkg-info';
-      info.innerHTML = '<strong>' + (ext.name || id) + '</strong> <span class="text-muted">' + id + '</span>';
+      var authorLine = ext.author ? '<br><span class="text-muted" style="font-size:11px">author: ' + escapeHtml(ext.author) + '</span>' : '';
+      info.innerHTML = '<strong>' + escapeHtml(ext.name || id) + '</strong> <span class="text-muted">' + escapeHtml(id) + '</span>' + authorLine;
       var btn = document.createElement('button');
       btn.className = 'pkg-btn pkg-btn-primary';
       btn.textContent = 'Package';
-      btn.addEventListener('click', function () {
+
+      var authorRow = document.createElement('div');
+      authorRow.className = 'pkg-author-row';
+      authorRow.style.display = 'none';
+      var authorInput = document.createElement('input');
+      authorInput.type = 'text';
+      authorInput.placeholder = 'Author name...';
+      authorInput.className = 'pkg-author-input';
+      authorInput.value = ext.author || '';
+      var authorConfirm = document.createElement('button');
+      authorConfirm.className = 'pkg-btn pkg-btn-primary';
+      authorConfirm.textContent = 'OK';
+      authorConfirm.style.marginLeft = '6px';
+      authorRow.appendChild(authorInput);
+      authorRow.appendChild(authorConfirm);
+
+      function doPackage(author) {
         btn.textContent = '...';
         btn.disabled = true;
+        authorRow.style.display = 'none';
         var a = document.createElement('a');
-        a.href = '/api/package_extension/' + encodeURIComponent(id);
+        a.href = '/api/package_extension/' + encodeURIComponent(id) + '?author=' + encodeURIComponent(author);
         a.download = id + '.zip';
         a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
         setTimeout(function () { a.remove(); btn.textContent = 'Package'; btn.disabled = false; }, 3000);
+      }
+
+      btn.addEventListener('click', function () {
+        if (ext.author) {
+          doPackage(ext.author);
+        } else {
+          authorRow.style.display = 'flex';
+          authorInput.focus();
+        }
       });
+
+      authorConfirm.addEventListener('click', function () {
+        var val = authorInput.value.trim();
+        if (!val) { authorInput.focus(); return; }
+        doPackage(val);
+      });
+
+      authorInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          var val = authorInput.value.trim();
+          if (!val) return;
+          doPackage(val);
+        }
+      });
+
       row.appendChild(info);
       row.appendChild(btn);
+      row.appendChild(authorRow);
       body.appendChild(row);
     });
   });

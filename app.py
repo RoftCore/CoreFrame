@@ -103,6 +103,7 @@ socketio = SocketIO(app, async_mode='threading', cors_allowed_origins=["http://1
 
 _LOCAL_TOKEN = hashlib.sha256(os.urandom(32)).hexdigest()[:16]
 extensions = {}
+failed_extensions = {}
 latest_update = {}
 _client_count = 0
 
@@ -141,38 +142,174 @@ def load_extensions():
                 log.info("Skipping %s: not compatible with %s", name, current_os)
                 continue
             _sync_extension_lib(ext_path)
-            spec = importlib.util.spec_from_file_location(f"extensions.{name}", main_path)
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[f"extensions.{name}"] = module
-            spec.loader.exec_module(module)
-            ext_instance = module.Extension(config)
+            lang = config.get('language', 'python')
+            if lang != 'python' and lang != 'py':
+                ext_instance = SubprocessBridge(config, ext_path)
+            else:
+                spec = importlib.util.spec_from_file_location(f"extensions.{name}", main_path)
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[f"extensions.{name}"] = module
+                spec.loader.exec_module(module)
+                ext_instance = module.Extension(config)
             extensions[name] = {'config': config, 'instance': ext_instance}
-            log.info("Loaded extension: %s", config.get('name', name))
+            log.info("Loaded extension: %s (%s)", config.get('name', name), lang)
+        except json.JSONDecodeError as e:
+            msg = f"Invalid extension.json: {e}"
+            log.error("Failed to load %s: %s", name, msg)
+            failed_extensions[name] = {'name': name, 'loadError': msg}
         except Exception as e:
-            log.error("Failed to load %s: %s", name, e)
+            msg = str(e)
+            log.error("Failed to load %s: %s", name, msg)
+            try:
+                with open(config_path, encoding='utf-8-sig') as f:
+                    config = json.load(f)
+                failed_extensions[name] = {'name': config.get('name', name), 'loadError': msg}
+            except Exception:
+                failed_extensions[name] = {'name': name, 'loadError': msg}
 
 def _load_single_extension(ext_id):
     ext_path = os.path.join(EXTENSIONS_DIR, ext_id)
     config_path = os.path.join(ext_path, 'extension.json')
     main_path = os.path.join(ext_path, 'main.py')
-    if not os.path.exists(config_path) or not os.path.exists(main_path):
+    if not os.path.exists(config_path):
         return False
     try:
         with open(config_path, encoding='utf-8-sig') as f:
             config = json.load(f)
+        lang = config.get('language', 'python')
         _sync_extension_lib(ext_path)
-        mod_name = f"extensions.{ext_id}"
-        spec = importlib.util.spec_from_file_location(mod_name, main_path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[mod_name] = module
-        spec.loader.exec_module(module)
-        ext_instance = module.Extension(config)
+        if lang != 'python' and lang != 'py':
+            ext_instance = SubprocessBridge(config, ext_path)
+        else:
+            if not os.path.exists(main_path):
+                return False
+            mod_name = f"extensions.{ext_id}"
+            spec = importlib.util.spec_from_file_location(mod_name, main_path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = module
+            spec.loader.exec_module(module)
+            ext_instance = module.Extension(config)
         extensions[ext_id] = {'config': config, 'instance': ext_instance}
-        log.info("Dynamically loaded extension: %s", config.get('name', ext_id))
+        failed_extensions.pop(ext_id, None)
+        log.info("Dynamically loaded extension: %s (%s)", config.get('name', ext_id), lang)
         return True
     except Exception as e:
         log.error("Failed to dynamically load %s: %s", ext_id, e)
         return False
+
+# ── Multi-language bridge ──────────────────────────────────────────────────
+
+class SubprocessBridge:
+    _LANG_MAP = {
+        'node': 'node',
+        'nodejs': 'node',
+        'javascript': 'node',
+        'python': sys.executable,
+        'py': sys.executable,
+    }
+
+    def __init__(self, config, ext_path):
+        self.ext_id = config.get('id', '?')
+        self.language = config.get('language', 'python')
+        self.main = config.get('main', 'main.py')
+        self._proc = None
+        self._lock = threading.Lock()
+        self._reader_lock = threading.Lock()
+        self._read_buffer = {}
+        self._running = True
+        self._start(ext_path)
+
+    def _start(self, ext_path):
+        main_path = os.path.join(ext_path, self.main)
+        if not os.path.isfile(main_path):
+            raise FileNotFoundError(f"Main file not found: {main_path}")
+
+        interpreter = self._LANG_MAP.get(self.language)
+        if not interpreter:
+            raise RuntimeError(f"Unsupported language: {self.language}")
+
+        if self.language in ('python', 'py'):
+            cmd = [interpreter, main_path]
+        else:
+            cmd = [interpreter, main_path]
+
+        startupinfo = None
+        if sys.platform.startswith('win'):
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+        self._proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=ext_path,
+            text=True,
+            bufsize=1,
+            startupinfo=startupinfo,
+        )
+        log.info("[Bridge] Started %s process for %s (pid=%d)", self.language, self.ext_id, self._proc.pid)
+        self._reader = threading.Thread(target=self._read_loop, daemon=True, name=f'bridge-{self.ext_id}')
+        self._reader.start()
+
+    def _read_loop(self):
+        while self._running and self._proc and self._proc.poll() is None:
+            try:
+                line = self._proc.stdout.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
+                rid = data.get('id')
+                if rid is not None:
+                    with self._reader_lock:
+                        self._read_buffer[rid] = data
+            except (json.JSONDecodeError, ValueError, OSError):
+                pass
+        err = self._proc.stderr.read() if self._proc and self._proc.poll() is not None else ''
+        if err:
+            log.warning("[Bridge] %s stderr: %s", self.ext_id, err.strip())
+
+    def _call(self, method, params=None):
+        if not self._proc or self._proc.poll() is not None:
+            raise RuntimeError(f"Extension {self.ext_id} process is dead")
+
+        rid = int(time.time() * 1000) % 1000000 + id(method) % 1000
+        req = json.dumps({'method': method, 'params': params or {}, 'id': rid}) + '\n'
+
+        with self._lock:
+            self._proc.stdin.write(req)
+            self._proc.stdin.flush()
+
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            with self._reader_lock:
+                resp = self._read_buffer.pop(rid, None)
+            if resp is not None:
+                if 'error' in resp:
+                    return {'error': resp['error']}
+                return {'value': resp.get('result', resp)}
+            time.sleep(0.01)
+
+        return {'error': 'Timeout: extension did not respond in 30s'}
+
+    def __getattr__(self, name):
+        if name.startswith('_') or name in ('start', 'on_stop', 'stop', 'config', 'ext_id'):
+            raise AttributeError(name)
+        def caller(params=None):
+            return self._call(name, params)
+        return caller
+
+    def on_stop(self):
+        self._running = False
+        if self._proc and self._proc.poll() is None:
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=5)
+            except Exception:
+                self._proc.kill()
 
 # ── Auth ───────────────────────────────────────────────────────────────────
 
@@ -213,7 +350,18 @@ def api_extensions():
             'refresh_interval': cfg.get('refresh_interval', 5000),
             'platforms': cfg.get('platforms'),
             'js_modules': cfg.get('js_modules', []),
-            'css_modules': cfg.get('css_modules', [])
+            'css_modules': cfg.get('css_modules', []),
+            'author': cfg.get('author', ''),
+            'version': cfg.get('version', '1.0'),
+            'language': cfg.get('language', 'python'),
+            'main': cfg.get('main', 'main.py')
+        }
+    for ext_id, ext_data in failed_extensions.items():
+        result[ext_id] = {
+            'id': ext_id,
+            'name': ext_data.get('name', ext_id),
+            'loadError': ext_data.get('loadError', 'Unknown error'),
+            'widgets': []
         }
     return jsonify(result)
 
@@ -278,7 +426,7 @@ def api_install_extension():
         ext_name = cfg_data.get('name', ext_id)
         target = os.path.join(EXTENSIONS_DIR, ext_id)
         if os.path.exists(target):
-            return jsonify({'error': f'Extension "{ext_id}" already exists'}), 400
+            return jsonify({'exists': True, 'message': f'Extension "{ext_name}" has already been imported before and cannot be imported again.'})
         prefix = ''
         if has_subdir and ext_config.count('/') >= 1:
             prefix = ext_config.rsplit('/', 1)[0] + '/'
@@ -316,10 +464,60 @@ def api_install_extension():
             json.dump(registry, rf, indent=2)
 
         # Load immediately — no pip steps, no polling needed
-        _load_single_extension(ext_id)
+        if not _load_single_extension(ext_id):
+            err_msg = failed_extensions.get(ext_id, {}).get('loadError', 'Unknown error')
+            return jsonify({'error': f'Extension installed but failed to load: {err_msg}'}), 500
         return jsonify({'value': {'name': ext_name, 'id': ext_id, 'installing_deps': False}})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/extensions/<ext_id>', methods=['DELETE'])
+def api_delete_extension(ext_id):
+    ext_path = os.path.join(EXTENSIONS_DIR, ext_id)
+    if not os.path.isdir(ext_path):
+        return jsonify({'error': 'Extension not found'}), 404
+
+    try:
+        shutil.rmtree(ext_path)
+    except Exception as e:
+        return jsonify({'error': f'Failed to delete extension files: {e}'}), 500
+
+    # Unload from memory
+    extensions.pop(ext_id, None)
+    failed_extensions.pop(ext_id, None)
+    mod_name = f"extensions.{ext_id}"
+    if mod_name in sys.modules:
+        del sys.modules[mod_name]
+
+    # Remove widgets of this extension from all scenes
+    try:
+        state = load_widget_state()
+        scenes = state.get('scenes')
+        if scenes:
+            changed = False
+            for sid, scene in scenes.items():
+                if isinstance(scene, dict) and ext_id in scene.get('widgets', {}):
+                    del scene['widgets'][ext_id]
+                    changed = True
+            if changed:
+                state['scenes'] = scenes
+                save_widget_state(state)
+                log.info("Cleaned up %s widgets from all scenes", ext_id)
+    except Exception as e:
+        log.warning("Failed to clean up widgets for %s: %s", ext_id, e)
+
+    # Remove from registry
+    try:
+        with open(REGISTRY_PATH, encoding='utf-8') as rf:
+            registry = json.load(rf)
+        registry.pop(ext_id, None)
+        with open(REGISTRY_PATH, 'w', encoding='utf-8') as rf:
+            json.dump(registry, rf, indent=2)
+    except Exception:
+        pass
+
+    log.info("Extension deleted: %s", ext_id)
+    return jsonify({'ok': True, 'id': ext_id})
 
 # ── Static frontend ────────────────────────────────────────────────────────
 
@@ -338,6 +536,19 @@ def api_package_extension(ext_id):
     ext_path = os.path.join(EXTENSIONS_DIR, ext_id)
     if not os.path.isdir(ext_path):
         return jsonify({'error': 'Extension not found'}), 404
+
+    author = request.args.get('author', '').strip()
+
+    # Load current extension.json to merge author
+    config_path = os.path.join(ext_path, 'extension.json')
+    config = {}
+    try:
+        with open(config_path, encoding='utf-8') as f:
+            config = json.load(f)
+    except Exception:
+        pass
+
+    # Build the zip in memory
     try:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -351,6 +562,25 @@ def api_package_extension(ext_id):
                     full = os.path.join(root, f)
                     rel = os.path.relpath(full, ext_path)
                     zf.write(full, rel)
+
+            # Inject / update author in extension.json
+            if author:
+                config['author'] = author
+            zf.writestr('extension.json', json.dumps(config, indent=2))
+
+            # Ensure lib/ subdirectories have __init__.py
+            ext_lib = os.path.join(ext_path, 'lib')
+            if os.path.isdir(ext_lib):
+                for sub_root, sub_dirs, sub_files in os.walk(ext_lib):
+                    for sd in sub_dirs:
+                        init_path = os.path.join(sub_root, sd, '__init__.py')
+                        rel_init = os.path.relpath(init_path, ext_path).replace('\\', '/')
+                        # Only add if not already present in the walk
+                        try:
+                            zf.getinfo(rel_init)
+                        except KeyError:
+                            zf.writestr(rel_init, '')
+
         buf.seek(0)
         return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=f'{ext_id}.zip')
     except Exception as e:
@@ -398,7 +628,7 @@ def api_marketplace_install(ext_id):
 
     target = os.path.join(EXTENSIONS_DIR, ext_id)
     if os.path.exists(target):
-        return jsonify({'error': f'Extension "{ext_id}" is already installed'}), 400
+        return jsonify({'exists': True, 'message': f'Extension "{ext_info.get("name", ext_id)}" has already been imported before and cannot be imported again.'})
 
     url = ext_info.get('download_url')
     if not url:
@@ -623,8 +853,8 @@ def api_delete_scene(scene_id):
     scenes = state.get('scenes') or {}
     if scene_id not in scenes:
         return jsonify({'error': 'Scene not found'}), 404
-    if len(scenes) <= 1:
-        return jsonify({'error': 'Cannot delete last scene'}), 400
+    if len(scenes) <= 1 or scene_id == 'default':
+        return jsonify({'error': 'Cannot delete this scene'}), 400
     del scenes[scene_id]
     if state.get('activeScene') == scene_id:
         keys = list(scenes.keys())

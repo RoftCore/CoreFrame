@@ -1,0 +1,75 @@
+name: Build CoreFrame
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi python3-gi-cairo gir1.2-webkit2-4.0
+
+      - name: Install Python deps
+        run: |
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: pyinstaller CoreFrame.spec
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pyinstaller --onefile --windowed \
+            --name CoreFrame \
+            --add-data "static:static" \
+            --add-data "extensions/fortune_cookie:extensions/fortune_cookie" \
+            --hidden-import engineio.async_drivers.threading \
+            --hidden-import eventlet \
+            --hidden-import psutil \
+            --hidden-import requests \
+            --hidden-import PIL.Image \
+            --hidden-import PIL._imaging \
+            --hidden-import PIL._imagingcms \
+            --hidden-import PIL._imagingft \
+            --exclude numpy \
+            --exclude pythoncom \
+            run_coreframe.pyw
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoreFrame-${{ runner.os }}
+          path: |
+            dist/CoreFrame.exe
+            dist/CoreFrame
+
+      - name: Attach binaries to release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            gh release upload "${{ github.event.release.tag_name }}" dist/CoreFrame.exe#CoreFrame-Windows.exe
+          else
+            gh release upload "${{ github.event.release.tag_name }}" dist/CoreFrame#CoreFrame-Linux
+          fi

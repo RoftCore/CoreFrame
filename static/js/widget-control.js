@@ -71,14 +71,21 @@
   function saveAllLayouts() {
     if (!currentScene()) return;
     var sw = {};
+    var maxCols = sceneCols();
+    var s = currentScene();
+    var maxRows = (s && s.rows) || 6;
     document.querySelectorAll('.widget-extension').forEach(function (w) {
       if (w.style.display === 'none') return;
       var gc = (w.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       var gr = (w.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       if (gc && gr && w.dataset.extId) {
+        var col = Math.max(1, parseInt(gc[1],10));
+        var row = Math.max(1, parseInt(gr[1],10));
+        var wSpan = Math.max(1, Math.min(parseInt(gc[2],10), maxCols - col + 1));
+        var hSpan = Math.max(1, Math.min(parseInt(gr[2],10), maxRows - row + 1));
         sw[w.dataset.extId] = {
-          col: parseInt(gc[1],10), row: parseInt(gr[1],10),
-          w: parseInt(gc[2],10), h: parseInt(gr[2],10),
+          col: col, row: row,
+          w: wSpan, h: hSpan,
           hidden: false
         };
       }
@@ -108,15 +115,16 @@
     for (var extId in sw) {
       if (!sw.hasOwnProperty(extId)) continue;
       var pos = sw[extId];
-      var clampedCol = Math.min(pos.col || 1, cols);
+      var clampedCol = Math.max(1, Math.min(pos.col || 1, cols));
       var clampedW = Math.min(pos.w || 2, cols - clampedCol + 1);
       var w = document.querySelector('.widget-extension.ext-' + extId);
       if (w) {
         w.style.minHeight = '';
         w.style.maxHeight = '';
         w.style.gridColumn = clampedCol + ' / span ' + clampedW;
-        var clampedRow = Math.min(pos.row || 1, (s.rows || 6) - Math.min(pos.h || 2, s.rows || 6) + 1);
-        w.style.gridRow = Math.max(1, clampedRow) + ' / span ' + Math.min(pos.h || 2, s.rows || 6);
+        var clampedRow = Math.max(1, Math.min(pos.row || 1, (s.rows || 6)));
+        var clampedH = Math.min(pos.h || 2, (s.rows || 6) - clampedRow + 1);
+        w.style.gridRow = clampedRow + ' / span ' + clampedH;
       }
     }
   }
@@ -148,6 +156,7 @@
       '<div class="ctx-menu-item" data-action="hide">\u{1F5D1}  Hide widget</div>' +
       '<div class="ctx-menu-item" data-action="move">\u{2194}  Move widget</div>' +
       '<div class="ctx-menu-item" data-action="resize">\u{2197}  Resize widget</div>' +
+      '<div class="ctx-menu-item" data-action="style" id="ctx-style-btn" style="display:none">\u{265B} Change Style</div>' +
       '<div class="ctx-menu-separator"></div>' +
       '<div class="ctx-menu-item" data-action="show" id="ctx-show-btn" style="display:none">\u{1F441}  Show hidden widgets...</div>' +
       '<div class="ctx-menu-item" data-action="install" id="ctx-install-btn" style="display:none">\u{2795}  Install extension...</div>';
@@ -163,6 +172,8 @@
       } else if (action === 'install') {
         var btn = document.getElementById('btn-install');
         if (btn) btn.click();
+      } else if (action === 'style') {
+        showStylePicker(target);
       } else if (target) {
         if (action === 'hide') hideWidget(target);
         else if (action === 'move') enterMoveMode();
@@ -186,6 +197,19 @@
     document.getElementById('ctx-show-btn').style.display = Object.keys(hidden).length > 0 ? 'flex' : 'none';
     document.getElementById('ctx-install-btn').style.display = 'none';
 
+    var extData = window.extensionsData && window.extensionsData[widget.dataset.extId];
+    var hasStyles = false;
+    if (extData && extData.widgets) {
+      for (var wi = 0; wi < extData.widgets.length; wi++) {
+        var st = extData.widgets[wi].styles;
+        if (st && typeof st === 'object' && !Array.isArray(st) && Object.keys(st).length > 0) {
+          hasStyles = true;
+          break;
+        }
+      }
+    }
+    document.getElementById('ctx-style-btn').style.display = hasStyles ? 'flex' : 'none';
+
     menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 160) + 'px';
     menu.classList.add('visible');
@@ -197,7 +221,7 @@
     closeCtxMenu();
     document.querySelectorAll('.ctx-target').forEach(function (el) { return el.classList.remove('ctx-target'); });
     const menu = getOrCreateCtxMenu();
-    menu.querySelectorAll('[data-action="hide"],[data-action="move"],[data-action="resize"]').forEach(function (el) { return el.style.display = 'none'; });
+    menu.querySelectorAll('[data-action="hide"],[data-action="move"],[data-action="resize"],[data-action="style"]').forEach(function (el) { return el.style.display = 'none'; });
     menu.querySelector('.ctx-menu-separator').style.display = 'none';
     document.getElementById('ctx-show-btn').style.display = hasHidden ? 'flex' : 'none';
     document.getElementById('ctx-install-btn').style.display = hasHidden ? 'none' : 'flex';
@@ -210,6 +234,106 @@
     const m = document.getElementById('ctx-menu');
     if (m) m.classList.remove('visible');
     document.querySelectorAll('.ctx-target').forEach(function (el) { return el.classList.remove('ctx-target'); });
+  }
+
+  // ----- style picker -----
+  function showStylePicker(widget) {
+    var extId = widget.dataset.extId;
+    var extData = window.extensionsData && window.extensionsData[extId];
+    if (!extData) return;
+
+    var styleDefs = {};
+    for (var wi = 0; wi < (extData.widgets || []).length; wi++) {
+      var st = extData.widgets[wi].styles;
+      if (st && typeof st === 'object' && !Array.isArray(st)) {
+        for (var name in st) {
+          if (!styleDefs[name]) styleDefs[name] = st[name] || {};
+        }
+      }
+    }
+    var styleNames = Object.keys(styleDefs);
+    if (styleNames.length === 0) return;
+
+    var sw = sceneWidgets();
+    var currentStyle = (sw[extId] && sw[extId].style) || 'default';
+
+    var panel = document.getElementById('result-panel');
+    var overlay = document.getElementById('overlay');
+    var title = document.getElementById('result-panel-title');
+    var body = document.getElementById('result-panel-body');
+    title.textContent = 'Change Style - ' + (extData.name || extId);
+
+    var html = '<div style="font-family:var(--font-mono);padding:4px 0;">';
+    var defActive = currentStyle === 'default' ? ';border-color:var(--accent-cyan);background:rgba(0,212,255,0.15)' : '';
+    html += '<div class="style-option" data-style="default" style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;border:1px solid transparent;border-radius:var(--radius-sm);margin-bottom:4px' + defActive + '">' +
+      '<div style="width:18px;height:18px;border-radius:50%;border:2px solid var(--border-light);background:var(--bg-widget);flex-shrink:0;"></div>' +
+      '<div><div style="font-size:12px;color:var(--text-primary);">Default</div><div style="font-size:9px;color:var(--text-muted);">Default style</div></div>' +
+      (currentStyle === 'default' ? '<span class="style-active-label" style="margin-left:auto;color:var(--accent-cyan);font-size:10px;">Active</span>' : '') +
+      '</div>';
+    styleNames.forEach(function(s) {
+      var sd = styleDefs[s] || {};
+      var label = sd.label || s.charAt(0).toUpperCase() + s.slice(1);
+      var active = currentStyle === s ? ';border-color:var(--accent-cyan);background:rgba(0,212,255,0.15)' : '';
+      html += '<div class="style-option" data-style="' + s + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;border:1px solid transparent;border-radius:var(--radius-sm);margin-bottom:4px' + active + '">' +
+        '<div style="width:18px;height:18px;border-radius:50%;border:2px solid var(--border-light);flex-shrink:0;background:var(--bg-widget);"></div>' +
+        '<div><div style="font-size:12px;color:var(--text-primary);">' + escapeHtml(label) + '</div><div style="font-size:9px;color:var(--text-muted);">' + escapeHtml(s) + '</div></div>' +
+        (currentStyle === s ? '<span class="style-active-label" style="margin-left:auto;color:var(--accent-cyan);font-size:10px;">Active</span>' : '') +
+        '</div>';
+    });
+    html += '</div>';
+    body.innerHTML = html;
+
+    body.querySelectorAll('.style-option').forEach(function(el) {
+      el.addEventListener('click', function() {
+        var styleName = el.dataset.style;
+        changeWidgetStyle(extId, styleName);
+        body.querySelectorAll('.style-option').forEach(function(opt) {
+          opt.style.borderColor = 'transparent';
+          opt.style.background = '';
+          var oldLabel = opt.querySelector('.style-active-label');
+          if (oldLabel) oldLabel.remove();
+        });
+        el.style.borderColor = 'var(--accent-cyan)';
+        el.style.background = 'rgba(0,212,255,0.15)';
+        var tag = document.createElement('span');
+        tag.className = 'style-active-label';
+        tag.style.cssText = 'margin-left:auto;color:var(--accent-cyan);font-size:10px;';
+        tag.textContent = 'Active';
+        el.appendChild(tag);
+        if (typeof showToast !== 'undefined') showToast('Style changed to ' + label);
+      });
+    });
+
+    panel.classList.add('open');
+    overlay.classList.add('open');
+  }
+
+  function changeWidgetStyle(extId, styleName) {
+    if (!extId || !currentScene()) return;
+    currentScene().widgets[extId] = currentScene().widgets[extId] || {};
+    currentScene().widgets[extId].style = styleName;
+    persistScenes();
+    applyStyleToWidget(extId);
+  }
+
+  function applyStyleToWidget(extId) {
+    var sw = sceneWidgets();
+    var w = document.querySelector('.widget-extension.ext-' + extId);
+    if (!w || !sw[extId]) return;
+    w.className = w.className.replace(/\bwidget-style-\S+/g, '').trim();
+    var style = sw[extId].style;
+    if (style && style !== 'default') {
+      w.classList.add('widget-style-' + style);
+    }
+  }
+
+  function applyWidgetStyles() {
+    var sw = sceneWidgets();
+    for (var extId in sw) {
+      if (sw.hasOwnProperty(extId) && sw[extId].style) {
+        applyStyleToWidget(extId);
+      }
+    }
   }
 
   // ----- hide / show -----
@@ -283,6 +407,7 @@
       wEl.style.display = '';
       wEl.style.gridColumn = spot.col + ' / span ' + spot.w;
       wEl.style.gridRow = spot.row + ' / span ' + spot.h;
+      applyStyleToWidget(extId);
     }
     if (spot.w !== w || spot.h !== h) {
       showToast('Resized to fit: ' + spot.w + 'x' + spot.h);
@@ -580,43 +705,62 @@
     return pos;
   }
 
+  function gridPosFromPixel(el, grid, maxCols, maxRows) {
+    var gridRect = grid.getBoundingClientRect();
+    var elRect = el.getBoundingClientRect();
+    var colW = gridRect.width / maxCols;
+    var rowH = gridRect.height / maxRows;
+    return {
+      col: Math.max(1, Math.round((elRect.left - gridRect.left) / colW) + 1),
+      row: Math.max(1, Math.round((elRect.top - gridRect.top) / rowH) + 1)
+    };
+  }
+
   // Freeze all widget positions so CSS Grid doesn't reflow others on resize/move
   function freezeAllPositions() {
     var grid = document.querySelector('.widget-grid');
     if (!grid) return;
-    var gridRect = grid.getBoundingClientRect();
-      var colWidth = gridRect.width / sceneCols();
+    var maxCols = sceneCols();
+    var s = currentScene();
+    var maxRows = (s && s.rows) || 6;
 
-    // PASS 1: read all geometry and collect row Ys
-    var rowTops = [];
     var entries = [];
     document.querySelectorAll('.widget-extension').forEach(function (w) {
       if (w.style.display === 'none') return;
-      var wr = w.getBoundingClientRect();
+      var cs = window.getComputedStyle(w);
       var gc = w.style.gridColumn;
       var gr = w.style.gridRow;
-      var top = Math.round(wr.top - gridRect.top);
-      if (rowTops.indexOf(top) === -1) rowTops.push(top);
-      entries.push({
-        el: w,
-        needsFreeze: /^span\s+\d+$/.test(gc),
-        col: Math.max(1, Math.round((wr.left - gridRect.left) / colWidth) + 1),
-        top: top,
-        spanW: parseInt((gc.match(/span\s+(\d+)/) || ['', '2'])[1], 10),
-        spanH: parseInt((gr.match(/span\s+(\d+)/) || ['', '2'])[1], 10)
-      });
-    });
-    rowTops.sort(function (a, b) { return a - b; });
+      var needsFreeze = /^span\s+\d+$/.test(gc);
 
-    // PASS 2: apply all style changes (no reads between writes)
+      var col, row;
+      var colRaw = parseInt(cs.gridColumnStart, 10);
+      var rowRaw = parseInt(cs.gridRowStart, 10);
+      if (isNaN(colRaw) || colRaw < 1 || isNaN(rowRaw) || rowRaw < 1) {
+        var px = gridPosFromPixel(w, grid, maxCols, maxRows);
+        col = px.col;
+        row = px.row;
+      } else {
+        col = colRaw;
+        row = rowRaw;
+      }
+
+      var spanW = parseInt((gc.match(/span\s+(\d+)/) || ['', '2'])[1], 10);
+      var spanH = parseInt((gr.match(/span\s+(\d+)/) || ['', '2'])[1], 10);
+      entries.push({ el: w, needsFreeze: needsFreeze, col: col, row: row, w: spanW, h: spanH });
+    });
+
     entries.forEach(function (e) {
       e.el.style.minHeight = '';
       e.el.style.maxHeight = '';
       if (!e.needsFreeze) return;
-      var row = rowTops.indexOf(e.top) + 1;
-      if (row < 1) row = 1;
-      e.el.style.gridColumn = e.col + ' / span ' + e.spanW;
-      e.el.style.gridRow = row + ' / span ' + e.spanH;
+      var clampedCol = Math.min(e.col, maxCols);
+      var clampedW = Math.min(e.w, maxCols - clampedCol + 1);
+      var clampedRow = Math.min(e.row, maxRows);
+      var clampedH = Math.min(e.h, maxRows - clampedRow + 1);
+      if (clampedCol < 1) clampedCol = 1;
+      if (clampedRow < 1) clampedRow = 1;
+      e.el.style.gridColumn = clampedCol + ' / span ' + clampedW;
+      e.el.style.gridRow = clampedRow + ' / span ' + clampedH;
     });
   }
 
@@ -737,7 +881,7 @@
       var gridRect = grid.getBoundingClientRect();
       return {
         col: Math.max(1, Math.round((mx - gridRect.left) / colW) + 1),
-        row: pixelToRow(grid, my - gridRect.top)
+        row: Math.max(1, pixelToRow(grid, my - gridRect.top))
       };
     }
 
@@ -903,7 +1047,7 @@
     }
     menu.dataset.sceneId = sid;
     var delItem = menu.querySelector('[data-action="delete"]');
-    if (delItem) delItem.style.display = Object.keys(_scenes).length > 1 ? '' : 'none';
+    if (delItem) delItem.style.display = (Object.keys(_scenes).length > 1 && sid !== 'default') ? '' : 'none';
     menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');
@@ -915,6 +1059,7 @@
   }
 
   function showDeleteConfirmation(sid) {
+    if (sid === 'default') return;
     var panel = document.getElementById('result-panel');
     var overlay = document.getElementById('overlay');
     var title = document.getElementById('result-panel-title');
@@ -975,7 +1120,6 @@
         var idxTo = ids.indexOf(sid);
         if (idxFrom < 0 || idxTo < 0) return;
         ids.splice(idxFrom, 1);
-        if (idxFrom < idxTo) idxTo--;
         ids.splice(idxTo, 0, from);
         var reordered = {};
         ids.forEach(function (k) { reordered[k] = _scenes[k]; });
@@ -1007,6 +1151,7 @@
     renderSceneBar();
     applyHiddenState();
     applySavedLayouts();
+    applyWidgetStyles();
   }
 
   function createScene() {
@@ -1030,7 +1175,7 @@
   }
 
   function deleteScene(sid) {
-    if (!sid || Object.keys(_scenes).length <= 1) return;
+    if (!sid || Object.keys(_scenes).length <= 1 || sid === 'default') return;
     apiFetch('/api/scenes/' + encodeURIComponent(sid), { method: 'DELETE' }).then(function () {
       return apiFetch('/api/scenes');
     }).then(function (data) {
@@ -1112,6 +1257,108 @@
 
     panel.classList.add('open');
     overlay.classList.add('open');
+  }
+
+  function openExtensionsSettings() {
+    var panel = document.getElementById('result-panel');
+    var overlay = document.getElementById('overlay');
+    var title = document.getElementById('result-panel-title');
+    var body = document.getElementById('result-panel-body');
+    title.textContent = 'Extensions';
+
+    body.innerHTML =
+      '<div style="font-family:var(--font-mono);padding:2px 0;">' +
+      '<input type="text" id="ext-settings-search" placeholder="Search extensions..." ' +
+      'style="width:100%;padding:6px 8px;margin-bottom:8px;border:1px solid var(--border-color);border-radius:4px;' +
+      'background:var(--bg-primary);color:var(--text-primary);font-family:var(--font-mono);font-size:12px;outline:none;box-sizing:border-box;">' +
+      '<div id="ext-settings-list"></div>' +
+      '</div>';
+
+    function renderExtList(filter) {
+      var list = document.getElementById('ext-settings-list');
+      var data = window.extensionsData || {};
+      var ids = Object.keys(data).sort();
+      var f = (filter || '').toLowerCase();
+      var html = '';
+      ids.forEach(function (id) {
+        var ext = data[id];
+        var name = ext.name || id;
+        if (f && name.toLowerCase().indexOf(f) < 0 && id.toLowerCase().indexOf(f) < 0) return;
+        var isError = ext.loadError ? true : false;
+        html += '<div class="ctx-hidden-item" data-ext="' + id + '" style="margin-bottom:6px;">';
+        html += '<span style="display:flex;flex-direction:column;gap:1px;' + (isError ? 'max-width:60%;' : '') + '">';
+        html += '<span>' + (isError ? '<span style="color:var(--accent-red);font-size:10px;margin-right:4px;">\u26A0</span>' : '') + '<strong style="color:var(--text-primary);font-size:12px;">' + escapeHtml(name) + '</strong> <span style="color:var(--text-muted);font-size:10px;">(' + escapeHtml(id) + ')</span></span>';
+        if (isError) {
+          html += '<span style="color:var(--accent-red);font-size:10px;">' + escapeHtml(ext.loadError) + '</span>';
+        } else {
+          html += '<span style="color:var(--text-muted);font-size:10px;">v' + escapeHtml(ext.version || '?') + (ext.author ? ' &middot; ' + escapeHtml(ext.author) : '') + '</span>';
+        }
+        html += '</span>';
+        html += '<span style="display:flex;gap:4px;">';
+        html += '<button class="pkg-btn ext-settings-del" data-ext="' + id + '" style="font-size:10px;padding:2px 6px;border-color:var(--accent-red);color:var(--accent-red)">Delete</button>';
+        html += '</span></div>';
+      });
+      if (!html) html = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">No extensions found.</div>';
+      list.innerHTML = html;
+
+      list.querySelectorAll('.ext-settings-del').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var eid = btn.dataset.ext;
+          showDeleteExtensionConfirm(eid);
+        });
+      });
+    }
+
+    renderExtList('');
+
+    document.getElementById('ext-settings-search').addEventListener('input', function () {
+      renderExtList(this.value);
+    });
+
+    panel.classList.add('open');
+    overlay.classList.add('open');
+  }
+
+  function showDeleteExtensionConfirm(extId) {
+    var panel = document.getElementById('result-panel');
+    var overlay = document.getElementById('overlay');
+    var title = document.getElementById('result-panel-title');
+    var body = document.getElementById('result-panel-body');
+    var ext = (window.extensionsData || {})[extId] || {};
+    var name = ext.name || extId;
+    title.textContent = 'Delete extension';
+    body.innerHTML =
+      '<div style="font-family:var(--font-mono);padding:16px 0;text-align:center;font-size:13px;color:var(--text-primary)">' +
+      'Are you sure you want to delete <strong>' + escapeHtml(name) + '</strong>?' +
+      '<div style="margin-top:16px;display:flex;gap:8px;justify-content:center">' +
+      '<button id="confirm-ext-del-yes" class="pkg-btn" style="background:var(--accent-red,#e74c3c);color:#fff">Delete</button>' +
+      '<button id="confirm-ext-del-no" class="pkg-btn">Cancel</button>' +
+      '</div></div>';
+    document.getElementById('confirm-ext-del-yes').onclick = function () {
+      apiFetch('/api/extensions/' + encodeURIComponent(extId), { method: 'DELETE' }).then(function (data) {
+        if (data && data.error) {
+          if (typeof showToast !== 'undefined') showToast('Error: ' + data.error);
+          return;
+        }
+        if (typeof showToast !== 'undefined') showToast('Extension deleted: ' + name);
+        // Reload extensions, scenes and widgets
+        apiFetch('/api/extensions').then(function (newData) {
+          if (newData && !newData.error) {
+            window.extensionsData = newData;
+            if (typeof buildSidebar !== 'undefined') buildSidebar(newData);
+          }
+          // Refresh scene widgets (backend already removed this extension's widgets)
+          loadState().then(function () {
+            applyHiddenState();
+            applySavedLayouts();
+          });
+          openExtensionsSettings();
+        });
+      });
+    };
+    document.getElementById('confirm-ext-del-no').onclick = function () {
+      openExtensionsSettings();
+    };
   }
 
   function showLabelEditor(sid, current) {
@@ -1303,7 +1550,7 @@
       '</div>' +
       '<div style="margin-bottom:12px;">' +
       '<label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:3px;">Rows</label>' +
-      '<input type="number" id="size-editor-rows" value="' + rows + '" min="1" max="50" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:5px 8px;color:var(--text-primary);font-family:var(--font-mono);font-size:13px;">' +
+      '<input type="number" id="size-editor-rows" value="' + rows + '" min="1" max="24" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:5px 8px;color:var(--text-primary);font-family:var(--font-mono);font-size:13px;">' +
       '</div>' +
       '<div id="size-editor-warning" style="display:none;margin-bottom:10px;padding:6px 10px;background:rgba(255,170,0,0.15);border:1px solid rgba(255,170,0,0.3);border-radius:4px;color:var(--text-primary);font-size:11px;line-height:1.4;">\u26A0\uFE0F  Values above 16 may look cramped or overflow. Consider reducing if elements are cut off.</div>' +
       '<div style="text-align:center;display:flex;gap:8px;justify-content:center;">' +
@@ -1328,7 +1575,7 @@
       if (isNaN(c) || c < 4) c = 12;
       if (c > 24) c = 24;
       if (isNaN(r) || r < 1) r = 6;
-      if (r > 50) r = 50;
+      if (r > 24) r = 24;
       apiFetch('/api/scenes/' + encodeURIComponent(sid), {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cols: c, rows: r })
@@ -1351,6 +1598,7 @@
   // ----- settings dropdown -----
   var _settingsMainHTML =
     '<div class="ctx-menu-item" data-action="scenes">\u{1F3E0}  Scene settings</div>' +
+    '<div class="ctx-menu-item" data-action="extensions">\u{1F4E6}  Extensions</div>' +
     '<div class="ctx-menu-separator"></div>' +
     '<div class="ctx-menu-item" data-action="window">\u{1F5A5}  Window settings</div>';
 
@@ -1386,6 +1634,9 @@
         } else if (action === 'scenes') {
           closeSettingsDropdown();
           openSceneSettings();
+        } else if (action === 'extensions') {
+          closeSettingsDropdown();
+          openExtensionsSettings();
         } else if (action === 'windowed' || action === 'frameless' || action === 'fullscreen') {
           closeSettingsDropdown();
           setWindowMode(action);
@@ -1466,6 +1717,7 @@
       if (document.querySelector('.widget')) {
         applyHiddenState();
         applySavedLayouts();
+        applyWidgetStyles();
       }
     });
   }
@@ -1480,12 +1732,14 @@
     if (_stateLoaded) {
       applyHiddenState();
       applySavedLayouts();
+      applyWidgetStyles();
     } else {
       var check = setInterval(function () {
         if (_stateLoaded) {
           clearInterval(check);
           applyHiddenState();
           applySavedLayouts();
+          applyWidgetStyles();
         }
       }, 50);
     }

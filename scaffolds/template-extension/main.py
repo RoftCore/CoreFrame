@@ -3,4 +3,4 @@ class Extension:
         self.config = config
 
     def my_action(self):
-        return {"value": 42, "unit": "%"}
+        return {"value": 42}
