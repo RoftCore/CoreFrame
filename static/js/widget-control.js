@@ -1162,13 +1162,20 @@ var _activeScene = null;
     }
     apiFetch('/api/scenes', { method: 'POST' }).then(function (data) {
       if (data && data.ok) {
-        return apiFetch('/api/scenes');
+        return apiFetch('/api/scenes').then(function (scenesData) {
+          return { newId: data.id, scenesData: scenesData };
+        });
       }
-    }).then(function (data) {
-      if (data && !data.error) {
-        _scenes = data.scenes || _scenes;
+    }).then(function (result) {
+      if (result && result.scenesData && !result.scenesData.error) {
+        _scenes = result.scenesData.scenes || _scenes;
         _sceneOrder = Object.keys(_scenes);
-        _activeScene = data.active || _activeScene;
+        var idx = _sceneOrder.indexOf(result.newId);
+        if (idx >= 0 && idx < _sceneOrder.length - 1) {
+          _sceneOrder.splice(idx, 1);
+          _sceneOrder.push(result.newId);
+        }
+        _activeScene = result.scenesData.active || _activeScene;
         renderSceneBar();
         applyHiddenState();
         applySavedLayouts();
