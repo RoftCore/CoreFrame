@@ -1414,7 +1414,7 @@
     html += '<div id="icon-picker-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;max-height:160px;overflow-y:auto;padding:2px 0;">';
     featherNames.forEach(function (ic) {
       if (typeof feather === 'undefined' || !feather.icons[ic]) return;
-      var active = (!currentImage && currentLabel === ic) ? ';border-color:var(--accent-cyan);background:rgba(0,212,255,0.15)' : '';
+      var active = (!currentImage && currentLabel === ic) ? ';border-color:var(--accent-cyan);background:rgba(0,212,255,0.25);box-shadow:0 0 8px rgba(0,212,255,0.3)' : '';
       html += '<div class="icon-picker-item" data-icon="' + ic + '" title="' + ic + '" style="display:flex;align-items:center;justify-content:center;cursor:pointer;padding:4px;border-radius:var(--radius-sm);border:1px solid transparent' + active + '"><i data-feather="' + ic + '" width="16" height="16"></i></div>';
     });
     html += '</div>';
@@ -1429,7 +1429,6 @@
     if (typeof feather !== 'undefined') feather.replace();
 
     function saveIcon(ic) {
-      body.querySelectorAll('.icon-picker-item').forEach(function (e) { e.style.borderColor = 'transparent'; e.style.background = ''; });
       apiFetch('/api/scenes/' + encodeURIComponent(sid), {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: ic, image: null })
@@ -1442,7 +1441,8 @@
       el.addEventListener('click', function () {
         body.querySelectorAll('.icon-picker-item').forEach(function (e) { e.style.borderColor = 'transparent'; e.style.background = ''; });
         el.style.borderColor = 'var(--accent-cyan)';
-        el.style.background = 'rgba(0,212,255,0.15)';
+        el.style.background = 'rgba(0,212,255,0.25)';
+        el.style.boxShadow = '0 0 8px rgba(0,212,255,0.3)';
         saveIcon(el.dataset.icon);
       });
     });
