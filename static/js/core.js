@@ -210,6 +210,53 @@ function showInstallChoice() {
   });
 }
 
+function refreshAfterInstall(extName, extId) {
+  showInstallOverlay('Installed! Refreshing...');
+  apiFetch('/api/extensions').then(function (data) {
+    hideInstallOverlay();
+    if (data && !data.error) {
+      extensionsData = data;
+      window.extensionsData = data;
+      renderWidgets(data);
+      buildSidebar(data);
+      if (window.__widgetControl) {
+        window.__widgetControl.applyWidgetState();
+      }
+    }
+    showInstallConfirm(extName, extId);
+  }).catch(function () {
+    hideInstallOverlay();
+    showInstallConfirm(extName, extId);
+  });
+}
+
+function showInstallConfirm(extName, extId) {
+  var overlay = document.createElement('div');
+  overlay.className = 'pkg-overlay';
+  overlay.innerHTML =
+    '<div class="pkg-dialog" style="text-align:center;padding:20px">' +
+    '<div style="font-size:28px;margin-bottom:8px">&#10003;</div>' +
+    '<div style="font-size:14px;color:var(--text-primary);margin-bottom:16px">' + escapeHtml(extName) + ' installed</div>' +
+    '<div style="display:flex;gap:8px;justify-content:center">' +
+    '<button id="install-show-btn" class="pkg-btn pkg-btn-primary" style="background:var(--accent-cyan);color:#fff">Show</button>' +
+    '<button id="install-close-btn" class="pkg-btn">Close</button>' +
+    '</div></div>';
+  document.body.appendChild(overlay);
+
+  document.getElementById('install-show-btn').onclick = function () {
+    overlay.remove();
+    if (window.__widgetControl && window.__widgetControl.unhideWidget) {
+      window.__widgetControl.unhideWidget(extId);
+    }
+  };
+  document.getElementById('install-close-btn').onclick = function () {
+    overlay.remove();
+  };
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) overlay.remove();
+  });
+}
+
 function triggerFileInstall() {
   var input = document.createElement('input');
   input.type = 'file';
@@ -235,8 +282,9 @@ function triggerFileInstall() {
         showToast('Error: ' + data.error);
         return;
       }
-      showInstallOverlay('Extension installed!');
-      setTimeout(function () { location.reload(); }, 400);
+      hideInstallOverlay();
+      var val = data.value || data;
+      refreshAfterInstall(val.name || val.id, val.id);
     });
   });
   document.body.appendChild(input);
@@ -322,8 +370,8 @@ function showMarketplaceList(choiceOverlay) {
                 btn.disabled = false;
                 return;
               }
-              showInstallOverlay(ext.name + ' installed!');
-              setTimeout(function () { location.reload(); }, 400);
+              hideInstallOverlay();
+              refreshAfterInstall(ext.name, ext.id);
             });
           });
         }

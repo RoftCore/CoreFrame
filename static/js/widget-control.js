@@ -1793,6 +1793,7 @@ var _activeScene = null;
     _activeScene: function () { return _activeScene; },
     _scenes: function () { return _scenes; },
     currentScene: currentScene,
+    unhideWidget: unhideWidget,
     getHidden: getHidden,
     openEmptyCtxMenu: openEmptyCtxMenu,
     openCtxMenu: openCtxMenu
