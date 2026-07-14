@@ -17,11 +17,21 @@ var _activeScene = null;
     return s ? s.widgets : {};
   }
 
+  function sortSceneKeys(keys) {
+    return keys.slice().sort(function (a, b) {
+      if (a === 'default') return -1;
+      if (b === 'default') return 1;
+      var na = parseInt(a.replace('scene_', ''), 10);
+      var nb = parseInt(b.replace('scene_', ''), 10);
+      return na - nb;
+    });
+  }
+
   function loadState() {
     return apiFetch('/api/scenes').then(function (data) {
       if (data && !data.error) {
         _scenes = data.scenes || {};
-        _sceneOrder = Object.keys(_scenes);
+        _sceneOrder = sortSceneKeys(Object.keys(_scenes));
         _activeScene = data.active || _sceneOrder[0] || null;
         _stateLoaded = true;
         renderSceneBar();
@@ -1169,12 +1179,7 @@ var _activeScene = null;
     }).then(function (result) {
       if (result && result.scenesData && !result.scenesData.error) {
         _scenes = result.scenesData.scenes || _scenes;
-        _sceneOrder = Object.keys(_scenes);
-        var idx = _sceneOrder.indexOf(result.newId);
-        if (idx >= 0 && idx < _sceneOrder.length - 1) {
-          _sceneOrder.splice(idx, 1);
-          _sceneOrder.push(result.newId);
-        }
+        _sceneOrder = sortSceneKeys(Object.keys(_scenes));
         _activeScene = result.scenesData.active || _activeScene;
         renderSceneBar();
         applyHiddenState();
@@ -1190,7 +1195,7 @@ var _activeScene = null;
     }).then(function (data) {
       if (data && !data.error) {
         _scenes = data.scenes || _scenes;
-        _sceneOrder = Object.keys(_scenes);
+        _sceneOrder = sortSceneKeys(Object.keys(_scenes));
         _activeScene = data.active || _activeScene;
         renderSceneBar();
         applyHiddenState();
@@ -1207,7 +1212,7 @@ var _activeScene = null;
     title.textContent = 'Scene Settings';
 
     var html = '<div style="font-family:var(--font-mono);padding:2px 0;">';
-    Object.keys(_scenes).forEach(function (sid) {
+    (_sceneOrder.length ? _sceneOrder : Object.keys(_scenes)).forEach(function (sid) {
       var s = _scenes[sid];
       var isDefault = sid === 'default';
       var label = s.label || '📄';
