@@ -1,4 +1,3 @@
-var _widgetsInitDone = false;
 const widgetHistory = {};
 const _widgetHash = {};
 const _progressTimers = {};
@@ -108,10 +107,24 @@ function createExtensionCard(ext) {
   if (overlayable) el.classList.add('widget-overlayable');
   el.style.gridColumn = `span ${gs.w}`;
   el.style.gridRow = `span ${gs.h}`;
-  // Prevent widget content from expanding grid tracks
-  el.style.overflow = 'hidden';
   el.style.minWidth = '0';
   el.style.minHeight = '0';
+
+  const scroll = ext.scroll;
+  if (scroll) {
+    el.classList.add('ext-scroll');
+    if (scroll === 'x') el.classList.add('ext-scroll-x');
+    else if (scroll === 'y') el.classList.add('ext-scroll-y');
+    else if (scroll === 'both') el.classList.add('ext-scroll-both');
+  }
+  if (ext.hideScrollbar) {
+    const hs = ext.hideScrollbar;
+    if (hs === true || hs === 'both') el.classList.add('ext-scrollbar-hide');
+    else if (hs === 'x') el.classList.add('ext-scrollbar-hide-x');
+    else if (hs === 'y') el.classList.add('ext-scrollbar-hide-y');
+  }
+
+  el.style.overflow = 'hidden';
 
   const header = document.createElement('div');
   header.className = 'widget-header';

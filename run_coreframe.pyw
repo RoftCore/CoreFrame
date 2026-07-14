@@ -4,6 +4,11 @@ import json
 import threading
 import time
 import urllib.request
+import ctypes
+
+kernel32 = ctypes.windll.kernel32
+kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00000080)  # HIGH_PRIORITY_CLASS
+
 from app import start_server  # must be before webview — app.py patches subprocess to hide consoles
 import webview
 
@@ -24,19 +29,16 @@ def save_config(cfg):
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(cfg, f, indent=2)
 
-def _wait_for_server(timeout=20):
+def _wait_for_server(timeout=15):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            r = urllib.request.urlopen(f'http://{HOST}:{PORT}/api/health', timeout=2)
+            r = urllib.request.urlopen(f'http://{HOST}:{PORT}/api/health', timeout=1)
             if r.status == 200:
-                time.sleep(0.3)
-                r = urllib.request.urlopen(f'http://{HOST}:{PORT}/api/health', timeout=2)
-                if r.status == 200:
-                    return True
+                return True
         except Exception:
             pass
-        time.sleep(0.5)
+        time.sleep(0.1)
     return False
 
 def _show_error(title, msg):

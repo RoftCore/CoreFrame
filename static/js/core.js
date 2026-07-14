@@ -5,9 +5,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   clockTick();
   setInterval(clockTick, 1000);
 
+  document.getElementById('btn-reload').style.display = '';
   if (typeof _COREFRAME_DEBUG !== 'undefined' && _COREFRAME_DEBUG) {
     document.getElementById('btn-package').style.display = '';
-    document.getElementById('btn-reload').style.display = '';
     document.body.classList.add('mode-debug');
   }
 
@@ -42,17 +42,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function loadExtensionAssets(data) {
   for (const [extId, ext] of Object.entries(data)) {
+    var loaded = 0, total = 0;
     for (const mod of (ext.js_modules || [])) {
+      total++;
       const script = document.createElement('script');
       script.src = `/ext-static/${extId}/${mod}`;
-      script.onload = () => console.log(`[EXT] Loaded ${mod} for ${extId}`);
-      script.onerror = () => console.error(`[EXT] Failed to load ${mod}: ${script.src}`);
+      script.onload = function () { loaded++; if (loaded === total) console.log(`[EXT] All assets loaded for ${extId}`); };
+      script.onerror = function () { console.warn(`[EXT] Failed to load ${mod}: ${script.src}`); };
       document.body.appendChild(script);
     }
     for (const mod of (ext.css_modules || [])) {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = `/ext-static/${extId}/${mod}`;
+      link.onerror = function () { console.warn(`[EXT] Failed to load CSS for ${extId}: ${link.href}`); };
       document.head.appendChild(link);
     }
   }
@@ -73,6 +76,7 @@ function renderWidgets(data) {
     grid.appendChild(card);
   }
 
+  container.style.visibility = 'hidden';
   container.appendChild(grid);
 
   refreshAllWidgets(data);
@@ -128,18 +132,21 @@ function initWebSocket() {
     reconnectionDelayMax: 5000,
   });
 
-  socket.on('connect', () => {
-    document.getElementById('connection-dot').className = 'hud-dot ok';
-  });
-
-  socket.on('disconnect', () => {
-    document.getElementById('connection-dot').className = 'hud-dot error';
-  });
+  function updateDot() {
+    var el = document.getElementById('connection-dot');
+    if (!el) return;
+    el.className = socket.connected ? 'hud-dot ok' : 'hud-dot error';
+  }
+  socket.on('connect', updateDot);
+  socket.on('disconnect', updateDot);
+  updateDot();
+  // refresh cada 3s por si los eventos no disparan
+  setInterval(updateDot, 3000);
 
   socket.on('realtime_update', (data) => {
     if (!data.ext || !data.values) return;
+    if (!window.extensionsData) return;
     const ext = window.extensionsData[data.ext];
-    if (ext && ext.js_modules && ext.js_modules.length) return;
     Object.keys(data.values).forEach(id => {
       const el = document.querySelector(`[data-widget-id="${id}"][data-ext-id="${data.ext}"]`);
       if (el) {
@@ -217,11 +224,31 @@ function refreshAfterInstall(extName, extId) {
     if (data && !data.error) {
       extensionsData = data;
       window.extensionsData = data;
-      renderWidgets(data);
       buildSidebar(data);
-      if (window.__widgetControl) {
-        window.__widgetControl.applyWidgetState();
+      var ext = data[extId];
+      if (ext && ext.widgets && ext.widgets.length) {
+        var grid = document.querySelector('.widget-grid');
+        if (grid) {
+          var card = createExtensionCard({ ...ext, id: extId });
+          grid.appendChild(card);
+        }
       }
+      if (ext) loadExtensionAssets({ [extId]: ext });
+      if (ext && ext.widgets) {
+        if (!ext.js_modules || !ext.js_modules.length) {
+          ext.widgets.forEach(function (wDef) { refreshWidget(extId, wDef); });
+        }
+        if (!ext.realtime) {
+          var interval = ext.refresh_interval || 5000;
+          if (interval > 0) {
+            ext.widgets.forEach(function (wDef) {
+              var key = extId + '-' + wDef.id;
+              widgetTimers[key] = setInterval(function () { refreshWidget(extId, wDef); }, interval);
+            });
+          }
+        }
+      }
+      if (window.__widgetControl) window.__widgetControl.applyWidgetState();
     }
     showInstallConfirm(extName, extId);
   }).catch(function () {
@@ -312,50 +339,56 @@ function showMarketplaceList(choiceOverlay) {
   document.getElementById('mkt-close2').addEventListener('click', function () { overlay.remove(); });
   overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
 
-  apiFetch('/api/marketplace/list').then(function (registry) {
+  var _mktExts = [];
+  var _mktShowHidden = false;
+
+  function renderMarketplace() {
     var body = document.getElementById('mkt-body');
-    if (!registry || registry.error) {
-      body.innerHTML = '<div class="pkg-empty">Failed to load marketplace: ' + (registry ? registry.error : 'unknown') + '</div>';
-      return;
-    }
-    var exts = registry.extensions || [];
-    if (!exts.length) {
+    if (!body) return;
+    body.innerHTML = '';
+    var filtered = _mktShowHidden ? _mktExts : _mktExts.filter(function(e) { return !e.hidden; });
+    if (!filtered.length) {
       body.innerHTML = '<div class="pkg-empty">No extensions available.</div>';
       return;
     }
-    var showHidden = false;
-    function renderMarketplace() {
-      body.innerHTML = '';
-      var filtered = showHidden ? exts : exts.filter(function(e) { return !e.hidden; });
-      if (!filtered.length) {
-        body.innerHTML = '<div class="pkg-empty">No extensions available.</div>';
-        return;
-      }
-      var grid = document.createElement('div');
-      grid.className = 'mkt-grid';
-      filtered.forEach(function (ext) {
-        var installed = !!(window.extensionsData && window.extensionsData[ext.id]);
-        var card = document.createElement('div');
-        card.className = 'mkt-card' + (ext.hidden ? ' mkt-hidden' : '') + (installed ? ' mkt-installed' : '');
-        var nameEl = document.createElement('div');
-        nameEl.className = 'mkt-card-name';
-        nameEl.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span>';
-        var descEl = document.createElement('div');
-        descEl.className = 'mkt-card-desc';
-        descEl.textContent = ext.description || '';
-        var btn = document.createElement('button');
-        if (installed) {
-          btn.className = 'pkg-btn mkt-installed-btn';
-          btn.textContent = 'Installed';
+    var grid = document.createElement('div');
+    grid.className = 'mkt-grid';
+    filtered.forEach(function (ext) {
+      var installed = !!(window.extensionsData && window.extensionsData[ext.id]);
+      var card = document.createElement('div');
+      card.className = 'mkt-card' + (ext.hidden ? ' mkt-hidden' : '') + (installed ? ' mkt-installed' : '');
+      var nameEl = document.createElement('div');
+      nameEl.className = 'mkt-card-name';
+      nameEl.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span>';
+      var descEl = document.createElement('div');
+      descEl.className = 'mkt-card-desc';
+      descEl.textContent = ext.description || '';
+      var btn = document.createElement('button');
+      if (installed) {
+        btn.className = 'pkg-btn mkt-installed-btn';
+        btn.textContent = 'Installed';
+        btn.addEventListener('mouseenter', function () { btn.textContent = 'Uninstall'; btn.style.color = 'var(--accent-red)'; btn.style.borderColor = 'var(--accent-red)'; });
+        btn.addEventListener('mouseleave', function () { btn.textContent = 'Installed'; btn.style.color = ''; btn.style.borderColor = ''; });
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var wc = window.__wc;
+          if (wc && wc.showDeleteExtensionConfirm) {
+            wc.showDeleteExtensionConfirm(ext.id, function () { renderMarketplace(); });
+          }
+        });
+      } else {
+        btn.className = 'pkg-btn pkg-btn-primary';
+        btn.textContent = 'Install';
+        btn.addEventListener('click', function () {
+          btn.textContent = '...';
           btn.disabled = true;
-        } else {
-          btn.className = 'pkg-btn pkg-btn-primary';
-          btn.textContent = 'Install';
-          btn.addEventListener('click', function () {
-            btn.textContent = '...';
-            btn.disabled = true;
-            showInstallOverlay('Downloading ' + ext.name + '...');
-            apiFetch('/api/marketplace/install/' + encodeURIComponent(ext.id), { method: 'POST' }).then(function (res) {
+          var attempts = 0;
+          var maxAttempts = 3;
+          var to = [3000, 15000, 30000];
+          function tryInstall() {
+            var label = attempts === 0 ? 'Downloading ' + ext.name + '...' : 'Retrying (' + attempts + '/' + maxAttempts + ')...';
+            showInstallOverlay(label);
+            apiFetch('/api/marketplace/install/' + encodeURIComponent(ext.id), { method: 'POST', timeout: to[attempts] || 30000 }).then(function (res) {
               if (res && res.exists) {
                 hideInstallOverlay();
                 showToast(res.message || 'This extension has already been imported.');
@@ -364,6 +397,11 @@ function showMarketplaceList(choiceOverlay) {
                 return;
               }
               if (res && res.error) {
+                attempts++;
+                if (attempts < maxAttempts) {
+                  tryInstall();
+                  return;
+                }
                 hideInstallOverlay();
                 showToast('Error: ' + res.error);
                 btn.textContent = 'Install';
@@ -371,35 +409,69 @@ function showMarketplaceList(choiceOverlay) {
                 return;
               }
               hideInstallOverlay();
-              refreshAfterInstall(ext.name, ext.id);
+              apiFetch('/api/extensions').then(function (data) {
+                if (data && !data.error) {
+                  window.extensionsData = data;
+                  buildSidebar(data);
+                }
+                renderMarketplace();
+                refreshAfterInstall(ext.name, ext.id);
+              });
             });
-          });
+          }
+          tryInstall();
+        });
+      }
+      card.appendChild(nameEl);
+      card.appendChild(descEl);
+      card.appendChild(btn);
+      grid.appendChild(card);
+    });
+    body.appendChild(grid);
+    var toggleRow = document.createElement('div');
+    toggleRow.style.cssText = 'padding:8px 0;border-top:1px solid var(--border-color);margin-top:4px';
+    var label = document.createElement('label');
+    label.style.cssText = 'font-size:10px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:6px';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = _mktShowHidden;
+    cb.style.cssText = 'accent-color:#ff9800';
+    cb.addEventListener('change', function () {
+      _mktShowHidden = cb.checked;
+      renderMarketplace();
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode('Show hidden extensions'));
+    toggleRow.appendChild(label);
+    body.appendChild(toggleRow);
+  }
+
+  function doLoadMarketplace(attempt) {
+    apiFetch('/api/marketplace/list', { timeout: 10000 }).then(function (registry) {
+      var body = document.getElementById('mkt-body');
+      if (!registry || registry.error) {
+        if (attempt < 2) {
+          setTimeout(function () { doLoadMarketplace(attempt + 1); }, 2000);
+          body.innerHTML = '<div class="pkg-empty">Retrying...</div>';
+          return;
         }
-        card.appendChild(nameEl);
-        card.appendChild(descEl);
-        card.appendChild(btn);
-        grid.appendChild(card);
-      });
-      body.appendChild(grid);
-      var toggleRow = document.createElement('div');
-      toggleRow.style.cssText = 'padding:8px 0;border-top:1px solid var(--border-color);margin-top:4px';
-      var label = document.createElement('label');
-      label.style.cssText = 'font-size:10px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:6px';
-      var cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = showHidden;
-      cb.style.cssText = 'accent-color:#ff9800';
-      cb.addEventListener('change', function () {
-        showHidden = cb.checked;
-        renderMarketplace();
-      });
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode('Show hidden extensions'));
-      toggleRow.appendChild(label);
-      body.appendChild(toggleRow);
-    }
-    renderMarketplace();
-  });
+        var cached = localStorage.getItem('mkt-cache');
+        if (cached) {
+          try { var cachedData = JSON.parse(cached); if (cachedData && cachedData.extensions) { _mktExts = cachedData.extensions; renderMarketplace(); return; } } catch(e) {}
+        }
+        body.innerHTML = '<div class="pkg-empty">Failed to load marketplace: ' + (registry ? registry.error : 'unknown') + '</div>';
+        return;
+      }
+      localStorage.setItem('mkt-cache', JSON.stringify(registry));
+      _mktExts = registry.extensions || [];
+      if (!_mktExts.length) {
+        body.innerHTML = '<div class="pkg-empty">No extensions available.</div>';
+        return;
+      }
+      renderMarketplace();
+    });
+  }
+  doLoadMarketplace(0);
 }
 
 document.getElementById('btn-package').addEventListener('click', function () {
@@ -557,7 +629,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ── Minimize window
+//  Minimize window
 document.getElementById('btn-minimize').addEventListener('click', function () {
   if (window.pywebview) {
     pywebview.api.minimize_window().catch(function(err) {
@@ -566,5 +638,5 @@ document.getElementById('btn-minimize').addEventListener('click', function () {
   }
 });
 
-// ── Settings dropdown (accessible via right-click on gear)
+//  Settings dropdown (accessible via right-click on gear)
 const settingsBtn = document.getElementById('btn-settings');

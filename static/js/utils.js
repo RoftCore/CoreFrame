@@ -21,15 +21,25 @@ async function apiFetch(url, options = {}) {
       headers['Content-Type'] = 'application/json';
     }
     delete options.headers;
-    const res = await fetch(url, { ...options, headers });
+    var timeout = (options && options.timeout) || 90000;
+    const controller = new AbortController();
+    var t = setTimeout(function () { controller.abort(); }, timeout);
+    var res;
+    try {
+      res = await fetch(url, { ...options, headers, signal: controller.signal });
+    } finally {
+      clearTimeout(t);
+    }
+    if (!res) return { error: 'Request timed out' };
     if (!res.ok) {
       const errBody = await res.json().catch(function () { return {}; });
       throw new Error(errBody.error || `HTTP ${res.status}`);
     }
     return await res.json();
   } catch (err) {
-    console.error(`[API] ${url}: ${err.message}`);
-    return { error: err.message };
+    var msg = err.name === 'AbortError' ? 'Request timed out' : err.message;
+    console.error(`[API] ${url}: ${msg}`);
+    return { error: msg };
   }
 }
 
@@ -48,14 +58,6 @@ function formatPercent(value) {
 function formatTemp(value) {
   if (value === undefined || value === null) return '--';
   return value.toFixed(0) + '°C';
-}
-
-function debounce(fn, ms) {
-  let timer;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
 }
 
 function escapeHtml(text) {

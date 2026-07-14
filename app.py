@@ -12,7 +12,7 @@ import threading
 import time
 import urllib.request
 
-# ── Force no console windows on any subprocess ──
+#  Force no console windows on any subprocess 
 if sys.platform.startswith('win'):
     import ctypes
     _CREATE_NO_WINDOW = 0x08000000
@@ -35,8 +35,6 @@ if sys.platform.startswith('win'):
     _subprocess.Popen.__init__ = _patched_init
 subprocess = _subprocess  # alias
 import zipfile
-from collections import defaultdict
-from pathlib import Path
 from flask import Flask, Response, jsonify, request, send_from_directory, send_file
 from flask_socketio import SocketIO, emit
 
@@ -46,7 +44,7 @@ try:
 except ImportError:
     pass
 
-# ── Paths ──────────────────────────────────────────────────────────────────
+#  Paths 
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = sys._MEIPASS
@@ -85,7 +83,7 @@ logging.basicConfig(
 )
 log = logging.getLogger('CoreFrame')
 
-# ── Extract bundled extensions (embedded .exe) ──
+#  Extract bundled extensions (embedded .exe) 
 _bundled_ext_dir = os.path.join(BASE_DIR, 'extensions')
 if getattr(sys, 'frozen', False) and os.path.isdir(_bundled_ext_dir):
     for _name in os.listdir(_bundled_ext_dir):
@@ -95,7 +93,7 @@ if getattr(sys, 'frozen', False) and os.path.isdir(_bundled_ext_dir):
             shutil.copytree(_src, _dst, ignore_dangling_symlinks=True)
             log.info("Extracted bundled extension: %s", _name)
 
-# ── Flask ──────────────────────────────────────────────────────────────────
+#  Flask 
 
 app = Flask(__name__, static_folder=STATIC_DIR)
 app.config['SECRET_KEY'] = hashlib.sha256(os.urandom(32)).hexdigest()
@@ -107,7 +105,7 @@ failed_extensions = {}
 latest_update = {}
 _client_count = 0
 
-# ── Extension loading ──────────────────────────────────────────────────────
+#  Extension loading 
 
 def _sync_extension_lib(ext_path):
     ext_lib = os.path.join(ext_path, 'lib')
@@ -123,6 +121,7 @@ def _sync_extension_lib(ext_path):
                 log.debug("Synced %s to shared lib", item)
 
 def load_extensions():
+    log.info("load_extensions: EXTENSIONS_DIR=%s exists=%s", EXTENSIONS_DIR, os.path.exists(EXTENSIONS_DIR))
     if not os.path.exists(EXTENSIONS_DIR):
         return
     current_os = 'linux' if not sys.platform.startswith('win') else 'windows'
@@ -197,7 +196,7 @@ def _load_single_extension(ext_id):
         log.error("Failed to dynamically load %s: %s", ext_id, e)
         return False
 
-# ── Multi-language bridge ──────────────────────────────────────────────────
+#  Multi-language bridge 
 
 class SubprocessBridge:
     _LANG_MAP = {
@@ -311,7 +310,7 @@ class SubprocessBridge:
             except Exception:
                 self._proc.kill()
 
-# ── Auth ───────────────────────────────────────────────────────────────────
+#  Auth 
 
 @app.route('/api/token')
 def api_token():
@@ -319,9 +318,23 @@ def api_token():
 
 @app.route('/api/debug')
 def api_debug():
-    return jsonify({'debug': app.debug})
+    try:
+        ext_dir_contents = os.listdir(EXTENSIONS_DIR) if os.path.isdir(EXTENSIONS_DIR) else []
+    except Exception:
+        ext_dir_contents = []
+    return jsonify({
+        'debug': app.debug,
+        'data_dir': DATA_DIR,
+        'extensions_dir': EXTENSIONS_DIR,
+        'extensions_dir_exists': os.path.isdir(EXTENSIONS_DIR),
+        'extensions_in_dir': ext_dir_contents,
+        'base_dir': BASE_DIR,
+        'frozen': getattr(sys, 'frozen', False),
+        'cwd': os.getcwd(),
+        'loaded_extensions': list(extensions.keys()),
+    })
 
-# ── Autostart ─────────────────────────────────────────────────────────────
+#  Autostart 
 
 AUTOSTART_KEY = 'CoreFrame'
 
@@ -402,7 +415,7 @@ def check_token():
         if token != _LOCAL_TOKEN:
             return jsonify({'error': 'Unauthorized'}), 403
 
-# ── Extension info ─────────────────────────────────────────────────────────
+#  Extension info 
 
 @app.route('/api/extensions')
 def api_extensions():
@@ -426,7 +439,9 @@ def api_extensions():
             'author': cfg.get('author', ''),
             'version': cfg.get('version', '1.0'),
             'language': cfg.get('language', 'python'),
-            'main': cfg.get('main', 'main.py')
+            'main': cfg.get('main', 'main.py'),
+            'scroll': cfg.get('scroll'),
+            'hideScrollbar': cfg.get('hideScrollbar', False)
         }
     for ext_id, ext_data in failed_extensions.items():
         result[ext_id] = {
@@ -465,9 +480,15 @@ def api_extension_action(ext_id, action):
 @app.route('/ext-static/<ext_id>/<path:path>')
 def ext_static(ext_id, path):
     ext_dir = os.path.join(EXTENSIONS_DIR, ext_id)
-    return send_from_directory(os.path.join(ext_dir, 'static'), path)
+    static_dir = os.path.join(ext_dir, 'static')
+    if not os.path.isdir(static_dir):
+        return Response('', 204)
+    try:
+        return send_from_directory(static_dir, path)
+    except FileNotFoundError:
+        return Response('', 204)
 
-# ── Install extension ──────────────────────────────────────────────────────
+#  Install extension 
 
 @app.route('/api/install_extension', methods=['POST'])
 def api_install_extension():
@@ -499,6 +520,7 @@ def api_install_extension():
         target = os.path.join(EXTENSIONS_DIR, ext_id)
         if os.path.exists(target):
             return jsonify({'exists': True, 'message': f'Extension "{ext_name}" has already been imported before and cannot be imported again.'})
+        static_assets_install = set(cfg_data.get('js_modules', []) + cfg_data.get('css_modules', []))
         prefix = ''
         if has_subdir and ext_config.count('/') >= 1:
             prefix = ext_config.rsplit('/', 1)[0] + '/'
@@ -515,6 +537,9 @@ def api_install_extension():
                 rel = n
             if not rel:
                 continue
+            # Wrap static assets in static/ for correct server serving
+            if rel in static_assets_install and not rel.startswith('static/'):
+                rel = os.path.join('static', rel)
             dest = os.path.join(target, rel)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, 'wb') as out:
@@ -539,6 +564,9 @@ def api_install_extension():
         if not _load_single_extension(ext_id):
             err_msg = failed_extensions.get(ext_id, {}).get('loadError', 'Unknown error')
             return jsonify({'error': f'Extension installed but failed to load: {err_msg}'}), 500
+        ext_data = extensions.get(ext_id)
+        if ext_data:
+            _start_polling(ext_id, ext_data)
         return jsonify({'value': {'name': ext_name, 'id': ext_id, 'installing_deps': False}})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -591,7 +619,7 @@ def api_delete_extension(ext_id):
     log.info("Extension deleted: %s", ext_id)
     return jsonify({'ok': True, 'id': ext_id})
 
-# ── Static frontend ────────────────────────────────────────────────────────
+#  Static frontend 
 
 @app.route('/api/debug.js')
 def api_debug_js():
@@ -607,7 +635,7 @@ def index():
 def static_files(path):
     return send_from_directory(STATIC_DIR, path)
 
-# ── Package extension ──────────────────────────────────────────────────────
+#  Package extension 
 
 @app.route('/api/package_extension/<ext_id>')
 def api_package_extension(ext_id):
@@ -629,6 +657,7 @@ def api_package_extension(ext_id):
     # Build the zip in memory
     try:
         buf = io.BytesIO()
+        static_assets = set(config.get('js_modules', []) + config.get('css_modules', []))
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
             for root, dirs, files in os.walk(ext_path):
                 dirs[:] = [d for d in dirs if d not in ('__pycache__', 'Downloads_playlists') and not d.startswith('.')]
@@ -639,6 +668,9 @@ def api_package_extension(ext_id):
                         continue
                     full = os.path.join(root, f)
                     rel = os.path.relpath(full, ext_path)
+                    # Wrap static assets in static/ subdirectory for correct serving
+                    if rel in static_assets and not rel.startswith('static/'):
+                        rel = os.path.join('static', rel)
                     zf.write(full, rel)
 
             # Inject / update author in extension.json
@@ -664,7 +696,7 @@ def api_package_extension(ext_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ── Marketplace ────────────────────────────────────────────────────────────
+#  Marketplace 
 
 MARKETPLACE_CACHE = None
 MARKETPLACE_CACHE_TIME = 0
@@ -730,24 +762,39 @@ def api_marketplace_install(ext_id):
             if len(parts) >= 2:
                 prefix = parts[0] + '/'
                 break
+        mi_config = None
+        mi_ext_config_path = None
+        for n in names:
+            base = n.split('/')[-1]
+            if base == 'extension.json':
+                mi_ext_config_path = n
+                break
+        if mi_ext_config_path:
+            mi_config = json.loads(zf.read(mi_ext_config_path))
+        mi_static_assets = set(mi_config.get('js_modules', []) + mi_config.get('css_modules', [])) if mi_config else set()
         os.makedirs(target, exist_ok=True)
         for n in names:
             if n.endswith('/'):
                 continue
             rel = n[len(prefix):] if prefix and n.startswith(prefix) else n
+            if rel in mi_static_assets and not rel.startswith('static/'):
+                rel = os.path.join('static', rel)
             dest = os.path.join(target, rel)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, 'wb') as out:
                 out.write(zf.read(n))
         zf.close()
         _load_single_extension(ext_id)
+        ext_data = extensions.get(ext_id)
+        if ext_data:
+            _start_polling(ext_id, ext_data)
         log.info("Marketplace installed: %s v%s", ext_id, ext_info.get('version', '?'))
         return jsonify({'ok': True, 'name': ext_info.get('name', ext_id)})
     except Exception as e:
         shutil.rmtree(target, ignore_errors=True)
         return jsonify({'error': f'Install failed: {e}'}), 500
 
-# ── WebSocket ──────────────────────────────────────────────────────────────
+#  WebSocket 
 
 @socketio.on('connect')
 def handle_connect():
@@ -763,13 +810,16 @@ def handle_disconnect():
     _client_count = max(0, _client_count - 1)
     log.info("WS client disconnected (%d)", _client_count)
 
+def _start_polling(ext_id, ext_data):
+    cfg = ext_data['config']
+    interval = cfg.get('refresh_interval', 0)
+    if cfg.get('realtime', False) and interval > 0 and cfg.get('widgets', []):
+        t = threading.Thread(target=_poll_extension, args=(ext_id, ext_data, interval), daemon=True)
+        t.start()
+
 def realtime_broadcast():
     for ext_id, ext_data in extensions.items():
-        cfg = ext_data['config']
-        interval = cfg.get('refresh_interval', 0)
-        if cfg.get('realtime', False) and interval > 0 and cfg.get('widgets', []):
-            t = threading.Thread(target=_poll_extension, args=(ext_id, ext_data, interval), daemon=True)
-            t.start()
+        _start_polling(ext_id, ext_data)
     while True:
         time.sleep(3600)
 
@@ -804,7 +854,7 @@ def _poll_extension(ext_id, ext_data, interval_ms):
         if remaining > 0:
             time.sleep(remaining)
 
-# ── Widget state ───────────────────────────────────────────────────────────
+#  Widget state 
 
 def load_widget_state():
     try:
@@ -828,7 +878,7 @@ def api_set_widget_state():
     save_widget_state(data)
     return jsonify({'ok': True})
 
-# ── Scenes ──────────────────────────────────────────────────────────────────
+#  Scenes 
 
 ALLOWED_SCENE_IMG = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
 MAX_SCENE_IMG_SIZE = 256 * 1024  # 256 KiB
@@ -992,7 +1042,7 @@ def api_upload_scene_image():
 def api_serve_scene_image(filename):
     return send_from_directory(os.path.join(DATA_DIR, 'scenes'), filename)
 
-# ── Restart / Quit ─────────────────────────────────────────────────────────
+#  Restart / Quit 
 
 @app.route('/api/restart', methods=['POST'])
 def api_restart():
@@ -1014,7 +1064,7 @@ def api_quit():
     import signal
     os.kill(os.getpid(), signal.SIGTERM)
 
-# ── Startup ────────────────────────────────────────────────────────────────
+#  Startup 
 
 def _sigint_handler(signum, frame):
     log.info("Shutting down...")

@@ -11,6 +11,8 @@
   "js_modules": ["script.js"],
   "css_modules": ["style.css"],
   "grid_size": { "w": 2, "h": 1 },
+  "scroll": false,
+  "hideScrollbar": false,
   "refresh_interval": 5000,
   "widgets": [
     { "id": "my_widget", "type": "text", "label": "My Metric", "action": "my_action" }

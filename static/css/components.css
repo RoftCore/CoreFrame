@@ -640,47 +640,66 @@
   pointer-events: none;
 }
 
-/* --- Settings dropdown --- */
-.settings-container {
-  position: relative;
-  display: inline-block;
-  z-index: 1000;
+/* --- Extension scroll --- */
+.widget-extension.ext-scroll {
+  display: flex;
+  flex-direction: column;
+}
+.widget-extension.ext-scroll .widget-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.widget-extension.ext-scroll-x .widget-body {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.widget-extension.ext-scroll-y .widget-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.widget-extension.ext-scroll-both .widget-body {
+  overflow: auto;
 }
 
-.settings-dropdown {
+/* --- Extension thin scrollbar --- */
+.widget-extension.ext-scroll .widget-body::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.widget-extension.ext-scroll .widget-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.widget-extension.ext-scroll .widget-body::-webkit-scrollbar-thumb {
+  background: rgba(0, 212, 255, 0.25);
+  border-radius: 3px;
+}
+.widget-extension.ext-scroll .widget-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.45);
+}
+
+/* --- Hide scrollbar (keep functionality) --- */
+.widget-extension.ext-scrollbar-hide .widget-body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.widget-extension.ext-scrollbar-hide .widget-body::-webkit-scrollbar {
   display: none;
-  position: absolute;
-  top: 100%;
-  right: 0;
-  background: var(--bg-widget);
-  border: 1px solid rgba(0, 212, 255, 0.2);
-  border-radius: var(--radius-sm);
-  min-width: 160px;
-  padding: 4px 0;
-  margin-top: 4px;
-  box-shadow: var(--shadow-lg);
-  z-index: 1001;
 }
-
-.settings-dropdown.visible {
+.widget-extension.ext-scrollbar-hide-x .widget-body::-webkit-scrollbar {
+  display: none;
+}
+.widget-extension.ext-scrollbar-hide-x .widget-body::-webkit-scrollbar:vertical {
   display: block;
+  width: 5px;
+}
+.widget-extension.ext-scrollbar-hide-y .widget-body::-webkit-scrollbar {
+  display: none;
+}
+.widget-extension.ext-scrollbar-hide-y .widget-body::-webkit-scrollbar:horizontal {
+  display: block;
+  height: 5px;
 }
 
-.settings-option {
-  padding: 8px 16px;
-  cursor: pointer;
-  color: var(--text-primary);
-  font-size: 13px;
-  transition: background var(--transition-fast);
-}
-
-.settings-option:hover {
-  background: rgba(0, 212, 255, 0.1);
-}
-
-.settings-option.active {
-  color: var(--accent-cyan);
-  font-weight: 600;
-}
-
+/* --- Settings dropdown --- */
 

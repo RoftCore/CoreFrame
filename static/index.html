@@ -28,16 +28,9 @@
         <span class="hud-dot" id="connection-dot"></span>
         <span id="header-clock">--:--:--</span>
         <button class="topbar-reload" id="btn-install" title="Install extension (.zip)">+</button>
-        <button class="topbar-reload" id="btn-package" title="Package extension" style="display:none">&#x1F4E6;</button>
+        <button class="topbar-reload" id="btn-package" title="Package extension" style="display:none"><i data-feather="package" width="16" height="16"></i></button>
         <button class="topbar-reload" id="btn-reload" title="Restart server" style="display:none">⟳</button>
-        <div class="settings-container">
-          <button class="topbar-reload" id="btn-settings" title="Settings">&#x2699;</button>
-          <div class="settings-dropdown" id="settings-dropdown">
-            <div class="settings-option" data-mode="windowed">Windowed</div>
-            <div class="settings-option" data-mode="frameless">Frameless</div>
-            <div class="settings-option" data-mode="fullscreen">Fullscreen</div>
-          </div>
-        </div>
+        <button class="topbar-reload" id="btn-settings" title="Settings">&#x2699;</button>
         <button class="topbar-reload" id="btn-minimize" title="Minimize">−</button>
       </div>
     </header>
@@ -66,6 +59,10 @@
   <script src="/js/widgets.js"></script>
   <script src="/js/menu.js"></script>
   <script src="/js/core.js"></script>
-  <script src="/js/widget-control.js"></script>
+  <script src="/js/widget-control/00-state.js"></script>
+  <script src="/js/widget-control/01-scenes.js"></script>
+  <script src="/js/widget-control/02-layout.js"></script>
+  <script src="/js/widget-control/03-menus-styles.js"></script>
+  <script src="/js/widget-control/04-init.js"></script>
 </body>
 </html>

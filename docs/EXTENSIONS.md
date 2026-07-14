@@ -48,6 +48,8 @@ extensions/mi_extension/
 | `overlayable` | bool | `false` | ❌ | Can overlap with other widgets |
 | `realtime` | bool | `false` | ❌ | Uses WebSocket for push updates |
 | `refresh_interval` | int | `5000` | ❌ | Polling interval in ms (0 = no polling) |
+| `scroll` | string/bool | — | ❌ | `"x"`, `"y"`, `"both"`, or `false` to enable overflow scroll on widget body |
+| `hideScrollbar` | string/bool | `false` | ❌ | `true`/`"both"`, `"x"`, or `"y"` — hides scrollbar visually but keeps scroll functionality (WebKit: per-axis; Firefox: only `"both"`) |
 | `menu_items` | array | `[]` | ❌ | Items in the side menu |
 | `js_modules` | string[] | `[]` | ❌ | JS files in `static/` |
 | `css_modules` | string[] | `[]` | ❌ | CSS files in `static/` |
