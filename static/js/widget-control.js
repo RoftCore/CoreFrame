@@ -17,25 +17,21 @@ var _activeScene = null;
     return s ? s.widgets : {};
   }
 
-  function sortSceneKeys(keys) {
-    return keys.slice().sort(function (a, b) {
-      if (a === 'default') return -1;
-      if (b === 'default') return 1;
-      var na = parseInt(a.replace('scene_', ''), 10);
-      var nb = parseInt(b.replace('scene_', ''), 10);
-      return na - nb;
-    });
-  }
-
   function loadState() {
-    return apiFetch('/api/scenes').then(function (data) {
-      if (data && !data.error) {
-        _scenes = data.scenes || {};
-        _sceneOrder = sortSceneKeys(Object.keys(_scenes));
-        _activeScene = data.active || _sceneOrder[0] || null;
-        _stateLoaded = true;
-        renderSceneBar();
-      }
+    return apiFetch('/api/widget-state').then(function (ws) {
+      var savedOrder = ws && ws.sceneOrder;
+      return apiFetch('/api/scenes').then(function (data) {
+        if (data && !data.error) {
+          _scenes = data.scenes || {};
+          var keys = Object.keys(_scenes);
+          _sceneOrder = (savedOrder && savedOrder.length === keys.length)
+            ? savedOrder.filter(function (k) { return _scenes[k]; })
+            : keys;
+          _activeScene = data.active || _sceneOrder[0] || null;
+          _stateLoaded = true;
+          renderSceneBar();
+        }
+      });
     });
   }
 
@@ -43,7 +39,7 @@ var _activeScene = null;
     return apiFetch('/api/widget-state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scenes: _scenes, activeScene: _activeScene })
+      body: JSON.stringify({ scenes: _scenes, activeScene: _activeScene, sceneOrder: _sceneOrder })
     });
   }
 
@@ -1179,7 +1175,9 @@ var _activeScene = null;
     }).then(function (result) {
       if (result && result.scenesData && !result.scenesData.error) {
         _scenes = result.scenesData.scenes || _scenes;
-        _sceneOrder = sortSceneKeys(Object.keys(_scenes));
+        if (_sceneOrder.indexOf(result.newId) < 0) {
+          _sceneOrder.push(result.newId);
+        }
         _activeScene = result.scenesData.active || _activeScene;
         renderSceneBar();
         applyHiddenState();
@@ -1195,7 +1193,8 @@ var _activeScene = null;
     }).then(function (data) {
       if (data && !data.error) {
         _scenes = data.scenes || _scenes;
-        _sceneOrder = sortSceneKeys(Object.keys(_scenes));
+        var idx = _sceneOrder.indexOf(sid);
+        if (idx >= 0) _sceneOrder.splice(idx, 1);
         _activeScene = data.active || _activeScene;
         renderSceneBar();
         applyHiddenState();
