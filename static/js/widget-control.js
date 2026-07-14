@@ -2,8 +2,9 @@
   'use strict';
 
   // ----- scene state -----
-  var _scenes = {};
-  var _activeScene = null;
+var _scenes = {};
+var _sceneOrder = [];
+var _activeScene = null;
   var _stateLoaded = false;
   var _savePending = false;
 
@@ -17,10 +18,23 @@
   }
 
   function loadState() {
+    function buildOrder(scenes) {
+      var keys = Object.keys(scenes);
+      keys.sort(function (a, b) {
+        if (a === 'default') return -1;
+        if (b === 'default') return 1;
+        var na = parseInt(a.replace('scene_', ''), 10);
+        var nb = parseInt(b.replace('scene_', ''), 10);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return a < b ? -1 : 1;
+      });
+      return keys;
+    }
     return apiFetch('/api/scenes').then(function (data) {
       if (data && !data.error) {
         _scenes = data.scenes || {};
-        _activeScene = data.active || Object.keys(_scenes)[0] || null;
+        _sceneOrder = buildOrder(_scenes);
+        _activeScene = data.active || _sceneOrder[0] || null;
         _stateLoaded = true;
         renderSceneBar();
       }
@@ -1087,7 +1101,7 @@
     var bar = document.getElementById('scene-bar');
     if (!bar) return;
     bar.innerHTML = '';
-    var ids = Object.keys(_scenes);
+    var ids = _sceneOrder.length ? _sceneOrder : Object.keys(_scenes);
     ids.forEach(function (sid) {
       var btn = document.createElement('button');
       btn.className = 'scene-btn' + (sid === _activeScene ? ' active' : '');
@@ -1115,15 +1129,11 @@
         e.preventDefault();
         var from = e.dataTransfer.getData('text/plain');
         if (!from || from === sid) return;
-        var ids = Object.keys(_scenes);
-        var idxFrom = ids.indexOf(from);
-        var idxTo = ids.indexOf(sid);
+        var idxFrom = _sceneOrder.indexOf(from);
+        var idxTo = _sceneOrder.indexOf(sid);
         if (idxFrom < 0 || idxTo < 0) return;
-        ids.splice(idxFrom, 1);
-        ids.splice(idxTo, 0, from);
-        var reordered = {};
-        ids.forEach(function (k) { reordered[k] = _scenes[k]; });
-        _scenes = reordered;
+        _sceneOrder.splice(idxFrom, 1);
+        _sceneOrder.splice(idxTo, 0, from);
         renderSceneBar();
         persistScenes();
       });
@@ -1166,6 +1176,7 @@
     }).then(function (data) {
       if (data && !data.error) {
         _scenes = data.scenes || _scenes;
+        _sceneOrder = Object.keys(_scenes);
         _activeScene = data.active || _activeScene;
         renderSceneBar();
         applyHiddenState();
@@ -1181,6 +1192,7 @@
     }).then(function (data) {
       if (data && !data.error) {
         _scenes = data.scenes || _scenes;
+        _sceneOrder = Object.keys(_scenes);
         _activeScene = data.active || _activeScene;
         renderSceneBar();
         applyHiddenState();
@@ -1414,7 +1426,7 @@
     html += '<div id="icon-picker-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;max-height:160px;overflow-y:auto;padding:2px 0;">';
     featherNames.forEach(function (ic) {
       if (typeof feather === 'undefined' || !feather.icons[ic]) return;
-      var active = (!currentImage && currentLabel === ic) ? ';border-color:var(--accent-cyan);background:rgba(0,212,255,0.25);box-shadow:0 0 8px rgba(0,212,255,0.3)' : '';
+      var active = (!currentImage && currentLabel === ic) ? ';border-color:var(--accent-cyan);background:rgba(0,212,255,0.25);' : '';
       html += '<div class="icon-picker-item" data-icon="' + ic + '" title="' + ic + '" style="display:flex;align-items:center;justify-content:center;cursor:pointer;padding:4px;border-radius:var(--radius-sm);border:1px solid transparent' + active + '"><i data-feather="' + ic + '" width="16" height="16"></i></div>';
     });
     html += '</div>';
@@ -1442,7 +1454,7 @@
         body.querySelectorAll('.icon-picker-item').forEach(function (e) { e.style.borderColor = 'transparent'; e.style.background = ''; });
         el.style.borderColor = 'var(--accent-cyan)';
         el.style.background = 'rgba(0,212,255,0.25)';
-        el.style.boxShadow = '0 0 8px rgba(0,212,255,0.3)';
+        //el.style.boxShadow = '0 0 8px rgba(0,212,255,0.3)';
         saveIcon(el.dataset.icon);
       });
     });
