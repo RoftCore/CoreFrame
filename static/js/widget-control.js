@@ -3,6 +3,7 @@
 
   // ----- scene state -----
 var _scenes = {};
+var _sceneOrder = [];
 var _activeScene = null;
   var _stateLoaded = false;
   var _savePending = false;
@@ -20,7 +21,8 @@ var _activeScene = null;
     return apiFetch('/api/scenes').then(function (data) {
       if (data && !data.error) {
         _scenes = data.scenes || {};
-        _activeScene = data.active || Object.keys(_scenes)[0] || null;
+        _sceneOrder = Object.keys(_scenes);
+        _activeScene = data.active || _sceneOrder[0] || null;
         _stateLoaded = true;
         renderSceneBar();
       }
@@ -1087,13 +1089,7 @@ var _activeScene = null;
     var bar = document.getElementById('scene-bar');
     if (!bar) return;
     bar.innerHTML = '';
-    var ids = Object.keys(_scenes).sort(function (a, b) {
-      if (a === 'default') return -1;
-      if (b === 'default') return 1;
-      var na = parseInt(a.replace('scene_', ''), 10);
-      var nb = parseInt(b.replace('scene_', ''), 10);
-      return na - nb;
-    });
+    var ids = _sceneOrder.length ? _sceneOrder : Object.keys(_scenes);
     ids.forEach(function (sid) {
       var btn = document.createElement('button');
       btn.className = 'scene-btn' + (sid === _activeScene ? ' active' : '');
@@ -1121,14 +1117,13 @@ var _activeScene = null;
         e.preventDefault();
         var from = e.dataTransfer.getData('text/plain');
         if (!from || from === sid) return;
-        var ids = Object.keys(_scenes);
-        var idxFrom = ids.indexOf(from);
-        var idxTo = ids.indexOf(sid);
+        var idxFrom = _sceneOrder.indexOf(from);
+        var idxTo = _sceneOrder.indexOf(sid);
         if (idxFrom < 0 || idxTo < 0) return;
-        ids.splice(idxFrom, 1);
-        ids.splice(idxTo, 0, from);
+        _sceneOrder.splice(idxFrom, 1);
+        _sceneOrder.splice(idxTo, 0, from);
         var reordered = {};
-        ids.forEach(function (k) { reordered[k] = _scenes[k]; });
+        _sceneOrder.forEach(function (k) { reordered[k] = _scenes[k]; });
         _scenes = reordered;
         renderSceneBar();
         persistScenes();
@@ -1172,6 +1167,7 @@ var _activeScene = null;
     }).then(function (data) {
       if (data && !data.error) {
         _scenes = data.scenes || _scenes;
+        _sceneOrder = Object.keys(_scenes);
         _activeScene = data.active || _activeScene;
         renderSceneBar();
         applyHiddenState();
@@ -1187,6 +1183,7 @@ var _activeScene = null;
     }).then(function (data) {
       if (data && !data.error) {
         _scenes = data.scenes || _scenes;
+        _sceneOrder = Object.keys(_scenes);
         _activeScene = data.active || _activeScene;
         renderSceneBar();
         applyHiddenState();
