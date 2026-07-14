@@ -509,5 +509,14 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ── Minimize window
+document.getElementById('btn-minimize').addEventListener('click', function () {
+  if (window.pywebview) {
+    pywebview.api.minimize_window().catch(function(err) {
+      console.warn('minimize_window failed:', err);
+    });
+  }
+});
+
 // ── Settings dropdown (accessible via right-click on gear)
 const settingsBtn = document.getElementById('btn-settings');

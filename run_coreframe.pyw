@@ -132,5 +132,9 @@ def _ui_set_mode(i, WinForms, new_mode):
     except Exception:
         pass
 
-window.expose(set_window_mode)
+def minimize_window():
+    window.minimize()
+    return True
+
+window.expose(set_window_mode, minimize_window)
 webview.start(private_mode=False)
