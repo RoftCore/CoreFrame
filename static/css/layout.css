@@ -170,6 +170,7 @@
   flex-shrink: 0;
 }
 .scene-btn {
+  position: relative;
   width: 32px;
   height: 32px;
   border: 1px solid var(--border-color);
@@ -191,8 +192,19 @@
 }
 .scene-btn.active {
   border-color: var(--accent-cyan);
-  background: rgba(0,212,255,0.15);
-  box-shadow: 0 0 8px rgba(0,212,255,0.2);
+  background: rgba(0,212,255,0.25);
+  box-shadow: 0 0 12px rgba(0,212,255,0.35), inset 0 0 8px rgba(0,212,255,0.1);
+  color: var(--accent-cyan);
+}
+.scene-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--accent-cyan);
+  border-radius: 1px;
 }
 .scene-btn-img {
   width: 20px;
