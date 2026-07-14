@@ -138,7 +138,7 @@ function initWebSocket() {
 
   socket.on('realtime_update', (data) => {
     if (!data.ext || !data.values) return;
-    const ext = extensionsData[data.ext];
+    const ext = window.extensionsData[data.ext];
     if (ext && ext.js_modules && ext.js_modules.length) return;
     Object.keys(data.values).forEach(id => {
       const el = document.querySelector(`[data-widget-id="${id}"][data-ext-id="${data.ext}"]`);
@@ -286,7 +286,7 @@ function showMarketplaceList(choiceOverlay) {
       var grid = document.createElement('div');
       grid.className = 'mkt-grid';
       filtered.forEach(function (ext) {
-        var installed = !!(extensionsData && extensionsData[ext.id]);
+        var installed = !!(window.extensionsData && window.extensionsData[ext.id]);
         var card = document.createElement('div');
         card.className = 'mkt-card' + (ext.hidden ? ' mkt-hidden' : '') + (installed ? ' mkt-installed' : '');
         var nameEl = document.createElement('div');

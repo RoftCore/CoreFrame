@@ -361,7 +361,7 @@
     } else {
       let html = '<div style="font-family:var(--font-mono);">';
       keys.forEach(function (extId) {
-        const name = (window.extensionsData && extensionsData[extId] && extensionsData[extId].name) || extId;
+        const name = (window.extensionsData && window.extensionsData[extId] && window.extensionsData[extId].name) || extId;
         html += '<div class="ctx-hidden-item" data-ext-id="' + extId + '">' +
           '<span>' + escapeHtml(name) + '</span>' +
           '<span class="ctx-show-action">Show</span>' +

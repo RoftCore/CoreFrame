@@ -424,8 +424,8 @@ function createSubWidget(widgetDef, extId) {
       e.stopPropagation();
       if (typeof executeMenuAction === 'function') {
         let menuLabel = widgetDef.click_action;
-        if (typeof extensionsData !== 'undefined' && extensionsData[extId] && extensionsData[extId].menu_items) {
-          const found = extensionsData[extId].menu_items.find(m => m.action === widgetDef.click_action);
+        if (typeof window.extensionsData !== 'undefined' && window.extensionsData[extId] && window.extensionsData[extId].menu_items) {
+          const found = window.extensionsData[extId].menu_items.find(m => m.action === widgetDef.click_action);
           if (found) menuLabel = found.label;
         }
         executeMenuAction(extId, widgetDef.click_action, menuLabel);
