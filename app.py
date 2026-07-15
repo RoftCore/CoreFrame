@@ -188,9 +188,7 @@ def load_extensions():
                 continue
             _sync_extension_lib(ext_path)
             _ensure_extension_deps(ext_path)
-            ext_data_dir = os.path.join(DATA_DATA_DIR, name)
-            os.makedirs(ext_data_dir, exist_ok=True)
-            config['data_dir'] = ext_data_dir
+            config['data_dir'] = os.path.join(DATA_DATA_DIR, name)
             lang = config.get('language', 'python')
             if lang != 'python' and lang != 'py':
                 ext_instance = SubprocessBridge(config, ext_path)
@@ -228,9 +226,7 @@ def _load_single_extension(ext_id):
         lang = config.get('language', 'python')
         _sync_extension_lib(ext_path)
         _ensure_extension_deps(ext_path)
-        ext_data_dir = os.path.join(DATA_DATA_DIR, ext_id)
-        os.makedirs(ext_data_dir, exist_ok=True)
-        config['data_dir'] = ext_data_dir
+        config['data_dir'] = os.path.join(DATA_DATA_DIR, ext_id)
         if lang != 'python' and lang != 'py':
             ext_instance = SubprocessBridge(config, ext_path)
         else:
