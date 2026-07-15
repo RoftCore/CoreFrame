@@ -555,8 +555,19 @@ def api_install_extension():
             ext_id = parts[0] if len(parts) >= 2 else f.filename.replace('.zip', '')
         ext_name = cfg_data.get('name', ext_id)
         target = os.path.join(EXTENSIONS_DIR, ext_id)
-        if os.path.exists(target):
-            return jsonify({'exists': True, 'message': f'Extension "{ext_name}" has already been imported before and cannot be imported again.'})
+        existing_cfg = os.path.join(target, 'extension.json')
+        if os.path.exists(existing_cfg):
+            try:
+                with open(existing_cfg, encoding='utf-8-sig') as _f:
+                    _existing = json.load(_f)
+                if _existing.get('id') == ext_id:
+                    return jsonify({'exists': True, 'message': f'Extension "{ext_name}" has already been imported before and cannot be imported again.'})
+            except Exception:
+                pass
+            # Corrupted or mismatched — delete and reinstall
+            shutil.rmtree(target, ignore_errors=True)
+        elif os.path.exists(target):
+            shutil.rmtree(target, ignore_errors=True)
         static_assets_install = set(cfg_data.get('js_modules', []) + cfg_data.get('css_modules', []))
         prefix = ''
         if has_subdir and ext_config.count('/') >= 1:
@@ -763,8 +774,18 @@ def api_marketplace_install(ext_id):
         return jsonify({'error': f'Extension "{ext_id}" not found in marketplace'}), 404
 
     target = os.path.join(EXTENSIONS_DIR, ext_id)
-    if os.path.exists(target):
-        return jsonify({'exists': True, 'message': f'Extension "{ext_info.get("name", ext_id)}" has already been imported before and cannot be imported again.'})
+    existing_cfg = os.path.join(target, 'extension.json')
+    if os.path.exists(existing_cfg):
+        try:
+            with open(existing_cfg, encoding='utf-8-sig') as _f:
+                _existing = json.load(_f)
+            if _existing.get('id') == ext_id:
+                return jsonify({'exists': True, 'message': f'Extension "{ext_info.get("name", ext_id)}" has already been imported before and cannot be imported again.'})
+        except Exception:
+            pass
+        shutil.rmtree(target, ignore_errors=True)
+    elif os.path.exists(target):
+        shutil.rmtree(target, ignore_errors=True)
 
     url = ext_info.get('download_url')
     if not url:

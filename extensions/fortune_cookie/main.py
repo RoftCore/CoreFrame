@@ -1,5 +1,4 @@
 import random
-import pycowsay
 
 FORTUNES = [
     "A closed mouth catches no flies.",
@@ -132,11 +131,6 @@ TECH_FORTUNES = [
 class Extension:
     def __init__(self, config):
         self.config = config
-        try:
-            cow = pycowsay.get_output('Fortune Cookie loaded')
-            print(f'[FortuneCookie] {cow.split(chr(10))[0]}...')
-        except Exception:
-            print('[FortuneCookie] pycowsay loaded')
 
     def get_fortune(self):
         all_fortunes = FORTUNES + TECH_FORTUNES
