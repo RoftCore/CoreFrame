@@ -314,18 +314,6 @@ function triggerFileInstall() {
 
     var installId = null;
     var installName = null;
-    var toastEl = null;
-
-    function showInstallToast(msg) {
-      if (toastEl) { toastEl.textContent = msg; return; }
-      toastEl = document.createElement('div');
-      toastEl.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1a1a2e;color:#e0e0e0;padding:8px 14px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);font-size:12px;z-index:9999;max-width:360px';
-      toastEl.textContent = msg;
-      document.body.appendChild(toastEl);
-    }
-    function hideInstallToast() {
-      if (toastEl) { toastEl.remove(); toastEl = null; }
-    }
 
     showInstallToast('Installing extension...');
 
@@ -449,6 +437,9 @@ function showMarketplaceList(choiceOverlay) {
           var attempts = 0;
           var maxAttempts = 3;
           var to = [3000, 15000, 30000];
+          var installId = null;
+          var sock = window.__socket;
+          var progressHandler = null;
           function tryInstall() {
             var label = attempts === 0 ? 'Downloading ' + ext.name + '...' : 'Retrying (' + attempts + '/' + maxAttempts + ')...';
             showInstallOverlay(label);
@@ -470,6 +461,39 @@ function showMarketplaceList(choiceOverlay) {
                 showToast('Error: ' + res.error);
                 btn.textContent = 'Install';
                 btn.disabled = false;
+                return;
+              }
+              if (res && res.status === 'installing') {
+                installId = res.id;
+                hideInstallOverlay();
+                showInstallToast('Installing deps for ' + ext.name + '...');
+                progressHandler = function (ev) {
+                  if (ev.id !== installId) return;
+                  if (ev.step === 'syncing') {
+                    showInstallToast('Syncing ' + ext.name + '...');
+                  } else if (ev.step === 'deps') {
+                    showInstallToast('Installing deps for ' + ext.name + '...');
+                  } else if (ev.step === 'loading') {
+                    showInstallToast('Loading ' + ext.name + '...');
+                  } else if (ev.step === 'done') {
+                    if (sock) sock.off('extension_install_progress', progressHandler);
+                    apiFetch('/api/extensions').then(function (data) {
+                      if (data && !data.error) {
+                        window.extensionsData = data;
+                        buildSidebar(data);
+                      }
+                      renderMarketplace();
+                      refreshAfterInstall(ext.name, ext.id);
+                    });
+                  } else if (ev.step === 'error') {
+                    if (sock) sock.off('extension_install_progress', progressHandler);
+                    showToast('Install error: ' + (ev.error || 'Unknown error'));
+                    btn.textContent = 'Install';
+                    btn.disabled = false;
+                    renderMarketplace();
+                  }
+                };
+                if (sock) sock.on('extension_install_progress', progressHandler);
                 return;
               }
               hideInstallOverlay();
@@ -647,6 +671,18 @@ document.getElementById('btn-reload').addEventListener('click', async () => {
 //  Window mode state & F11 
 
 let currentWindowMode = new URLSearchParams(window.location.search).get('mode') || 'windowed';
+
+var _installToastEl = null;
+function showInstallToast(msg) {
+  if (_installToastEl) { _installToastEl.textContent = msg; return; }
+  _installToastEl = document.createElement('div');
+  _installToastEl.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1a1a2e;color:#e0e0e0;padding:8px 14px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);font-size:12px;z-index:9999;max-width:360px';
+  _installToastEl.textContent = msg;
+  document.body.appendChild(_installToastEl);
+}
+function hideInstallToast() {
+  if (_installToastEl) { _installToastEl.remove(); _installToastEl = null; }
+}
 
 function showToast(msg) {
   var t = document.createElement('div');

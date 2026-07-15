@@ -873,12 +873,30 @@ def api_marketplace_install(ext_id):
             with open(dest, 'wb') as out:
                 out.write(zf.read(n))
         zf.close()
-        _load_single_extension(ext_id)
-        ext_data = extensions.get(ext_id)
-        if ext_data:
-            _start_polling(ext_id, ext_data)
-        log.info("Marketplace installed: %s v%s", ext_id, ext_info.get('version', '?'))
-        return jsonify({'ok': True, 'name': ext_info.get('name', ext_id)})
+        # Load in background
+        def _bg_install_mkt(ext_id, target, ext_name):
+            try:
+                socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'syncing'})
+                _sync_extension_lib(target)
+                socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'deps'})
+                _ensure_extension_deps(target)
+                socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'loading'})
+                if _load_single_extension(ext_id):
+                    ext_data = extensions.get(ext_id)
+                    if ext_data:
+                        _start_polling(ext_id, ext_data)
+                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'done'})
+                else:
+                    err = failed_extensions.get(ext_id, {}).get('loadError', 'Unknown error')
+                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': str(err)})
+            except Exception as e:
+                log.error("Background install failed for %s: %s", ext_id, e)
+                socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': str(e)})
+
+        t = threading.Thread(target=_bg_install_mkt, args=(ext_id, target, ext_info.get('name', ext_id)), daemon=True)
+        t.start()
+        log.info("Marketplace installing: %s (background)", ext_id)
+        return jsonify({'status': 'installing', 'id': ext_id, 'name': ext_info.get('name', ext_id)})
     except Exception as e:
         shutil.rmtree(target, ignore_errors=True)
         return jsonify({'error': f'Install failed: {e}'}), 500
