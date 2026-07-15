@@ -288,6 +288,17 @@ function showInstallConfirm(extName, extId) {
       if (grid && !document.querySelector('.widget-extension.ext-' + extId)) {
         var card = createExtensionCard({ ...ext, id: extId });
         grid.appendChild(card);
+        if (ext.widgets) {
+          ext.widgets.forEach(function (wDef) { refreshWidget(extId, wDef); });
+        }
+        if (ext.js_modules && ext.js_modules.length) {
+          document.querySelectorAll('script[src*="/ext-static/' + extId + '/"]').forEach(function (s) { s.remove(); });
+          ext.js_modules.forEach(function (mod) {
+            var script = document.createElement('script');
+            script.src = '/ext-static/' + extId + '/' + mod;
+            document.body.appendChild(script);
+          });
+        }
       }
     }
     if (window.__widgetControl && window.__widgetControl.unhideWidget) {

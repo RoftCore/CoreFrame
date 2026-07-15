@@ -404,6 +404,64 @@ registerMenuHook('mi_extension', 'open_panel', async function(extId, action, lab
 
 ---
 
+## Global Frontend Utilities
+
+These functions are available globally in any extension's JS module without importing anything.
+
+### showToast(message)
+
+Shows a transient notification at the bottom of the screen. Disappears after 2.5s.
+
+```javascript
+showToast('Hello from extension');
+showToast('Note saved');
+```
+
+### apiFetch(url, options)
+
+Thin wrapper around `fetch()` with automatic JSON parsing and error handling. Returns a Promise.
+
+```javascript
+apiFetch('/api/extension/mi_ext/mi_accion').then(function(data) {
+  console.log(data.value);
+});
+
+apiFetch('/api/extension/mi_ext/create', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ title: 'Test' })
+}).then(function(data) {
+  if (data && data.value) { /* success */ }
+});
+```
+
+### Result Panel (Modal)
+
+The built-in overlay modal. Open it by adding the `open` class to `#result-panel` and `#overlay`.
+
+```javascript
+var panelTitle = document.getElementById('result-panel-title');
+var panelBody = document.getElementById('result-panel-body');
+panelTitle.textContent = 'My Extension';
+panelBody.innerHTML = '<p>Any HTML content</p>';
+document.getElementById('result-panel').classList.add('open');
+document.getElementById('overlay').classList.add('open');
+```
+
+To close: `closeResultPanel()` or click outside the panel.
+
+### Spinner Overlay
+
+For long operations, show a centered spinner with a message:
+
+```javascript
+showInstallOverlay('Processing...');
+// ... later:
+hideInstallOverlay();
+```
+
+---
+
 ## Real-time
 
 For widgets that update continuously without client polling:
