@@ -17,7 +17,25 @@
   max-height: 54px;
   overflow-y: auto;
   scrollbar-width: thin;
+  scrollbar-color: rgba(0, 212, 255, 0.3) transparent;
   word-break: break-word;
+}
+
+.fortune-text::-webkit-scrollbar {
+  width: 4px;
+}
+
+.fortune-text::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fortune-text::-webkit-scrollbar-thumb {
+  background: rgba(0, 212, 255, 0.3);
+  border-radius: 4px;
+}
+
+.fortune-text::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.5);
 }
 
 .fortune-btn {

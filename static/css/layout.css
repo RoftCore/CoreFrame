@@ -31,15 +31,9 @@
 .topbar-logo {
   width: 28px;
   height: 28px;
-  background: transparent;
-  border: 1px solid var(--accent-cyan);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 11px;
-  color: var(--accent-cyan);
+  background: url('/favicon.ico') center/contain no-repeat;
+  border: none;
+  border-radius: 0;
   flex-shrink: 0;
   font-family: var(--font-mono);
   text-shadow: 0 0 8px var(--accent-cyan);
