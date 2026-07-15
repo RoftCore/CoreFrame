@@ -102,9 +102,12 @@ REGISTRY_PATH = os.path.join(DATA_DIR, 'extensions.json')
 WIDGET_STATE_PATH = os.path.join(DATA_DIR, 'widget_state.json')
 SHARED_LIB_DIR = os.path.join(DATA_DIR, 'lib')
 
+DATA_DATA_DIR = os.path.join(DATA_DIR, 'data')
+
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(EXTENSIONS_DIR, exist_ok=True)
 os.makedirs(SHARED_LIB_DIR, exist_ok=True)
+os.makedirs(DATA_DATA_DIR, exist_ok=True)
 
 MARKETPLACE_URL = 'https://raw.githubusercontent.com/RoftCore/extensions-coreframe/main/registry.json'
 if SHARED_LIB_DIR not in sys.path:
@@ -185,6 +188,9 @@ def load_extensions():
                 continue
             _sync_extension_lib(ext_path)
             _ensure_extension_deps(ext_path)
+            ext_data_dir = os.path.join(DATA_DATA_DIR, name)
+            os.makedirs(ext_data_dir, exist_ok=True)
+            config['data_dir'] = ext_data_dir
             lang = config.get('language', 'python')
             if lang != 'python' and lang != 'py':
                 ext_instance = SubprocessBridge(config, ext_path)
@@ -222,6 +228,9 @@ def _load_single_extension(ext_id):
         lang = config.get('language', 'python')
         _sync_extension_lib(ext_path)
         _ensure_extension_deps(ext_path)
+        ext_data_dir = os.path.join(DATA_DATA_DIR, ext_id)
+        os.makedirs(ext_data_dir, exist_ok=True)
+        config['data_dir'] = ext_data_dir
         if lang != 'python' and lang != 'py':
             ext_instance = SubprocessBridge(config, ext_path)
         else:
