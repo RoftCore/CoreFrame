@@ -69,6 +69,7 @@ python app.py
 | `run_coreframe.pyw` | Native window launcher (pywebview) |
 | `static/` | Frontend (HTML, CSS, JS) |
 | `extensions/` | Built-in extensions (network_monitor, system_monitor, vault_manager, ...) |
+| `data/` | Per-extension user data (notes, configs, downloads) — inside `~/Documents/CoreFrame/data/` |
 | `docs/` | Guides (EXTENSIONS.md, BRIDGE.md) |
 | `scaffolds/template-extension/` | Extension scaffold template |
 | `CoreFrame.spec` | PyInstaller config |
@@ -76,7 +77,7 @@ python app.py
 
 ### Updating
 
-**Binary:** just download the new version from [Releases](https://github.com/RoftCore/CoreFrame/releases) and replace your old file. Your data (widgets, scenes, extensions) stays in `~/Documents/CoreFrame/`.
+**Binary:** just download the new version from [Releases](https://github.com/RoftCore/CoreFrame/releases) and replace your old file. Your data (widgets, scenes, extensions, extension data) stays in `~/Documents/CoreFrame/`.
 
 **Source:**
 

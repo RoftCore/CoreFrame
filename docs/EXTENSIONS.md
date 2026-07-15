@@ -462,6 +462,30 @@ hideInstallOverlay();
 
 ---
 
+## Data Storage
+
+Extensions receive a `data_dir` path in their config where they can store persistent user data (notes, configs, downloads, etc.). This directory is located at:
+
+| Platform | Path |
+|----------|------|
+| Windows | `~/Documents/CoreFrame/data/<ext_id>/` |
+| Linux | `~/.local/share/CoreFrame/data/<ext_id>/` |
+
+```python
+class Extension:
+    def __init__(self, config):
+        self.config = config
+        data_dir = config.get('data_dir')           # e.g. ~/Documents/CoreFrame/data/my_extension/
+        self.data_file = os.path.join(data_dir, 'data.json')
+        os.makedirs(data_dir, exist_ok=True)         # create if you need it
+```
+
+The directory is **not created automatically** — your extension must create it when it actually needs to store data.
+
+Frontend code can access the same location via API calls that read/write from `data_dir`.
+
+---
+
 ## Real-time
 
 For widgets that update continuously without client polling:
