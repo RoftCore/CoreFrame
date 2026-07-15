@@ -225,6 +225,7 @@ function showInstallChoice() {
 }
 
 function refreshAfterInstall(extName, extId) {
+  hideInstallToast();
   showInstallOverlay('Installed! Refreshing...');
   apiFetch('/api/extensions').then(function (data) {
     hideInstallOverlay();
@@ -475,23 +476,25 @@ function showMarketplaceList(choiceOverlay) {
                     showInstallToast('Installing deps for ' + ext.name + '...');
                   } else if (ev.step === 'loading') {
                     showInstallToast('Loading ' + ext.name + '...');
-                  } else if (ev.step === 'done') {
-                    if (sock) sock.off('extension_install_progress', progressHandler);
-                    apiFetch('/api/extensions').then(function (data) {
-                      if (data && !data.error) {
-                        window.extensionsData = data;
-                        buildSidebar(data);
-                      }
-                      renderMarketplace();
-                      refreshAfterInstall(ext.name, ext.id);
-                    });
-                  } else if (ev.step === 'error') {
-                    if (sock) sock.off('extension_install_progress', progressHandler);
-                    showToast('Install error: ' + (ev.error || 'Unknown error'));
-                    btn.textContent = 'Install';
-                    btn.disabled = false;
-                    renderMarketplace();
-                  }
+      } else if (ev.step === 'done') {
+        hideInstallToast();
+        if (sock) sock.off('extension_install_progress', progressHandler);
+        apiFetch('/api/extensions').then(function (data) {
+          if (data && !data.error) {
+            window.extensionsData = data;
+            buildSidebar(data);
+          }
+          renderMarketplace();
+          refreshAfterInstall(ext.name, ext.id);
+        });
+      } else if (ev.step === 'error') {
+        hideInstallToast();
+        if (sock) sock.off('extension_install_progress', progressHandler);
+        showToast('Install error: ' + (ev.error || 'Unknown error'));
+        btn.textContent = 'Install';
+        btn.disabled = false;
+        renderMarketplace();
+      }
                 };
                 if (sock) sock.on('extension_install_progress', progressHandler);
                 return;
