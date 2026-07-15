@@ -32,9 +32,9 @@
     },
     "system_monitor": {
       "col": 10,
-      "h": 2,
+      "h": 1,
       "row": 1,
-      "w": 3
+      "w": 2
     }
   },
   "hidden": {

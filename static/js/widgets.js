@@ -153,6 +153,7 @@ function createSubWidget(widgetDef, extId) {
   el.dataset.widgetId = id;
   el.dataset.extId = extId;
   el.dataset.action = action;
+  el.dataset.format = widgetDef.format || '';
 
   const subLabel = document.createElement('div');
   subLabel.className = 'widget-sub-label';
@@ -490,7 +491,7 @@ function updateWidgetValue(widgetEl, response) {
       if (type === 'text') {
         const el = widgetEl.querySelector('.widget-value');
         if (!el) break;
-        formatValue(el, id, val);
+        formatValue(el, widgetEl.dataset.format, val);
       } else if (type === 'badge') {
         const dot = widgetEl.querySelector('.badge-dot');
         const lbl = widgetEl.querySelector('.badge-label');
@@ -520,7 +521,6 @@ function updateWidgetValue(widgetEl, response) {
       let numericVal = 0;
       if (typeof val === 'number') numericVal = val;
       else if (val && typeof val === 'object' && 'percent' in val) numericVal = val.percent;
-      else if (val && typeof val === 'object' && 'load' in val) numericVal = val.load;
 
       const historyKey = `${extId}-${id}`;
       if (!widgetHistory[historyKey]) widgetHistory[historyKey] = [];
@@ -528,15 +528,11 @@ function updateWidgetValue(widgetEl, response) {
       if (widgetHistory[historyKey].length > 30) widgetHistory[historyKey].shift();
       persistWidgetHistory();
 
-      if (valueEl) formatValue(valueEl, id, val);
+      if (valueEl) formatValue(valueEl, widgetEl.dataset.format, val);
 
-      const colors = {
-        'cpu': '#00d4ff',
-        'ram': '#6644ff',
-        'disk': '#00ff88',
-        'gpu': '#ffbb00'
-      };
-      const color = colors[id] || getComputedStyle(document.documentElement).getPropertyValue('--accent-blue').trim() || '#3498db';
+      const color = getComputedStyle(canvas).getPropertyValue('--chart-color').trim()
+        || getComputedStyle(document.documentElement).getPropertyValue('--accent-blue').trim()
+        || '#3498db';
       drawMiniChart(canvas, widgetHistory[historyKey], color);
       break;
     }
@@ -556,33 +552,34 @@ function updateWidgetValue(widgetEl, response) {
   }
 }
 
-function formatValue(el, id, val) {
+function formatValue(el, format, val) {
   if (val === undefined || val === null) { el.textContent = '--'; return; }
 
-  if (id === 'cpu') {
-    el.textContent = formatPercent(typeof val === 'object' ? val.percent : val);
-  } else if (id === 'ram') {
-    if (typeof val === 'object') {
-      el.textContent = formatPercent(val.percent) + ' (' + formatBytes(val.used) + ')';
+  if (typeof val === 'object' && val.label) {
+    if (typeof val.label === 'string' && /<[a-z][\s\S]*>/i.test(val.label)) {
+      el.innerHTML = val.label;
     } else {
-      el.textContent = formatPercent(val);
+      el.textContent = val.label;
     }
-  } else if (id === 'disk') {
-    if (typeof val === 'object') {
-      el.textContent = formatPercent(val.percent) + ' (' + formatBytes(val.free) + ' free)';
-    } else {
-      el.textContent = formatBytes(val);
-    }
-  } else if (id === 'gpu') {
-    if (typeof val === 'object') {
-      el.innerHTML = `<span class="text-yellow">${formatTemp(val.temp)}</span> <span class="text-blue">${formatPercent(val.load)}</span>`;
-    } else {
-      el.textContent = val;
-    }
-  } else if (typeof val === 'object') {
-    el.textContent = JSON.stringify(val);
-  } else {
-    el.textContent = val;
+    return;
+  }
+
+  switch (format) {
+    case 'percent':
+      el.textContent = formatPercent(typeof val === 'object' ? val.percent : val);
+      break;
+    case 'bytes':
+      el.textContent = formatBytes(typeof val === 'number' ? val : val.bytes);
+      break;
+    case 'temp':
+      el.textContent = formatTemp(typeof val === 'object' ? val.temp : val);
+      break;
+    default:
+      if (typeof val === 'object') {
+        el.textContent = JSON.stringify(val);
+      } else {
+        el.textContent = val;
+      }
   }
 }
 
