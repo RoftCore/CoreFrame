@@ -132,6 +132,8 @@ function initWebSocket() {
     reconnectionDelayMax: 5000,
   });
 
+  window.__socket = socket;
+
   function updateDot() {
     var el = document.getElementById('connection-dot');
     if (!el) return;
@@ -182,6 +184,11 @@ function showInstallOverlay(msg) {
 function hideInstallOverlay() {
   var el = document.getElementById('install-overlay');
   if (el) el.style.display = 'none';
+}
+
+function updateInstallOverlay(msg) {
+  var el = document.getElementById('install-overlay-msg');
+  if (el) el.textContent = msg || 'Installing...';
 }
 
 document.getElementById('btn-install').addEventListener('click', function () {
@@ -294,24 +301,71 @@ function triggerFileInstall() {
     var file = input.files[0];
     var formData = new FormData();
     formData.append('extension', file);
-    showInstallOverlay('Installing extension...');
+
+    var installId = null;
+    var installName = null;
+    var toastEl = null;
+
+    function showInstallToast(msg) {
+      if (toastEl) { toastEl.textContent = msg; return; }
+      toastEl = document.createElement('div');
+      toastEl.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1a1a2e;color:#e0e0e0;padding:8px 14px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);font-size:12px;z-index:9999;max-width:360px';
+      toastEl.textContent = msg;
+      document.body.appendChild(toastEl);
+    }
+    function hideInstallToast() {
+      if (toastEl) { toastEl.remove(); toastEl = null; }
+    }
+
+    showInstallToast('Installing extension...');
+
+    var sock = window.__socket;
+    var progressHandler = function (ev) {
+      if (ev.id !== installId) return;
+      if (ev.step === 'syncing') {
+        showInstallToast('Syncing ' + installName + '...');
+      } else if (ev.step === 'deps') {
+        showInstallToast('Installing deps for ' + installName + '...');
+      } else if (ev.step === 'loading') {
+        showInstallToast('Loading ' + installName + '...');
+      } else if (ev.step === 'done') {
+        hideInstallToast();
+        refreshAfterInstall(installName || installId, installId);
+        if (sock) sock.off('extension_install_progress', progressHandler);
+      } else if (ev.step === 'error') {
+        hideInstallToast();
+        showToast('Install error: ' + (ev.error || 'Unknown error'));
+        if (sock) sock.off('extension_install_progress', progressHandler);
+      }
+    };
+    if (sock) sock.on('extension_install_progress', progressHandler);
+
     apiFetch('/api/install_extension', {
       method: 'POST',
       body: formData
     }).then(function (data) {
       if (data && data.exists) {
-        hideInstallOverlay();
+        hideInstallToast();
+        if (sock) sock.off('extension_install_progress', progressHandler);
         showToast(data.message || 'This extension has already been imported.');
         return;
       }
       if (data && data.error) {
-        hideInstallOverlay();
+        hideInstallToast();
+        if (sock) sock.off('extension_install_progress', progressHandler);
         showToast('Error: ' + data.error);
         return;
       }
-      hideInstallOverlay();
-      var val = data.value || data;
-      refreshAfterInstall(val.name || val.id, val.id);
+      if (data && data.status === 'installing') {
+        installId = data.id;
+        installName = data.name;
+        showInstallToast('Installing deps for ' + data.name + '...');
+      } else {
+        hideInstallToast();
+        if (sock) sock.off('extension_install_progress', progressHandler);
+        var val = data.value || data;
+        refreshAfterInstall(val.name || val.id, val.id);
+      }
     });
   });
   document.body.appendChild(input);

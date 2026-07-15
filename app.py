@@ -57,9 +57,17 @@ def _ensure_extension_deps(ext_path):
             if not line or line.startswith('#'):
                 continue
             pkg = re.split(r'[>=<~!]', line)[0].strip()
-            import_name = pkg.lower().replace('-', '_').replace('.', '_')
-            if importlib.util.find_spec(import_name) is None:
-                missing.append(pkg)
+            # Check by module name (common lowercased form)
+            mod_name = pkg.lower().replace('-', '_').replace('.', '_')
+            if importlib.util.find_spec(mod_name) is not None:
+                continue
+            # Also check by pip metadata (handles case mismatches like spotipyfree → SpotipyFree)
+            try:
+                importlib.metadata.distribution(pkg)
+                continue
+            except importlib.metadata.PackageNotFoundError:
+                pass
+            missing.append(pkg)
     if not missing:
         return
     log.info("Installing missing deps: %s", missing)
@@ -608,14 +616,29 @@ def api_install_extension():
         with open(REGISTRY_PATH, 'w', encoding='utf-8') as rf:
             json.dump(registry, rf, indent=2)
 
-        # Load immediately — no pip steps, no polling needed
-        if not _load_single_extension(ext_id):
-            err_msg = failed_extensions.get(ext_id, {}).get('loadError', 'Unknown error')
-            return jsonify({'error': f'Extension installed but failed to load: {err_msg}'}), 500
-        ext_data = extensions.get(ext_id)
-        if ext_data:
-            _start_polling(ext_id, ext_data)
-        return jsonify({'value': {'name': ext_name, 'id': ext_id, 'installing_deps': False}})
+        # Load in background — pip deps are slow, don't block the UI
+        def _bg_install(ext_id, ext_path):
+            try:
+                socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'syncing'})
+                _sync_extension_lib(ext_path)
+                socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'deps'})
+                _ensure_extension_deps(ext_path)
+                socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'loading'})
+                if _load_single_extension(ext_id):
+                    ext_data = extensions.get(ext_id)
+                    if ext_data:
+                        _start_polling(ext_id, ext_data)
+                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'done'})
+                else:
+                    err_msg = failed_extensions.get(ext_id, {}).get('loadError', 'Unknown error')
+                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': err_msg})
+            except Exception as e:
+                log.error("Background install failed for %s: %s", ext_id, e)
+                socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': str(e)})
+
+        t = threading.Thread(target=_bg_install, args=(ext_id, target), daemon=True)
+        t.start()
+        return jsonify({'status': 'installing', 'id': ext_id, 'name': ext_name})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -625,10 +648,29 @@ def api_delete_extension(ext_id):
     if not os.path.isdir(ext_path):
         return jsonify({'error': 'Extension not found'}), 404
 
-    try:
-        shutil.rmtree(ext_path)
-    except Exception as e:
-        return jsonify({'error': f'Failed to delete extension files: {e}'}), 500
+    # Cleanup extension before deleting
+    ext_data = extensions.get(ext_id)
+    if ext_data:
+        inst = ext_data.get('instance')
+        cleanup = getattr(inst, 'cleanup', None)
+        if cleanup:
+            try:
+                cleanup()
+            except Exception as e:
+                log.warning("Cleanup failed for %s: %s", ext_id, e)
+
+    # Retry rmtree with backoff in case cleanup releases handles asynchronously
+    last_err = None
+    for attempt in range(5):
+        try:
+            shutil.rmtree(ext_path)
+            break
+        except Exception as e:
+            last_err = str(e)
+            if attempt < 4:
+                time.sleep(0.5)
+            else:
+                return jsonify({'error': f'Failed to delete extension files: {last_err}'}), 500
 
     # Unload from memory
     extensions.pop(ext_id, None)
