@@ -4,6 +4,8 @@ import json
 import hashlib
 import logging
 import importlib.util
+import importlib.metadata
+import re
 import signal
 import shutil
 import subprocess as _subprocess
@@ -43,6 +45,65 @@ try:
     import eventlet
 except ImportError:
     pass
+
+#  Core packages — excluded from lib bundling (CoreFrame's own deps) 
+CORE_PACKAGES = {
+    'flask', 'flask_socketio', 'flask_cors', 'flask_limiter',
+    'eventlet', 'bottle',
+    'requests', 'requests_toolbelt', 'urllib3', 'chardet', 'certifi', 'idna',
+    'python_socketio', 'python_engineio',
+    'markupsafe', 'jinja2', 'werkzeug', 'itsdangerous',
+    'importlib_metadata', 'zipp', 'typing_extensions',
+    'pip', 'setuptools', 'wheel',
+}
+
+def _bundle_dependencies(ext_path, zf):
+    req_path = os.path.join(ext_path, 'requirements.txt')
+    if not os.path.exists(req_path):
+        return
+    with open(req_path, encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            raw_pkg = re.split(r'[>=<~!]', line)[0].strip()
+            import_name = raw_pkg.lower().replace('-', '_').replace('.', '_')
+            if import_name in CORE_PACKAGES:
+                continue
+            try:
+                spec = importlib.util.find_spec(import_name)
+                if not spec or not spec.origin:
+                    continue
+                if spec.submodule_search_locations:
+                    pkg_root = spec.submodule_search_locations[0]
+                else:
+                    pkg_root = spec.origin
+                site_pkgs = os.path.dirname(pkg_root)
+                def _write_to_zip(src_path):
+                    rel = os.path.relpath(src_path, site_pkgs)
+                    arc = os.path.join('lib', rel)
+                    try:
+                        zf.getinfo(arc)
+                    except KeyError:
+                        zf.write(src_path, arc)
+                if os.path.isdir(pkg_root):
+                    for root, _dirs, files in os.walk(pkg_root, followlinks=True):
+                        for f in files:
+                            _write_to_zip(os.path.join(root, f))
+                    # top-level files (single .py modules at the same level)
+                    for entry in os.listdir(site_pkgs):
+                        if entry.startswith(os.path.basename(pkg_root) + '.') and entry.endswith('.py'):
+                            _write_to_zip(os.path.join(site_pkgs, entry))
+                else:
+                    _write_to_zip(pkg_root)
+                # dist-info
+                dist_info_dir = os.path.join(site_pkgs, os.path.basename(pkg_root) + '.dist-info')
+                if os.path.isdir(dist_info_dir):
+                    for root, _dirs, files in os.walk(dist_info_dir):
+                        for f in files:
+                            _write_to_zip(os.path.join(root, f))
+            except Exception:
+                pass
 
 #  Paths 
 
@@ -677,6 +738,9 @@ def api_package_extension(ext_id):
             if author:
                 config['author'] = author
             zf.writestr('extension.json', json.dumps(config, indent=2))
+
+            # Bundle required libraries (from requirements.txt, minus core packages)
+            _bundle_dependencies(ext_path, zf)
 
             # Ensure lib/ subdirectories have __init__.py
             ext_lib = os.path.join(ext_path, 'lib')
