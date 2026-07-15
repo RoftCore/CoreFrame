@@ -233,13 +233,6 @@ function refreshAfterInstall(extName, extId) {
       window.extensionsData = data;
       buildSidebar(data);
       var ext = data[extId];
-      if (ext && ext.widgets && ext.widgets.length) {
-        var grid = document.querySelector('.widget-grid');
-        if (grid) {
-          var card = createExtensionCard({ ...ext, id: extId });
-          grid.appendChild(card);
-        }
-      }
       if (ext) loadExtensionAssets({ [extId]: ext });
       if (ext && ext.widgets) {
         if (!ext.js_modules || !ext.js_modules.length) {
@@ -255,7 +248,16 @@ function refreshAfterInstall(extName, extId) {
           }
         }
       }
-      if (window.__widgetControl) window.__widgetControl.applyWidgetState();
+      if (window.__widgetControl) {
+        window.__widgetControl.applyWidgetState();
+        // Mark newly installed extension as hidden so it doesn't auto-show
+        var wc = window.__widgetControl;
+        var scene = wc.currentScene ? wc.currentScene() : null;
+        if (scene && scene.widgets && scene.widgets[extId]) {
+          scene.widgets[extId].hidden = true;
+          if (wc.persistScenes) wc.persistScenes();
+        }
+      }
     }
     showInstallConfirm(extName, extId);
   }).catch(function () {
@@ -279,6 +281,14 @@ function showInstallConfirm(extName, extId) {
 
   document.getElementById('install-show-btn').onclick = function () {
     overlay.remove();
+    var ext = window.extensionsData ? window.extensionsData[extId] : null;
+    if (ext) {
+      var grid = document.querySelector('.widget-grid');
+      if (grid && !document.querySelector('.widget-extension.ext-' + extId)) {
+        var card = createExtensionCard({ ...ext, id: extId });
+        grid.appendChild(card);
+      }
+    }
     if (window.__widgetControl && window.__widgetControl.unhideWidget) {
       window.__widgetControl.unhideWidget(extId);
     }

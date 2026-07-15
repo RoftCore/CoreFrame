@@ -101,6 +101,7 @@
     exitResizeMode: s.exitResizeMode,
     applyWidgetState: applyWidgetState,
     autoAddExtensions: autoAddExtensions,
+    persistScenes: s.persistScenes,
     switchScene: s.switchScene,
     createScene: s.createScene,
     deleteScene: s.deleteScene,
