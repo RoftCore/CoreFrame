@@ -180,6 +180,12 @@ def _sync_extension_lib(ext_path):
                 else:
                     shutil.copy2(src, dst)
                 log.debug("Synced %s to shared lib", item)
+        # Remove the shipped lib/ after sync — no duplicates
+        try:
+            shutil.rmtree(ext_lib)
+            log.debug("Removed shipped lib/ from %s", ext_path)
+        except Exception:
+            pass
 
 def load_extensions():
     log.info("load_extensions: EXTENSIONS_DIR=%s exists=%s", EXTENSIONS_DIR, os.path.exists(EXTENSIONS_DIR))
