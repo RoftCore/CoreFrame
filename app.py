@@ -46,64 +46,32 @@ try:
 except ImportError:
     pass
 
-#  Core packages — excluded from lib bundling (CoreFrame's own deps) 
-CORE_PACKAGES = {
-    'flask', 'flask_socketio', 'flask_cors', 'flask_limiter',
-    'eventlet', 'bottle',
-    'requests', 'requests_toolbelt', 'urllib3', 'chardet', 'certifi', 'idna',
-    'python_socketio', 'python_engineio',
-    'markupsafe', 'jinja2', 'werkzeug', 'itsdangerous',
-    'importlib_metadata', 'zipp', 'typing_extensions',
-    'pip', 'setuptools', 'wheel',
-}
-
-def _bundle_dependencies(ext_path, zf):
+def _ensure_extension_deps(ext_path):
     req_path = os.path.join(ext_path, 'requirements.txt')
     if not os.path.exists(req_path):
         return
+    missing = []
     with open(req_path, encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            raw_pkg = re.split(r'[>=<~!]', line)[0].strip()
-            import_name = raw_pkg.lower().replace('-', '_').replace('.', '_')
-            if import_name in CORE_PACKAGES:
-                continue
-            try:
-                spec = importlib.util.find_spec(import_name)
-                if not spec or not spec.origin:
-                    continue
-                if spec.submodule_search_locations:
-                    pkg_root = spec.submodule_search_locations[0]
-                else:
-                    pkg_root = spec.origin
-                site_pkgs = os.path.dirname(pkg_root)
-                def _write_to_zip(src_path):
-                    rel = os.path.relpath(src_path, site_pkgs)
-                    arc = os.path.join('lib', rel)
-                    try:
-                        zf.getinfo(arc)
-                    except KeyError:
-                        zf.write(src_path, arc)
-                if os.path.isdir(pkg_root):
-                    for root, _dirs, files in os.walk(pkg_root, followlinks=True):
-                        for f in files:
-                            _write_to_zip(os.path.join(root, f))
-                    # top-level files (single .py modules at the same level)
-                    for entry in os.listdir(site_pkgs):
-                        if entry.startswith(os.path.basename(pkg_root) + '.') and entry.endswith('.py'):
-                            _write_to_zip(os.path.join(site_pkgs, entry))
-                else:
-                    _write_to_zip(pkg_root)
-                # dist-info
-                dist_info_dir = os.path.join(site_pkgs, os.path.basename(pkg_root) + '.dist-info')
-                if os.path.isdir(dist_info_dir):
-                    for root, _dirs, files in os.walk(dist_info_dir):
-                        for f in files:
-                            _write_to_zip(os.path.join(root, f))
-            except Exception:
-                pass
+            pkg = re.split(r'[>=<~!]', line)[0].strip()
+            import_name = pkg.lower().replace('-', '_').replace('.', '_')
+            if importlib.util.find_spec(import_name) is None:
+                missing.append(pkg)
+    if not missing:
+        return
+    log.info("Installing missing deps: %s", missing)
+    try:
+        subprocess.check_call(
+            [sys.executable, '-m', 'pip', 'install',
+             '--target', SHARED_LIB_DIR,
+             '--no-input', '--quiet'] + missing,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+        )
+    except Exception as e:
+        log.warning("Failed to install deps: %s", e)
 
 #  Paths 
 
@@ -208,6 +176,7 @@ def load_extensions():
                 log.info("Skipping %s: not compatible with %s", name, current_os)
                 continue
             _sync_extension_lib(ext_path)
+            _ensure_extension_deps(ext_path)
             lang = config.get('language', 'python')
             if lang != 'python' and lang != 'py':
                 ext_instance = SubprocessBridge(config, ext_path)
@@ -244,6 +213,7 @@ def _load_single_extension(ext_id):
             config = json.load(f)
         lang = config.get('language', 'python')
         _sync_extension_lib(ext_path)
+        _ensure_extension_deps(ext_path)
         if lang != 'python' and lang != 'py':
             ext_instance = SubprocessBridge(config, ext_path)
         else:
@@ -745,21 +715,7 @@ def api_package_extension(ext_id):
                 config['author'] = author
             zf.writestr('extension.json', json.dumps(config, indent=2))
 
-            # Bundle required libraries (from requirements.txt, minus core packages)
-            _bundle_dependencies(ext_path, zf)
-
-            # Ensure lib/ subdirectories have __init__.py
-            ext_lib = os.path.join(ext_path, 'lib')
-            if os.path.isdir(ext_lib):
-                for sub_root, sub_dirs, sub_files in os.walk(ext_lib):
-                    for sd in sub_dirs:
-                        init_path = os.path.join(sub_root, sd, '__init__.py')
-                        rel_init = os.path.relpath(init_path, ext_path).replace('\\', '/')
-                        # Only add if not already present in the walk
-                        try:
-                            zf.getinfo(rel_init)
-                        except KeyError:
-                            zf.writestr(rel_init, '')
+            # Extension itself (lib/ included via os.walk if present)
 
         buf.seek(0)
         return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=f'{ext_id}.zip')
