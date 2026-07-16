@@ -2,6 +2,7 @@
   'use strict';
 
   var s = window.__wc;
+  var _knownExtensions = null;
 
   function init() {
     document.getElementById('btn-settings').addEventListener('click', function (e) {
@@ -63,8 +64,13 @@
     var sw = s.sceneWidgets();
     var col = 1, row = 1;
     var maxCols = s.sceneCols();
+    var firstRun = Object.keys(sw).length === 0;
     for (var extId in (window.extensionsData || {})) {
       if (sw[extId]) continue;
+      // Skip extensions that were already present at page load —
+      // they should only appear if the user explicitly shows them.
+      // On first run (scene empty), add all so the user sees something.
+      if (!firstRun && _knownExtensions && _knownExtensions[extId]) continue;
       var gs = s.getExtGrid(extId);
       var w = gs.w || 2;
       var h = gs.h || 2;
@@ -91,6 +97,15 @@
     if (!window.extensionsData || !Object.keys(window.extensionsData).length) return;
     if (!document.querySelector('.widget')) return;
     _applyPending = true;
+    // Snapshot which extensions exist at page load — autoAddExtensions
+    // will skip these (unless first run), preventing all widgets from
+    // appearing when only a subset was saved in the scene.
+    if (_knownExtensions === null) {
+      _knownExtensions = {};
+      for (var extId in window.extensionsData) {
+        _knownExtensions[extId] = true;
+      }
+    }
     autoAddExtensions();
     s.applyHiddenState();
     s.applySavedLayouts();
@@ -112,6 +127,7 @@
   }
 
   function applyWidgetState() {
+    _applyPending = false;  // Allow re-application (extension installs, etc.)
     ensureApplied();
   }
 
