@@ -116,21 +116,15 @@
     }
     apiFetch('/api/scenes', { method: 'POST' }).then(function (data) {
       if (data && data.ok) {
-        return apiFetch('/api/scenes').then(function (scenesData) {
-          return { newId: data.id, scenesData: scenesData };
-        });
-      }
-    }).then(function (result) {
-      if (result && result.scenesData && !result.scenesData.error) {
-        s._scenes = result.scenesData.scenes || s._scenes;
-        if (s._sceneOrder.indexOf(result.newId) < 0) {
-          s._sceneOrder.push(result.newId);
-        }
-          s._activeScene = result.scenesData.active || s._activeScene;
-          s.renderSceneBar();
-          s.applyHiddenState();
-          s.applySavedLayouts();
-          s.persistScenes();
+        var sid = data.id;
+        // Build scene locally — no need for a second API call
+        s._scenes[sid] = { label: 'home', name: sid.replace(/_/g, ' ').replace(/\b\w/g, function(c){return c.toUpperCase();}), image: null, cols: 12, rows: 6, widgets: {} };
+        if (s._sceneOrder.indexOf(sid) < 0) s._sceneOrder.push(sid);
+        s._activeScene = sid;
+        s.renderSceneBar();
+        s.applyHiddenState();
+        s.applySavedLayouts();
+        s.persistScenes();
       }
     });
   };
@@ -138,17 +132,14 @@
   s.deleteScene = function (sid) {
     if (!sid || Object.keys(s._scenes).length <= 1 || sid === 'default') return;
     apiFetch('/api/scenes/' + encodeURIComponent(sid), { method: 'DELETE' }).then(function () {
-      return apiFetch('/api/scenes');
-    }).then(function (data) {
-      if (data && !data.error) {
-        s._scenes = data.scenes || s._scenes;
-        var idx = s._sceneOrder.indexOf(sid);
-        if (idx >= 0) s._sceneOrder.splice(idx, 1);
-        s._activeScene = data.active || s._activeScene;
-        s.renderSceneBar();
-        s.applyHiddenState();
-        s.applySavedLayouts();
-      }
+      delete s._scenes[sid];
+      var idx = s._sceneOrder.indexOf(sid);
+      if (idx >= 0) s._sceneOrder.splice(idx, 1);
+      if (s._activeScene === sid) s._activeScene = s._sceneOrder[0] || null;
+      s.renderSceneBar();
+      s.applyHiddenState();
+      s.applySavedLayouts();
+      s.persistScenes();
     });
   };
 
