@@ -25,6 +25,11 @@
   };
 
   s.persistScenes = function () {
+    try {
+      localStorage.setItem('cf_widget_state', JSON.stringify({
+        scenes: s._scenes, activeScene: s._activeScene, sceneOrder: s._sceneOrder
+      }));
+    } catch (_) {}
     return apiFetch('/api/widget-state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -110,7 +110,7 @@
     });
   };
 
-  //  layout 
+  //  layout
 
   s.getLayout = function () {
     var sw = s.sceneWidgets();

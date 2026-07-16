@@ -14,10 +14,13 @@
             ? savedOrder.filter(function (k) { return s._scenes[k]; })
             : keys;
           s._activeScene = data.active || s._sceneOrder[0] || null;
-          s._stateLoaded = true;
           s.renderSceneBar();
         }
       });
+    }).then(function () {
+      if (!s._stateLoaded) s._stateLoaded = true;
+    }, function () {
+      if (!s._stateLoaded) s._stateLoaded = true;
     });
   };
 

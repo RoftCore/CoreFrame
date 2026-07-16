@@ -38,9 +38,24 @@
       }
     });
 
+    // Restore from localStorage FIRST (synchronous) so state is available immediately
+    try {
+      var cached = localStorage.getItem('cf_widget_state');
+      if (cached) {
+        var parsed = JSON.parse(cached);
+        if (parsed && parsed.scenes && Object.keys(parsed.scenes).length) {
+          s._scenes = parsed.scenes;
+          s._activeScene = parsed.activeScene || Object.keys(parsed.scenes)[0] || null;
+          s._sceneOrder = parsed.sceneOrder || Object.keys(parsed.scenes);
+        }
+      }
+    } catch (_) {}
+    if (!s._stateLoaded) s._stateLoaded = true;
+    tryAutoApply();
+
+    // Then refresh from API (async) — will overwrite localStorage cache
     s.loadState().then(function () {
-      s._stateLoaded = true;
-      tryAutoApply();
+      tryAutoApply(true);  // force re-apply with fresh API data
     });
   }
 
@@ -70,8 +85,8 @@
 
   var _applyPending = false;
 
-  function tryAutoApply() {
-    if (_applyPending) return;
+  function tryAutoApply(force) {
+    if (!force && _applyPending) return;
     if (!s._stateLoaded) return;
     if (!window.extensionsData || !Object.keys(window.extensionsData).length) return;
     if (!document.querySelector('.widget')) return;

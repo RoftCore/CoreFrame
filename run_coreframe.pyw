@@ -10,7 +10,7 @@ kernel32 = ctypes.windll.kernel32
 kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00000080)  # HIGH_PRIORITY_CLASS
 
 from app import start_server  # must be before webview — app.py patches subprocess to hide consoles
-os.environ['WEBVIEW_CHROME'] = '0'  # Force MSHTML (IE) backend — avoids missing WebView2 DLL in .exe build
+os.environ['PYWEBVIEW_GUI'] = 'mshtml'  # Force MSHTML (IE) backend — avoids WebView2 DLL dependency in .exe build
 import webview
 
 HOST = '127.0.0.1'
@@ -140,4 +140,4 @@ def minimize_window():
     return True
 
 window.expose(set_window_mode, minimize_window)
-webview.start(private_mode=False)
+webview.start(gui='mshtml', private_mode=False)
