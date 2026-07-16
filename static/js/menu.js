@@ -24,38 +24,7 @@ function buildSidebar(extensionsData) {
     }
     if (items.length === 0) continue;
 
-    const group = document.createElement('div');
-    group.className = 'category-group';
-
-    const label = document.createElement('div');
-    label.className = 'category-label';
-    label.textContent = cat;
-    group.appendChild(label);
-
-    for (const item of items) {
-      const el = document.createElement('div');
-      el.className = 'menu-item';
-      el.dataset.extId = item.extId;
-      el.dataset.action = item.action;
-
-      const iconSpan = document.createElement('span');
-      iconSpan.className = 'menu-item-icon';
-      iconSpan.textContent = getIcon(item.icon || 'circle');
-      el.appendChild(iconSpan);
-
-      const textSpan = document.createElement('span');
-      textSpan.className = 'menu-item-text';
-      textSpan.textContent = item.label;
-      el.appendChild(textSpan);
-
-      el.addEventListener('click', () => {
-        executeMenuAction(item.extId, item.action, item.label);
-      });
-
-      group.appendChild(el);
-    }
-
-    nav.appendChild(group);
+    
   }
 }
 

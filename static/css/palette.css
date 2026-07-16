@@ -30,7 +30,7 @@
   --transition-normal: 0.3s ease;
 }
 
-/* --- Widget Style Overrides --- */
+/*  Widget Style Overrides  */
 .widget-style-neon {
   --accent-blue: #ff00ff;
   --accent-cyan: #ff00aa;

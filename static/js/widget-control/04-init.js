@@ -40,12 +40,7 @@
 
     s.loadState().then(function () {
       s._stateLoaded = true;
-      autoAddExtensions();
-      if (document.querySelector('.widget')) {
-        s.applyHiddenState();
-        s.applySavedLayouts();
-        s.applyWidgetStyles();
-      }
+      tryAutoApply();
     });
   }
 
@@ -73,25 +68,36 @@
     init();
   }
 
+  var _applyPending = false;
+
+  function tryAutoApply() {
+    if (_applyPending) return;
+    if (!s._stateLoaded) return;
+    if (!window.extensionsData || !Object.keys(window.extensionsData).length) return;
+    if (!document.querySelector('.widget')) return;
+    _applyPending = true;
+    autoAddExtensions();
+    s.applyHiddenState();
+    s.applySavedLayouts();
+    s.applyWidgetStyles();
+    var mc = document.getElementById('main-content');
+    if (mc) mc.style.visibility = '';
+  }
+
+  function ensureApplied() {
+    tryAutoApply();
+    if (_applyPending) return;
+    var check = setInterval(function () {
+      if (_applyPending) { clearInterval(check); return; }
+      if (s._stateLoaded && window.extensionsData && Object.keys(window.extensionsData).length && document.querySelector('.widget')) {
+        clearInterval(check);
+        tryAutoApply();
+      }
+    }, 50);
+  }
+
   function applyWidgetState() {
-    function done() {
-      if (s._stateLoaded) autoAddExtensions();
-      s.applyHiddenState();
-      s.applySavedLayouts();
-      s.applyWidgetStyles();
-      var mc = document.getElementById('main-content');
-      if (mc) mc.style.visibility = '';
-    }
-    if (s._stateLoaded) {
-      done();
-    } else {
-      var check = setInterval(function () {
-        if (s._stateLoaded) {
-          clearInterval(check);
-          done();
-        }
-      }, 50);
-    }
+    ensureApplied();
   }
 
   window.__widgetControl = {
