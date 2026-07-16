@@ -4,23 +4,39 @@
   var s = window.__wc;
 
   s.loadState = function () {
+    var backupScenes = JSON.parse(JSON.stringify(s._scenes));
+    var backupActive = s._activeScene;
+    var backupOrder = s._sceneOrder ? s._sceneOrder.slice() : [];
     return apiFetch('/api/widget-state').then(function (ws) {
       var savedOrder = ws && ws.sceneOrder;
       return apiFetch('/api/scenes').then(function (data) {
-        if (data && !data.error) {
-          s._scenes = data.scenes || {};
+        if (data && !data.error && data.scenes && Object.keys(data.scenes).length) {
+          s._scenes = data.scenes;
           var keys = Object.keys(s._scenes);
           s._sceneOrder = (savedOrder && savedOrder.length === keys.length)
             ? savedOrder.filter(function (k) { return s._scenes[k]; })
             : keys;
           s._activeScene = data.active || s._sceneOrder[0] || null;
-          s.renderSceneBar();
         }
+        // If API returned empty/wrong scenes and we have a backup, keep backup
+        if ((!data || data.error || !data.scenes || !Object.keys(data.scenes).length) && Object.keys(backupScenes).length) {
+          s._scenes = backupScenes;
+          s._activeScene = backupActive;
+          s._sceneOrder = backupOrder;
+        }
+        s.renderSceneBar();
       });
     }).then(function () {
       if (!s._stateLoaded) s._stateLoaded = true;
     }, function () {
       if (!s._stateLoaded) s._stateLoaded = true;
+      // Network error — restore from backup if we have one
+      if (Object.keys(backupScenes).length && (!s._scenes || !Object.keys(s._scenes).length)) {
+        s._scenes = backupScenes;
+        s._activeScene = backupActive;
+        s._sceneOrder = backupOrder;
+        s.renderSceneBar();
+      }
     });
   };
 

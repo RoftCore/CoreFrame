@@ -61,7 +61,6 @@
 
   function autoAddExtensions() {
     var sw = s.sceneWidgets();
-    var changed = false;
     var col = 1, row = 1;
     var maxCols = s.sceneCols();
     for (var extId in (window.extensionsData || {})) {
@@ -72,9 +71,10 @@
       if (col + w > maxCols + 1) { col = 1; row += h; }
       sw[extId] = { col: col, row: row, w: w, h: h, hidden: false };
       col += w;
-      changed = true;
     }
-    if (changed) s.persistScenes();
+    // NOTA: no persistir aquí — si la escena está vacía (API corruption),
+    // esto SOBREESCRIBIRÍA el fichero con datos incompletos.
+    // persistScenes solo debe llamarse cuando el usuario modifica el estado.
   }
 
   if (document.readyState === 'loading') {

@@ -977,8 +977,13 @@ def load_widget_state():
 
 def save_widget_state(data):
     os.makedirs(os.path.dirname(WIDGET_STATE_PATH), exist_ok=True)
-    with open(WIDGET_STATE_PATH, 'w', encoding='utf-8') as f:
+    # Atomic write: temp file + rename to prevent corruption from crash during write
+    tmp = WIDGET_STATE_PATH + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, WIDGET_STATE_PATH)
 
 @app.route('/api/widget-state')
 def api_get_widget_state():
