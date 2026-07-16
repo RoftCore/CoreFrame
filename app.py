@@ -100,6 +100,7 @@ STATIC_DIR = os.path.join(BASE_DIR, 'static')
 EXTENSIONS_DIR = os.path.join(DATA_DIR, 'extensions')
 REGISTRY_PATH = os.path.join(DATA_DIR, 'extensions.json')
 WIDGET_STATE_PATH = os.path.join(DATA_DIR, 'widget_state.json')
+_widget_state_lock = threading.Lock()
 SHARED_LIB_DIR = os.path.join(DATA_DIR, 'lib')
 
 DATA_DATA_DIR = os.path.join(DATA_DIR, 'data')
@@ -977,23 +978,41 @@ def load_widget_state():
 
 def save_widget_state(data):
     os.makedirs(os.path.dirname(WIDGET_STATE_PATH), exist_ok=True)
-    # Atomic write: temp file + rename to prevent corruption from crash during write
-    tmp = WIDGET_STATE_PATH + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, WIDGET_STATE_PATH)
+    with _widget_state_lock:
+        # Clean up stale tmp file from a previous crash
+        tmp = WIDGET_STATE_PATH + '.tmp'
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        # Atomic write: temp file + rename to prevent corruption
+        try:
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp, WIDGET_STATE_PATH)
+        except Exception:
+            # Fallback: direct write if atomic fails
+            with open(WIDGET_STATE_PATH, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
 
 @app.route('/api/widget-state')
 def api_get_widget_state():
-    return jsonify(load_widget_state())
+    try:
+        return jsonify(load_widget_state())
+    except Exception as e:
+        log.error("widget-state GET failed: %s", e)
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/widget-state', methods=['POST'])
 def api_set_widget_state():
-    data = request.get_json(silent=True) or {}
-    save_widget_state(data)
-    return jsonify({'ok': True})
+    try:
+        data = request.get_json(silent=True) or {}
+        save_widget_state(data)
+        return jsonify({'ok': True})
+    except Exception as e:
+        log.error("widget-state POST failed: %s", e)
+        return jsonify({'error': str(e)}), 500
 
 #  Scenes 
 
