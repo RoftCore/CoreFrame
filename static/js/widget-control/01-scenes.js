@@ -118,7 +118,7 @@
     var n = Object.keys(s._scenes).length + 1;
     var sid = 'scene_' + n;
     while (s._scenes[sid]) { n++; sid = 'scene_' + n; }
-    // Build scene locally (optimistic — UI updates before server responds)
+    // Build scene locally — persistScenes saves the complete state atomically
     s._scenes[sid] = { label: 'home', name: sid.replace(/_/g, ' ').replace(/\b\w/g, function(c){return c.toUpperCase();}), image: null, cols: 12, rows: 6, widgets: {} };
     if (s._sceneOrder.indexOf(sid) < 0) s._sceneOrder.push(sid);
     s._activeScene = sid;
@@ -126,14 +126,10 @@
     s.applyHiddenState();
     s.applySavedLayouts();
     s.persistScenes();
-    // Authoritative server call in background
-    apiFetch('/api/scenes', { method: 'POST' });
   };
 
   s.deleteScene = function (sid) {
     if (!sid || Object.keys(s._scenes).length <= 1 || sid === 'default') return;
-    // Snapshot for rollback if server rejects
-    var rollback = { scenes: JSON.parse(JSON.stringify(s._scenes)), order: s._sceneOrder.slice(), active: s._activeScene };
     delete s._scenes[sid];
     var idx = s._sceneOrder.indexOf(sid);
     if (idx >= 0) s._sceneOrder.splice(idx, 1);
@@ -142,14 +138,6 @@
     s.applyHiddenState();
     s.applySavedLayouts();
     s.persistScenes();
-    // Authoritative server call in background
-    apiFetch('/api/scenes/' + encodeURIComponent(sid), { method: 'DELETE' }).catch(function () {
-      s._scenes = rollback.scenes;
-      s._sceneOrder = rollback.order;
-      s._activeScene = rollback.active;
-      s.renderSceneBar();
-      s.showToast('Failed to delete scene');
-    });
   };
 
   s.openSceneSettings = function () {
