@@ -6,6 +6,7 @@ a = Analysis(
     datas=[
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
+        ('venv\\Lib\\site-packages\\webview\\lib', 'webview\\lib'),
     ],
     hiddenimports=[
         'ssl',
@@ -24,6 +25,8 @@ a = Analysis(
         'webview',
         'webview.platforms.winforms',
         'webview.platforms.win32',
+        'webview.platforms.edgechromium',
+        'clr',
         'pip',
         'setuptools',
         'wheel',
@@ -58,7 +61,7 @@ exe = EXE(
     icon='CoreFrame.ico',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
+    strip=False,
     upx=False,
     console=False,
     disable_windowed_traceback=False,

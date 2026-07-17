@@ -689,10 +689,14 @@ let currentWindowMode = new URLSearchParams(window.location.search).get('mode') 
 var _installToastEl = null;
 function showInstallToast(msg) {
   if (_installToastEl) { _installToastEl.textContent = msg; return; }
-  _installToastEl = document.createElement('div');
-  _installToastEl.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1a1a2e;color:#e0e0e0;padding:8px 14px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);font-size:12px;z-index:9999;max-width:360px';
-  _installToastEl.textContent = msg;
-  document.body.appendChild(_installToastEl);
+      _installToastEl = document.createElement('div');
+      _installToastEl.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1a1a2e;color:#e0e0e0;padding:8px 14px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);font-size:12px;z-index:9999;max-width:360px';
+      _installToastEl.textContent = msg;
+      document.body.appendChild(_installToastEl);
+      // Request widget control to suppress autoAdd during refresh
+      if (window.__widgetControl) {
+        window.__widgetControl._suppressAutoAdd = true;
+      }
 }
 function hideInstallToast() {
   if (_installToastEl) { _installToastEl.remove(); _installToastEl = null; }

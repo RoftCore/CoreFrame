@@ -11,7 +11,7 @@
       var savedOrder = ws && ws.sceneOrder;
       return apiFetch('/api/scenes').then(function (data) {
         if (data && !data.error && data.scenes && Object.keys(data.scenes).length) {
-          s._scenes = data.scenes;
+            s._scenes = data.scenes;
           var keys = Object.keys(s._scenes);
           s._sceneOrder = (savedOrder && savedOrder.length === keys.length)
             ? savedOrder.filter(function (k) { return s._scenes[k]; })
@@ -25,6 +25,7 @@
           s._sceneOrder = backupOrder;
         }
         s.renderSceneBar();
+        s.applyHiddenState();
       });
     }).then(function () {
       if (!s._stateLoaded) s._stateLoaded = true;
@@ -107,6 +108,8 @@
     s.applySavedLayouts();
     s.applyWidgetStyles();
     s.persistScenes();
+    // ApplyWidgetState will trigger autoAddExtensions properly now
+    if (window.__widgetControl) window.__widgetControl.applyWidgetState();
   };
 
   s.createScene = function () {

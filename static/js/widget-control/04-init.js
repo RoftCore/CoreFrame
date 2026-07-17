@@ -55,8 +55,16 @@
     tryAutoApply();
 
     // Then refresh from API (async) — will overwrite localStorage cache
+    var apiInitialized = false;
+    var autoAddAfterApi = true;
     s.loadState().then(function () {
+      apiInitialized = true;
       tryAutoApply(true);  // force re-apply with fresh API data
+      // After API loads, apply autoAddExtensions with proper hidden state
+      if (autoAddAfterApi) {
+        autoAddAfterApi = false;
+        autoAddExtensions();
+      }
     });
   }
 
@@ -71,11 +79,17 @@
       // they should only appear if the user explicitly shows them.
       // On first run (scene empty), add all so the user sees something.
       if (!firstRun && _knownExtensions && _knownExtensions[extId]) continue;
+      // Check if user wants to hide this extension by default
+      var saved = s._scenes && s._scenes.default && s._scenes.default.widgets && s._scenes.default.widgets[extId];
+      var hidden = false;
+      if (saved && saved.hidden !== undefined) {
+        hidden = saved.hidden;
+      }
       var gs = s.getExtGrid(extId);
       var w = gs.w || 2;
       var h = gs.h || 2;
       if (col + w > maxCols + 1) { col = 1; row += h; }
-      sw[extId] = { col: col, row: row, w: w, h: h, hidden: false };
+      sw[extId] = { col: col, row: row, w: w, h: h, hidden: hidden };
       col += w;
     }
     // NOTA: no persistir aquí — si la escena está vacía (API corruption),

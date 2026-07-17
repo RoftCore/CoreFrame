@@ -10,8 +10,34 @@ kernel32 = ctypes.windll.kernel32
 kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00000080)  # HIGH_PRIORITY_CLASS
 
 from app import start_server  # must be before webview — app.py patches subprocess to hide consoles
-os.environ['PYWEBVIEW_GUI'] = 'mshtml'  # Force MSHTML (IE) backend — avoids WebView2 DLL dependency in .exe build
+# Use Edge WebView2 (Chromium) — MSHTML/IE can't render the modern JS frontend
+# WebView2 is built-in on Windows 11 and most Windows 10 installations
+import webview.util
 import webview
+
+# Patch interop_dll_path — AV may delete MEIPASS files after extraction
+if hasattr(sys, '_MEIPASS'):
+    _orig_interop = webview.util.interop_dll_path
+    _exe_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
+    def _patched_interop(dll_name):
+        if dll_name in ('win-arm64', 'win-x64', 'win-x86'):
+            return os.path.join(_exe_dir, 'webview', 'lib', 'runtimes', dll_name, 'native')
+        return _orig_interop(dll_name)
+    webview.util.interop_dll_path = _patched_interop
+
+    # Log STA thread exceptions by patching BrowserForm.__init__
+    import webview.platforms.winforms as _wf
+    _orig_bform_init = _wf.BrowserView.BrowserForm.__init__
+    def _patched_bform_init(self, window, cache_dir):
+        try:
+            _orig_bform_init(self, window, cache_dir)
+        except Exception:
+            import traceback
+            with open('sta_crash.log', 'w') as f:
+                traceback.print_exc(file=f)
+            raise
+    _wf.BrowserView.BrowserForm.__init__ = _patched_bform_init
+    print('[BOOT] Patches applied', flush=True)
 
 HOST = '127.0.0.1'
 PORT = 8420
@@ -64,6 +90,7 @@ if not _wait_for_server():
         f"{os.path.join(DATA_DIR, 'coreframe.log')}"
     )
     sys.exit(1)
+print('[BOOT] Flask ready', flush=True)
 
 config = load_config()
 mode = config.get('window_mode', 'windowed')
@@ -140,4 +167,12 @@ def minimize_window():
     return True
 
 window.expose(set_window_mode, minimize_window)
-webview.start(gui='mshtml', private_mode=False)
+print('[BOOT] Calling webview.start...', flush=True)
+try:
+    webview.start(gui='edgechromium', private_mode=False)
+except Exception:
+    print('[BOOT] webview.start raised exception!', flush=True)
+    import traceback
+    with open('crash.log', 'w') as f:
+        traceback.print_exc(file=f)
+    raise
