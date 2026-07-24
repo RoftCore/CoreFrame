@@ -1,0 +1,21 @@
+Traceback (most recent call last):
+  File "run_coreframe.pyw", line 183, in <module>
+  File "webview\__init__.py", line 248, in start
+  File "webview\guilib.py", line 134, in initialize
+  File "webview\guilib.py", line 85, in try_import
+  File "webview\guilib.py", line 74, in import_winforms
+  File "<frozen importlib._bootstrap>", line 1178, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1149, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "pyimod02_importers.py", line 457, in exec_module
+  File "webview\platforms\winforms.py", line 141, in <module>
+  File "<frozen importlib._bootstrap>", line 1178, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1149, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "pyimod02_importers.py", line 457, in exec_module
+  File "webview\platforms\edgechromium.py", line 51, in <module>
+  File "run_coreframe.pyw", line 22, in _patched_interop
+    if dll_name in ('win-arm64', 'win-x64', 'win-x86'):
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "webview\util.py", line 517, in interop_dll_path
+FileNotFoundError: Cannot find win-arm64

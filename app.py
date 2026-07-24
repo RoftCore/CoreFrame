@@ -145,6 +145,7 @@ extensions = {}
 failed_extensions = {}
 latest_update = {}
 _client_count = 0
+_shutdown_callback = None  # Set by run_coreframe.pyw to close window gracefully
 
 #  Extension loading 
 
@@ -1178,11 +1179,64 @@ def api_upload_scene_image():
 def api_serve_scene_image(filename):
     return send_from_directory(os.path.join(DATA_DIR, 'scenes'), filename)
 
+#  Registry helpers 
+
+def _save_registry():
+    registry = {}
+    for ext_id, ext_data in extensions.items():
+        cfg = ext_data['config']
+        registry[ext_id] = {
+            'name': cfg.get('name', ext_id),
+            'version': cfg.get('version', '1.0'),
+            'author': cfg.get('author', ''),
+            'category': cfg.get('category', 'general')
+        }
+    new_content = json.dumps(registry, indent=2)
+    try:
+        with open(REGISTRY_PATH, encoding='utf-8') as f:
+            old_content = f.read()
+    except (FileNotFoundError, OSError):
+        old_content = ''
+    if new_content != old_content:
+        with open(REGISTRY_PATH, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        log.info("Registry saved: %d extensions", len(registry))
+    else:
+        log.info("Registry unchanged")
+
 #  Restart / Quit 
 
 @app.route('/api/restart', methods=['POST'])
 def api_restart():
-    threading.Timer(0.5, lambda: [subprocess.Popen([sys.executable] + sys.argv, creationflags=subprocess.CREATE_NO_WINDOW), os._exit(0)]).start()
+    log.info("Restart: reloading extensions internally...")
+
+    # 1. Stop all extensions cleanly
+    for ext_id, ext_data in list(extensions.items()):
+        inst = ext_data.get('instance')
+        if hasattr(inst, 'on_stop'):
+            try:
+                inst.on_stop()
+                log.info("Restart: stopped extension %s", ext_id)
+            except Exception as e:
+                log.error("Restart: error stopping %s: %s", ext_id, e)
+
+    # 2. Clear all extension state
+    extensions.clear()
+    failed_extensions.clear()
+    latest_update.clear()
+
+    # 3. Remove extension modules from sys.modules so they get fresh imports
+    mods_to_del = [k for k in list(sys.modules.keys()) if k.startswith('extensions.')]
+    for k in mods_to_del:
+        del sys.modules[k]
+
+    # 4. Reload extensions from disk
+    load_extensions()
+
+    # 5. Rebuild and save the registry
+    _save_registry()
+
+    log.info("Restart: done — %d extensions loaded", len(extensions))
     return jsonify({'ok': True})
 
 @app.route('/api/quit', methods=['POST'])
@@ -1219,27 +1273,7 @@ def start_server(host='127.0.0.1', port=8420, debug=False):
 
     log.info("Loading extensions...")
     load_extensions()
-    registry = {}
-    for ext_id, ext_data in extensions.items():
-        cfg = ext_data['config']
-        registry[ext_id] = {
-            'name': cfg.get('name', ext_id),
-            'version': cfg.get('version', '1.0'),
-            'author': cfg.get('author', ''),
-            'category': cfg.get('category', 'general')
-        }
-    new_content = json.dumps(registry, indent=2)
-    try:
-        with open(REGISTRY_PATH, encoding='utf-8') as f:
-            old_content = f.read()
-    except (FileNotFoundError, OSError):
-        old_content = ''
-    if new_content != old_content:
-        with open(REGISTRY_PATH, 'w', encoding='utf-8') as f:
-            f.write(new_content)
-        log.info("Registry saved: %d extensions", len(registry))
-    else:
-        log.info("Registry unchanged")
+    _save_registry()
     rt_thread = threading.Thread(target=realtime_broadcast, daemon=True)
     rt_thread.start()
     log.info("Server running at http://%s:%s", host, port)

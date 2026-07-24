@@ -167,6 +167,16 @@ def minimize_window():
     return True
 
 window.expose(set_window_mode, minimize_window)
+
+# Wire graceful shutdown: close window → webview.start() returns → script exits cleanly
+import app as _app_mod
+def _shutdown():
+    try:
+        window.destroy()
+    except Exception:
+        os._exit(0)
+_app_mod._shutdown_callback = _shutdown
+
 print('[BOOT] Calling webview.start...', flush=True)
 try:
     webview.start(gui='edgechromium', private_mode=False)

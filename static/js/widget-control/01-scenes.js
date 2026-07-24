@@ -386,12 +386,16 @@
     '<div class="ctx-menu-separator"></div>' +
     '<div class="ctx-menu-item" id="autostart-item" data-action="autostart">\u{23F1}  Loading...</div>';
 
-  s._settingsWindowHTML =
-    '<div class="ctx-menu-item" data-action="back" style="color:var(--text-muted);font-size:10px">\u{2190}  Back</div>' +
-    '<div class="ctx-menu-separator"></div>' +
-    '<div class="ctx-menu-item" data-action="windowed">\u{1F5A5}  Windowed</div>' +
-    '<div class="ctx-menu-item" data-action="frameless">\u{1F5A5}  Frameless</div>' +
-    '<div class="ctx-menu-item" data-action="fullscreen">\u{1F5A5}  Fullscreen</div>';
+  s._updateWindowHTML = function () {
+    var m = typeof currentWindowMode !== 'undefined' ? currentWindowMode : 'windowed';
+    return (
+      '<div class="ctx-menu-item" data-action="back" style="color:var(--text-muted);font-size:10px">\u{2190}  Back</div>' +
+      '<div class="ctx-menu-separator"></div>' +
+      '<div class="ctx-menu-item" data-action="windowed">' + (m === 'windowed' ? '\u{2705}  ' : '') + '\u{1F5A5}  Windowed</div>' +
+      '<div class="ctx-menu-item" data-action="frameless">' + (m === 'frameless' ? '\u{2705}  ' : '') + '\u{1F5A5}  Frameless</div>' +
+      '<div class="ctx-menu-item" data-action="fullscreen">' + (m === 'fullscreen' ? '\u{2705}  ' : '') + '\u{1F5A5}  Fullscreen</div>'
+    );
+  };
 
   s.openSettingsDropdown = function (e) {
     e.stopPropagation();
@@ -412,7 +416,7 @@
         if (!item) return;
         var action = item.dataset.action;
         if (action === 'window') {
-          menu.innerHTML = s._settingsWindowHTML;
+          menu.innerHTML = s._updateWindowHTML();
         } else if (action === 'back') {
           menu.innerHTML = s._settingsMainHTML;
         } else if (action === 'scenes') {

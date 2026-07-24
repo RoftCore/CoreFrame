@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       buildSidebar(data);
       renderWidgets(data);
       loadExtensionAssets(data);
+      setTimeout(applyStartupMode, 500);
       return;
     }
     attempts++;
@@ -708,6 +709,21 @@ function showToast(msg) {
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(function(){ t.style.opacity = '0'; setTimeout(function(){ t.remove(); }, 400); }, 2500);
+}
+
+function applyStartupMode() {
+  const mode = currentWindowMode;
+  if (!mode || mode === 'windowed') return;
+  setTimeout(function () {
+    if (window.pywebview) {
+      pywebview.api.set_window_mode(mode).catch(function (err) {
+        console.warn('Startup mode apply failed:', err);
+        applyWindowModeFallback(mode);
+      });
+    } else {
+      applyWindowModeFallback(mode);
+    }
+  }, 500);
 }
 
 function applyWindowModeFallback(mode) {
