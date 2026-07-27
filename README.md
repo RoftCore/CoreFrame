@@ -43,6 +43,7 @@ Download the latest [CoreFrame release](https://github.com/RoftCore/CoreFrame/re
 **macOS:** grab `CoreFrame-macOS` — if macOS blocks it, go to System Settings → Privacy & Security → allow anyway.
 
 > No dependencies required. No Python, no pip, no terminal. Just download and run.
+- Marketplace: https://github.com/RoftCore/extensions-coreframe/releases
 
 ### Running from source
 
