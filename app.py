@@ -72,12 +72,8 @@ def _ensure_extension_deps(ext_path):
         return
     log.info("Installing missing deps: %s", missing)
     try:
-        subprocess.check_call(
-            [sys.executable, '-m', 'pip', 'install',
-             '--target', SHARED_LIB_DIR,
-             '--no-input', '--quiet'] + missing,
-            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-        )
+        from pip._internal.cli.main import main as _pip_main
+        _pip_main(['install', '--target', SHARED_LIB_DIR, '--no-input', '--quiet'] + missing)
     except Exception as e:
         log.warning("Failed to install deps: %s", e)
 

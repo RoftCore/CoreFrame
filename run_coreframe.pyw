@@ -9,6 +9,12 @@ import ctypes
 kernel32 = ctypes.windll.kernel32
 kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00000080)  # HIGH_PRIORITY_CLASS
 
+_SINGLE_INSTANCE_MUTEX = kernel32.CreateMutexW(None, False, 'CoreFrame-InstanceLock-8420')
+if _SINGLE_INSTANCE_MUTEX and kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    kernel32.CloseHandle(_SINGLE_INSTANCE_MUTEX)
+    ctypes.windll.user32.MessageBoxW(0, "CoreFrame ya está en ejecución.", "CoreFrame", 0x10)
+    sys.exit(0)
+
 from app import start_server  # must be before webview — app.py patches subprocess to hide consoles
 # Use Edge WebView2 (Chromium) — MSHTML/IE can't render the modern JS frontend
 # WebView2 is built-in on Windows 11 and most Windows 10 installations
@@ -18,10 +24,9 @@ import webview
 # Patch interop_dll_path — AV may delete MEIPASS files after extraction
 if hasattr(sys, '_MEIPASS'):
     _orig_interop = webview.util.interop_dll_path
-    _exe_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
     def _patched_interop(dll_name):
         if dll_name in ('win-arm64', 'win-x64', 'win-x86'):
-            return os.path.join(_exe_dir, 'webview', 'lib', 'runtimes', dll_name, 'native')
+            return os.path.join(sys._MEIPASS, 'webview', 'lib', 'runtimes', dll_name, 'native')
         return _orig_interop(dll_name)
     webview.util.interop_dll_path = _patched_interop
 
@@ -157,7 +162,7 @@ def _ui_set_mode(i, WinForms, new_mode):
             i.TopMost = False
         else:
             i.FormBorderStyle = WinForms.FormBorderStyle.Sizable
-            i.WindowState = WinForms.WindowState.Normal
+            i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
             i.TopMost = False
     except Exception:
         pass
