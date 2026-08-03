@@ -1,8 +1,8 @@
-flask
-flask-socketio
-eventlet
-psutil
-gputil
-requests
-Pillow
-pywebview
+flask==3.1.2
+flask-socketio==5.6.1
+eventlet==0.41.0
+psutil==7.2.0
+gputil==1.4.0
+requests==2.32.3
+Pillow==12.1.0
+pywebview==6.2.1
