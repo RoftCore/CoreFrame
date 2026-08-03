@@ -1,4 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import webview
+
+_WEBVIEW_LIB = os.path.join(os.path.dirname(os.path.abspath(webview.__file__)), 'lib')
+
 a = Analysis(
     ['run_coreframe.pyw'],
     pathex=[],
@@ -6,7 +11,7 @@ a = Analysis(
     datas=[
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
-        ('venv\\Lib\\site-packages\\webview\\lib', 'webview\\lib'),
+        (_WEBVIEW_LIB, 'webview\\lib'),
     ],
     hiddenimports=[
         'ssl',
