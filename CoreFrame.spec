@@ -1,18 +1,26 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 import webview
+from PyInstaller.utils.hooks import collect_all
 
 _WEBVIEW_LIB = os.path.join(os.path.dirname(os.path.abspath(webview.__file__)), 'lib')
+
+#  Fully bundle pip and its vendored deps (needed to `pip install` extension deps
+#  at runtime inside the frozen .exe). Collecting only `pip` as a hidden import
+#  leaves pip._vendor incomplete -> "Unable to locate finder for 'pip._vendor.distlib'".
+_pip_datas, _pip_binaries, _pip_hidden = collect_all('pip')
+_st_datas, _st_binaries, _st_hidden = collect_all('setuptools')
+_w_datas, _w_binaries, _w_hidden = collect_all('wheel')
 
 a = Analysis(
     ['run_coreframe.pyw'],
     pathex=[],
-    binaries=[],
+    binaries=_pip_binaries + _st_binaries + _w_binaries,
     datas=[
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
         (_WEBVIEW_LIB, 'webview\\lib'),
-    ],
+    ] + _pip_datas + _st_datas + _w_datas,
     hiddenimports=[
         'ssl',
         '_ssl',
@@ -32,10 +40,7 @@ a = Analysis(
         'webview.platforms.win32',
         'webview.platforms.edgechromium',
         'clr',
-        'pip',
-        'setuptools',
-        'wheel',
-    ],
+    ] + _pip_hidden + _st_hidden + _w_hidden,
     hookspath=[],
     hooksconfig={},
     excludes=[

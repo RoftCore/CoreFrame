@@ -68,16 +68,24 @@
     });
   }
 
+  var _firstAutoAddDone = false;
+
   function autoAddExtensions() {
     var sw = s.sceneWidgets();
     var col = 1, row = 1;
     var maxCols = s.sceneCols();
-    var firstRun = Object.keys(sw).length === 0;
+    // "first run" = first auto-apply of the app AND this scene has no
+    // saved layout. NOT every empty scene: a newly created scene that is
+    // switched into must stay empty.
+    var firstRun = !_firstAutoAddDone && Object.keys(sw).length === 0;
+    // Only mark as "first run done" when it runs against a real scene,
+    // so a premature call while scenes are still loading doesn't consume it.
+    if (s.currentScene()) _firstAutoAddDone = true;
     for (var extId in (window.extensionsData || {})) {
       if (sw[extId]) continue;
       // Skip extensions that were already present at page load —
       // they should only appear if the user explicitly shows them.
-      // On first run (scene empty), add all so the user sees something.
+      // On first run (empty page layout), add everything so the user sees something.
       if (!firstRun && _knownExtensions && _knownExtensions[extId]) continue;
       // Check if user wants to hide this extension by default
       var saved = s._scenes && s._scenes.default && s._scenes.default.widgets && s._scenes.default.widgets[extId];

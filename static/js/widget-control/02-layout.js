@@ -165,10 +165,11 @@
   s.applySavedLayouts = function () {
     var cols = s.sceneCols();
     var sc = s.currentScene();
+    var rows = (sc && sc.rows) || 6;
     var grid = document.querySelector('.widget-grid');
     if (grid) {
       grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
-      grid.style.gridTemplateRows = 'repeat(' + (sc.rows || 6) + ', 1fr)';
+      grid.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
     }
     var sw = s.sceneWidgets();
     for (var extId in sw) {
@@ -181,8 +182,8 @@
         w.style.minHeight = '';
         w.style.maxHeight = '';
         w.style.gridColumn = clampedCol + ' / span ' + clampedW;
-        var clampedRow = Math.max(1, Math.min(pos.row || 1, (sc.rows || 6)));
-        var clampedH = Math.min(pos.h || 2, (sc.rows || 6) - clampedRow + 1);
+        var clampedRow = Math.max(1, Math.min(pos.row || 1, rows));
+        var clampedH = Math.min(pos.h || 2, rows - clampedRow + 1);
         w.style.gridRow = clampedRow + ' / span ' + clampedH;
       }
     }
