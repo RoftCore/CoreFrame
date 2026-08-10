@@ -185,7 +185,13 @@ os.makedirs(DATA_DATA_DIR, exist_ok=True)
 
 MARKETPLACE_URL = 'https://raw.githubusercontent.com/RoftCore/extensions-coreframe/main/registry.json'
 if SHARED_LIB_DIR not in sys.path:
-    sys.path.insert(0, SHARED_LIB_DIR)
+    # Keep bundled deps (MEIPASS) ahead of SHARED_LIB_DIR: extensions pip-install
+    # deps into lib/ that can shadow the frozen copies (e.g. stale cffi -> version
+    # mismatch with the compiled _cffi_backend in the bundle).
+    if getattr(sys, 'frozen', False) and sys.path and sys.path[0] == getattr(sys, '_MEIPASS', None):
+        sys.path.insert(1, SHARED_LIB_DIR)
+    else:
+        sys.path.insert(0, SHARED_LIB_DIR)
 
 LOG_PATH = os.path.join(DATA_DIR, 'coreframe.log')
 logging.basicConfig(
