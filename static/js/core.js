@@ -3,8 +3,17 @@ let widgetTimers = {};
 let extensionLoadState = {}; // Tracks loading state per extension
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Boot lock: no hover/tooltip/click until the saved window mode is applied
+  document.body.classList.add('booting');
+
   clockTick();
   setInterval(clockTick, 1000);
+
+  // Clear any autofocus a control grabbed — prevents stuck floating tooltips
+  setTimeout(() => {
+    const ae = document.activeElement;
+    if (ae && ae !== document.body && typeof ae.blur === 'function') ae.blur();
+  }, 50);
 
   document.getElementById('btn-reload').style.display = '';
   if (typeof _COREFRAME_DEBUG !== 'undefined' && _COREFRAME_DEBUG) {
@@ -25,7 +34,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Poll for extension updates
   setInterval(pollExtensionUpdates, 1000);
   
-  setTimeout(applyStartupMode, 500);
+  applyStartupMode();
 });
 
 async function loadExtensionsAsync() {
@@ -831,18 +840,14 @@ function showToast(msg) {
 }
 
 function applyStartupMode() {
-  const mode = currentWindowMode;
-  if (!mode || mode === 'windowed') return;
-  setTimeout(function () {
-    if (window.pywebview) {
-      pywebview.api.set_window_mode(mode).catch(function (err) {
-        console.warn('Startup mode apply failed:', err);
-        applyWindowModeFallback(mode);
-      });
-    } else {
-      applyWindowModeFallback(mode);
-    }
-  }, 500);
+  var done = function () {
+    try { var ae = document.activeElement; if (ae && typeof ae.blur === 'function') ae.blur(); } catch (e) {}
+    document.body.classList.remove('booting');
+  };
+  // Python natively enforces the saved mode right after reveal — the JS side
+  // must NOT call the API again here (duplicate WinForms work caused freezes).
+  // Just unlock interaction shortly after first paint.
+  setTimeout(done, 250);
 }
 
 function applyWindowModeFallback(mode) {

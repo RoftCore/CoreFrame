@@ -2,10 +2,50 @@ import os
 import sys
 import json
 import math
+import faulthandler
 import threading
 import time
+import queue as _queue
+import urllib.request
 import ctypes
 from ctypes import wintypes
+
+# Freeze forensics: dump ALL thread stacks to a file every 15s.
+# When the app hangs, the last dump shows exactly where each thread is stuck.
+def _start_stack_dumper():
+    try:
+        d = os.path.join(_real_docs_dir(), 'CoreFrame')
+        os.makedirs(d, exist_ok=True)
+        f = open(os.path.join(d, 'boot_stacks.log'), 'a', encoding='utf-8')
+        f.write('\n===== %s launch =====\n' % time.strftime('%H:%M:%S'))
+        f.flush()
+        faulthandler.dump_traceback_later(15, repeat=True, file=f)
+    except Exception:
+        pass
+
+# Serialized UI-worker: EVERY WinForms/pythonnet touch goes through this single
+# thread. Concurrent Invoke/enumeration from multiple threads was causing
+# intermittent freezes after load.
+_uiq = _queue.Queue()
+
+def _ui_worker():
+    while True:
+        fn = _uiq.get()
+        try:
+            fn()
+        except Exception as e:
+            try:
+                _trace(f'uiq error: {e}')
+            except Exception:
+                pass
+        finally:
+            _uiq.task_done()
+
+threading.Thread(target=_ui_worker, daemon=True, name='uiq').start()
+
+def _post_ui(fn):
+    """Fire-and-forget: run fn(serialized) on the UI worker thread."""
+    _uiq.put(fn)
 
 kernel32 = ctypes.windll.kernel32
 kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00000080)  # HIGH_PRIORITY_CLASS
@@ -34,6 +74,7 @@ def _real_docs_dir():
 
 DATA_DIR_EARLY = os.path.join(_real_docs_dir(), 'CoreFrame')
 os.makedirs(DATA_DIR_EARLY, exist_ok=True)
+_start_stack_dumper()
 
 def _trace(msg):
     try:
@@ -542,18 +583,14 @@ def _do_reveal():
                                     rc.right - rc.left, rc.bottom - rc.top,
                                     SWP_NOACTIVATE | SWP_NOZORDER)
 
+        # Enforce saved window mode natively right now (insurance in case the
+        # creation-time styles were deferred while hidden). Serialized via uiq.
+        if mode != 'windowed':
+            threading.Thread(target=_set_window_mode_impl, args=(mode,),
+                             daemon=True, name='mode-enforce').start()
+
         _destroy_splash()
         _trace('reveal: done')
-
-        # Non-critical best-effort: darken WebView2 clear color, fire & forget
-        def _dark_bg():
-            try:
-                i, WinForms = _get_winform()
-                if i:
-                    _try_dark_webview_background(i)
-            except Exception:
-                pass
-        threading.Timer(0.3, _dark_bg).start()
     except Exception as e:
         _trace(f'_do_reveal exception: {e}')
 
@@ -612,51 +649,65 @@ def _set_window_mode_impl(new_mode):
     cfg['window_mode'] = new_mode
     save_config(cfg)
     i, WinForms = _get_winform()
-    try:
-        if i:
-            def _apply():
-                try:
-                    _ui_set_mode(i, WinForms, new_mode)
-                except Exception as e:
-                    _trace(f'_ui_set_mode error: {e}')
-            if i.InvokeRequired:
-                i.Invoke(WinForms.MethodInvoker(_apply))
-            else:
-                _apply()
-        else:
+    if not i:
+        # No winforms (non-fallback envs): approximate with pywebview window API
+        try:
             if new_mode == 'windowed':
                 window.restore(); window.resize(1280, 800)
             else:
                 window.maximize()
-    except Exception as e:
-        _trace(f'set_window_mode impl error: {e}')
+        except Exception as e:
+            _trace(f'set_window_mode fallback error: {e}')
+        return
+
+    def _apply():
+        try:
+            _ui_set_mode(i, WinForms, new_mode)
+        except Exception as e:
+            _trace(f'_ui_set_mode error: {e}')
+
+    # Serialize through the UI worker — never race other WinForms touches
+    _post_ui(_apply)
 
 def _ui_set_mode(i, WinForms, new_mode):
+    """Runs on the serialized uiq worker. All form mutations are marshaled to
+    the real UI thread via BeginInvoke (fire-and-forget, cannot deadlock)."""
+    def _mutate():
+        try:
+            screen = WinForms.Screen.FromHandle(i.Handle)
+            if new_mode == 'fullscreen':
+                i.FormBorderStyle = getattr(WinForms.FormBorderStyle, 'None')
+                i.Bounds = screen.Bounds
+                i.TopMost = True
+            elif new_mode == 'frameless':
+                i.FormBorderStyle = getattr(WinForms.FormBorderStyle, 'None')
+                i.Bounds = screen.WorkingArea
+                i.TopMost = False
+            else:
+                i.FormBorderStyle = WinForms.FormBorderStyle.Sizable
+                i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
+                i.TopMost = False
+        except Exception as e:
+            try:
+                _trace(f'_mutate error: {e}')
+            except Exception:
+                pass
     try:
-        screen = WinForms.Screen.FromHandle(i.Handle)
-        if new_mode == 'fullscreen':
-            i.FormBorderStyle = getattr(WinForms.FormBorderStyle, 'None')
-            i.Bounds = screen.Bounds
-            i.TopMost = True
-        elif new_mode == 'frameless':
-            i.FormBorderStyle = getattr(WinForms.FormBorderStyle, 'None')
-            i.Bounds = screen.WorkingArea
-            i.TopMost = False
-        else:
-            i.FormBorderStyle = WinForms.FormBorderStyle.Sizable
-            i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
-            i.TopMost = False
-    except Exception:
-        pass
+        i.BeginInvoke(WinForms.MethodInvoker(_mutate))
+    except Exception as e:
+        try:
+            _trace(f'BeginInvoke error: {e}')
+        except Exception:
+            pass
 
 def minimize_window():
     _trace('api: minimize_window')
-    threading.Thread(target=lambda: _safe(lambda: window.minimize()), daemon=True).start()
+    _post_ui(lambda: _safe(lambda: window.minimize()))
     return True
 
 def focus_window():
     _trace('api: focus_window')
-    threading.Thread(target=_focus_impl, daemon=True).start()
+    _post_ui(_focus_impl)
     return True
 
 def _safe(fn):
@@ -668,23 +719,24 @@ def _safe(fn):
 def _focus_impl():
     try:
         i, WinForms = _get_winform()
-        if i:
-            def _do():
-                try:
-                    if i.WindowState == getattr(WinForms.FormWindowState, 'Minimized'):
-                        i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
-                    i.Opacity = 1.0
-                    i.BringToFront()
-                    i.TopMost = True; i.TopMost = False
-                    i.Focus()
-                except Exception as e:
-                    _trace(f'focus _do error: {e}')
-            if i.InvokeRequired:
-                i.Invoke(WinForms.MethodInvoker(_do))
-            else:
-                _do()
-        else:
+        if not i:
             window.show()
+            return
+        def _do():
+            try:
+                if i.WindowState == getattr(WinForms.FormWindowState, 'Minimized'):
+                    i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
+                i.Opacity = 1.0
+                i.BringToFront()
+                i.TopMost = True; i.TopMost = False
+                i.Focus()
+            except Exception as e:
+                _trace(f'focus _do error: {e}')
+        # We're already on the serialized UI worker → direct call, no Invoke
+        if i.InvokeRequired:
+            i.Invoke(WinForms.MethodInvoker(_do))
+        else:
+            _do()
     except Exception as e:
         _trace(f'focus impl error: {e}')
 
