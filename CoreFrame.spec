@@ -16,6 +16,7 @@ _tcl_tk_data = []
 _pip_datas, _pip_binaries, _pip_hidden = collect_all('pip')
 _st_datas, _st_binaries, _st_hidden = collect_all('setuptools')
 _w_datas, _w_binaries, _w_hidden = collect_all('wheel')
+_tk_datas, _tk_binaries, _tk_hidden = collect_all('tkinter')
 
 #  Bundle the ENTIRE Python standard library (pure .py modules + C extensions).
 #  Extension widgets load their third-party deps at runtime from the shared lib
@@ -47,12 +48,12 @@ _stdlib_all = _collect_full_stdlib()
 a = Analysis(
     ['run_coreframe.pyw'],
     pathex=[],
-    binaries=_pip_binaries + _st_binaries + _w_binaries,
+    binaries=_pip_binaries + _st_binaries + _w_binaries + _tk_binaries,
     datas=[
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
         (_WEBVIEW_LIB, 'webview\\lib'),
-    ] + _pip_datas + _st_datas + _w_datas + _tcl_tk_data,
+    ] + _pip_datas + _st_datas + _w_datas + _tk_datas,
     hiddenimports=[
         'ssl',
         '_ssl',

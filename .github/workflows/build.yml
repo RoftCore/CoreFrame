@@ -37,7 +37,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --collect-all tkinter CoreFrame.spec
+          pyinstaller --noconfirm CoreFrame.spec
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
