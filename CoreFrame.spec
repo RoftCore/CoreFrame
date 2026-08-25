@@ -8,18 +8,28 @@ _WEBVIEW_LIB = os.path.join(os.path.dirname(os.path.abspath(webview.__file__)), 
 
 # Collect Tcl/Tk data files explicitly - required for tkinter on CI systems
 # The PyInstaller tkinter runtime hook (pyi_rth__tkinter.py) expects Tcl/Tk at
-# sys._MEIPASS/tcl and sys._MEIPASS/tk, NOT in a subdirectory.
+# sys._MEIPASS/tcl and sys._MEIPASS/tk directly.
 def _collect_tcl_tk_data():
     """Collect Tcl/Tk data directories for tkinter support at the correct paths."""
     tcl_tk_data = []
-    # First try: use PyInstaller's collect_data_files for tkinter
-    try:
-        tk_data = collect_data_files('tkinter')
-        tcl_tk_data.extend(tk_data)
-    except Exception:
-        pass
     
-    # Second try: collect from tkinter runtime paths
+    # First: Check for CI-provided paths (GitHub Actions sets these)
+    ci_tcl = os.environ.get('PYINSTALLER_TCL_DATA')
+    ci_tk = os.environ.get('PYINSTALLER_TK_DATA')
+    if ci_tcl and os.path.isdir(ci_tcl):
+        for root, dirs, files in os.walk(ci_tcl):
+            for f in files:
+                src = os.path.join(root, f)
+                rel = os.path.relpath(src, ci_tcl)
+                tcl_tk_data.append((src, os.path.join('tcl', rel)))
+    if ci_tk and os.path.isdir(ci_tk):
+        for root, dirs, files in os.walk(ci_tk):
+            for f in files:
+                src = os.path.join(root, f)
+                rel = os.path.relpath(src, ci_tk)
+                tcl_tk_data.append((src, os.path.join('tk', rel)))
+    
+    # Collect from tkinter runtime paths - this gives the actual loaded paths
     try:
         import tkinter
         tcl_lib = tkinter.Tcl().eval('info library')
@@ -46,6 +56,16 @@ def _collect_tcl_tk_data():
                         src = os.path.join(root, f)
                         rel = os.path.relpath(src, lib_dir)
                         tcl_tk_data.append((src, os.path.join(name, rel)))
+    
+    # Also collect Tcl/Tk DLLs if they exist (Windows)
+    for base in (_sys.base_prefix, _sys.prefix):
+        dll_dir = os.path.join(base, 'DLLs')
+        if os.path.isdir(dll_dir):
+            for f in os.listdir(dll_dir):
+                if f.startswith(('tcl', 'tk')) and f.endswith('.dll'):
+                    src = os.path.join(dll_dir, f)
+                    tcl_tk_data.append((src, f))
+    
     return tcl_tk_data
 
 _tcl_tk_data = _collect_tcl_tk_data()
