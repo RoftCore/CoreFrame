@@ -11,9 +11,20 @@ kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00000080)  # HIGH_PRIO
 
 _SINGLE_INSTANCE_MUTEX = kernel32.CreateMutexW(None, False, 'CoreFrame-InstanceLock-8420')
 if _SINGLE_INSTANCE_MUTEX and kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    # Another instance is running - try to focus its window via API
     kernel32.CloseHandle(_SINGLE_INSTANCE_MUTEX)
-    ctypes.windll.user32.MessageBoxW(0, "CoreFrame ya está en ejecución.", "CoreFrame", 0x10)
+    # Wait a bit for the server to be ready
+    time.sleep(0.5)
+    try:
+        req = urllib.request.Request('http://127.0.0.1:8420/api/window/focus', method='POST')
+        urllib.request.urlopen(req, timeout=2)
+    except Exception:
+        pass  # If API fails, just exit silently - first instance will handle
     sys.exit(0)
+
+# Check for autostart/minimized flags BEFORE importing heavy modules
+AUTOSTART_FLAG = '--autostart' in sys.argv or '--minimized' in sys.argv
+MINIMIZED_FLAG = '--minimized' in sys.argv
 
 from app import start_server  # must be before webview — app.py patches subprocess to hide consoles
 # Use Edge WebView2 (Chromium) — MSHTML/IE can't render the modern JS frontend
@@ -26,7 +37,9 @@ if hasattr(sys, '_MEIPASS'):
     _orig_interop = webview.util.interop_dll_path
     def _patched_interop(dll_name):
         if dll_name in ('win-arm64', 'win-x64', 'win-x86'):
-            return os.path.join(sys._MEIPASS, 'webview', 'lib', 'runtimes', dll_name, 'native')
+            meipass_path = os.path.join(sys._MEIPASS, 'webview', 'lib', 'runtimes', dll_name, 'native')
+            if os.path.isdir(meipass_path):
+                return meipass_path
         return _orig_interop(dll_name)
     webview.util.interop_dll_path = _patched_interop
 
@@ -100,12 +113,24 @@ print('[BOOT] Flask ready', flush=True)
 config = load_config()
 mode = config.get('window_mode', 'windowed')
 
-# Always start windowed; the JS applies saved mode after load
+# Determine initial window state
+initial_fullscreen = False
+initial_frameless = False
+initial_hidden = AUTOSTART_FLAG  # Start hidden if autostart
+
+if mode == 'fullscreen':
+    initial_fullscreen = True
+elif mode == 'frameless':
+    initial_frameless = True
+
+# Create window with saved mode
 window = webview.create_window(
     'CoreFrame',
     f'http://{HOST}:{PORT}/?mode={mode}',
     width=1280, height=800,
-    fullscreen=False, frameless=False,
+    fullscreen=initial_fullscreen, 
+    frameless=initial_frameless,
+    hidden=initial_hidden,  # Start hidden for autostart
 )
 
 _winforms_available = None
@@ -171,7 +196,36 @@ def minimize_window():
     window.minimize()
     return True
 
-window.expose(set_window_mode, minimize_window)
+def focus_window():
+    """Bring window to front and restore if minimized."""
+    try:
+        i, WinForms = _get_winform()
+        if i:
+            i.Invoke(WinForms.MethodInvoker(lambda: _ui_focus(i, WinForms)))
+            return True
+        else:
+            # Fallback for non-winforms
+            window.restore()
+            window.maximize()
+            window.restore()  # Restore to normal size
+            return True
+    except Exception as e:
+        print(f'focus_window error: {e}')
+        return False
+
+def _ui_focus(i, WinForms):
+    """Runs on UI thread via Invoke - restore and bring to front."""
+    try:
+        if i.WindowState == getattr(WinForms.FormWindowState, 'Minimized'):
+            i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
+        i.BringToFront()
+        i.TopMost = True
+        i.TopMost = False
+        i.Focus()
+    except Exception:
+        pass
+
+window.expose(set_window_mode, minimize_window, focus_window)
 
 # Wire graceful shutdown: close window → webview.start() returns → script exits cleanly
 import app as _app_mod

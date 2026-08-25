@@ -13,6 +13,11 @@ import sys
 import threading
 import time
 import urllib.request
+import traceback
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass, field
+from typing import Optional, Dict, Any, Callable
+import threading
 
 #  Force no console windows on any subprocess 
 if sys.platform.startswith('win'):
@@ -24,15 +29,6 @@ if sys.platform.startswith('win'):
         old = kwargs.get('creationflags', 0)
         newflags = old | _CREATE_NO_WINDOW | _DETACHED_PROCESS
         kwargs['creationflags'] = newflags
-        # Log the call
-        try:
-            _cmd = args[0] if args else kwargs.get('args', '?')
-            if isinstance(_cmd, (list, tuple)):
-                _cmd = ' '.join(str(x) for x in _cmd)
-            import builtins as _b
-            _b.print(f"[POPEN] old=0x{old:08x} new=0x{newflags:08x} cmd={_cmd[:200]}", flush=True)
-        except Exception:
-            pass
         return _orig_init(self, *args, **kwargs)
     _subprocess.Popen.__init__ = _patched_init
 subprocess = _subprocess  # alias
@@ -45,6 +41,159 @@ try:
     import eventlet
 except ImportError:
     pass
+
+
+#  Extension Health & Isolation 
+
+@dataclass
+class ExtensionHealth:
+    ext_id: str
+    status: str = 'loading'  # loading, healthy, degraded, dead
+    load_time: float = 0.0
+    last_heartbeat: float = 0.0
+    error_count: int = 0
+    last_error: str = ''
+    restart_count: int = 0
+    load_thread: Optional[threading.Thread] = None
+    cancel_event: threading.Event = field(default_factory=threading.Event)
+
+
+class ExtensionIsolation:
+    """Per-extension isolation with timeout, health monitoring, and auto-recovery."""
+    
+    MAX_LOAD_TIME = 10.0  # seconds
+    MAX_HEARTBEAT_AGE = 30.0  # seconds
+    MAX_RESTARTS = 3
+    RESTART_COOLDOWN = 5.0  # seconds
+    
+    def __init__(self):
+        self.health: Dict[str, ExtensionHealth] = {}
+        self._executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix='ext-load')
+        self._lock = threading.RLock()
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._stop_monitor = threading.Event()
+    
+    def start_monitor(self):
+        if self._monitor_thread is None or not self._monitor_thread.is_alive():
+            self._stop_monitor.clear()
+            self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True, name='ext-health-monitor')
+            self._monitor_thread.start()
+    
+    def stop_monitor(self):
+        self._stop_monitor.set()
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=2.0)
+        self._executor.shutdown(wait=False, cancel_futures=True)
+    
+    def _monitor_loop(self):
+        while not self._stop_monitor.is_set():
+            time.sleep(2.0)
+            self._check_health()
+    
+    def _check_health(self):
+        now = time.monotonic()
+        with self._lock:
+            for ext_id, health in list(self.health.items()):
+                if health.status == 'dead':
+                    continue
+                # Check heartbeat for running extensions
+                if health.status == 'healthy' and health.last_heartbeat > 0:
+                    if now - health.last_heartbeat > self.MAX_HEARTBEAT_AGE:
+                        log.warning("Extension %s heartbeat timeout, marking degraded", ext_id)
+                        health.status = 'degraded'
+                # Auto-restart degraded extensions
+                if health.status == 'degraded' and health.restart_count < self.MAX_RESTARTS:
+                    if now - health.last_heartbeat > self.RESTART_COOLDOWN:
+                        log.info("Auto-restarting degraded extension %s (attempt %d/%d)", 
+                                ext_id, health.restart_count + 1, self.MAX_RESTARTS)
+                        self._schedule_restart(ext_id)
+    
+    def _schedule_restart(self, ext_id: str):
+        health = self.health.get(ext_id)
+        if not health:
+            return
+        health.cancel_event.set()
+        health.restart_count += 1
+        health.status = 'loading'
+        health.load_time = 0.0
+        health.cancel_event = threading.Event()
+        # Trigger reload via socketio (will be handled by frontend)
+        socketio.emit('extension_restart', {'id': ext_id, 'attempt': health.restart_count})
+    
+    def start_load(self, ext_id: str, loader_fn: Callable[[], bool]) -> threading.Thread:
+        health = ExtensionHealth(ext_id=ext_id)
+        with self._lock:
+            self.health[ext_id] = health
+        
+        def wrapped_loader():
+            start = time.monotonic()
+            health.load_time = 0.0
+            try:
+                future = self._executor.submit(loader_fn)
+                try:
+                    result = future.result(timeout=self.MAX_LOAD_TIME)
+                    health.load_time = time.monotonic() - start
+                    if result and not health.cancel_event.is_set():
+                        health.status = 'healthy'
+                        health.last_heartbeat = time.monotonic()
+                        log.info("Extension %s loaded in %.2fs", ext_id, health.load_time)
+                    else:
+                        health.status = 'dead'
+                        health.last_error = 'Load cancelled or returned False'
+                except FuturesTimeoutError:
+                    health.status = 'dead'
+                    health.last_error = f'Load timeout ({self.MAX_LOAD_TIME}s)'
+                    log.error("Extension %s load timeout after %.1fs", ext_id, self.MAX_LOAD_TIME)
+                    future.cancel()
+                except Exception as e:
+                    health.status = 'dead'
+                    health.last_error = str(e)
+                    health.error_count += 1
+                    log.error("Extension %s load failed: %s", ext_id, e)
+            finally:
+                health.load_thread = None
+        
+        thread = threading.Thread(target=wrapped_loader, daemon=True, name=f'ext-load-{ext_id}')
+        health.load_thread = thread
+        thread.start()
+        return thread
+    
+    def heartbeat(self, ext_id: str):
+        with self._lock:
+            health = self.health.get(ext_id)
+            if health and health.status in ('healthy', 'degraded'):
+                health.last_heartbeat = time.monotonic()
+                if health.status == 'degraded':
+                    health.status = 'healthy'
+    
+    def mark_dead(self, ext_id: str, error: str = ''):
+        with self._lock:
+            health = self.health.get(ext_id)
+            if health:
+                health.status = 'dead'
+                health.last_error = error
+                health.cancel_event.set()
+    
+    def get_status(self, ext_id: str) -> dict:
+        with self._lock:
+            health = self.health.get(ext_id)
+            if not health:
+                return {'status': 'unknown'}
+            return {
+                'status': health.status,
+                'load_time': health.load_time,
+                'error_count': health.error_count,
+                'last_error': health.last_error,
+                'restart_count': health.restart_count,
+            }
+    
+    def get_all_status(self) -> dict:
+        with self._lock:
+            return {ext_id: self.get_status(ext_id) for ext_id in self.health}
+
+
+# Global isolation manager
+_ext_isolation = ExtensionIsolation()
 
 def _patch_pip_for_frozen():
     """distlib.resources.finder() only knows standard loaders (SourceFileLoader,
@@ -247,85 +396,131 @@ def _sync_extension_lib(ext_path):
         except Exception:
             pass
 
-def load_extensions():
-    log.info("load_extensions: EXTENSIONS_DIR=%s exists=%s", EXTENSIONS_DIR, os.path.exists(EXTENSIONS_DIR))
-    if not os.path.exists(EXTENSIONS_DIR):
-        return
+
+def _load_extension_core(ext_id: str, ext_path: str) -> tuple[bool, str]:
+    """Core loading logic - returns (success, error_msg). No side effects on failure."""
+    config_path = os.path.join(ext_path, 'extension.json')
+    main_path = os.path.join(ext_path, 'main.py')
+    
+    if not os.path.exists(config_path):
+        return False, "No extension.json"
+    if not os.path.exists(main_path):
+        return False, "No main.py"
+    
+    try:
+        with open(config_path, encoding='utf-8-sig') as f:
+            config = json.load(f)
+    except json.JSONDecodeError as e:
+        return False, f"Invalid extension.json: {e}"
+    except Exception as e:
+        return False, f"Config read error: {e}"
+    
     current_os = 'linux' if not sys.platform.startswith('win') else 'windows'
+    platforms = config.get('platforms')
+    if platforms is not None and current_os not in platforms:
+        return False, f"Platform mismatch: {current_os} not in {platforms}"
+    
+    try:
+        _sync_extension_lib(ext_path)
+        _ensure_extension_deps(ext_path)
+        config['data_dir'] = os.path.join(DATA_DATA_DIR, ext_id)
+        lang = config.get('language', 'python')
+        
+        if lang != 'python' and lang != 'py':
+            ext_instance = SubprocessBridge(config, ext_path)
+        else:
+            mod_name = f"extensions.{ext_id}"
+            # Clean any stale module
+            if mod_name in sys.modules:
+                del sys.modules[mod_name]
+            spec = importlib.util.spec_from_file_location(mod_name, main_path)
+            if spec is None or spec.loader is None:
+                return False, "Failed to create module spec"
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = module
+            spec.loader.exec_module(module)
+            
+            # Verify Extension class exists
+            if not hasattr(module, 'Extension'):
+                return False, "Module has no Extension class"
+            
+            ext_instance = module.Extension(config)
+        
+        # Verify instance has required methods
+        if not hasattr(ext_instance, 'on_stop'):
+            log.warning("Extension %s missing on_stop method", ext_id)
+        
+        # Atomic swap into extensions dict
+        extensions[ext_id] = {'config': config, 'instance': ext_instance}
+        failed_extensions.pop(ext_id, None)
+        
+        # Start polling if realtime
+        _start_polling(ext_id, extensions[ext_id])
+        
+        return True, ""
+    except Exception as e:
+        # Clean up on failure
+        mod_name = f"extensions.{ext_id}"
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        extensions.pop(ext_id, None)
+        return False, str(e)
+
+
+def load_extensions():
+    """NON-BLOCKING: Starts async loading of all extensions. Returns immediately."""
+    log.info("load_extensions: Starting async load (EXTENSIONS_DIR=%s)", EXTENSIONS_DIR)
+    _ext_isolation.start_monitor()
+    
+    if not os.path.exists(EXTENSIONS_DIR):
+        log.info("Extensions dir does not exist: %s", EXTENSIONS_DIR)
+        return
+    
+    # Quick scan - just collect valid extension dirs
+    candidates = []
     for name in os.listdir(EXTENSIONS_DIR):
         ext_path = os.path.join(EXTENSIONS_DIR, name)
         if not os.path.isdir(ext_path):
             continue
         config_path = os.path.join(ext_path, 'extension.json')
         main_path = os.path.join(ext_path, 'main.py')
-        if not os.path.exists(config_path) or not os.path.exists(main_path):
-            continue
-        try:
-            with open(config_path, encoding='utf-8-sig') as f:
-                config = json.load(f)
-            platforms = config.get('platforms')
-            if platforms is not None and current_os not in platforms:
-                log.info("Skipping %s: not compatible with %s", name, current_os)
-                continue
-            _sync_extension_lib(ext_path)
-            _ensure_extension_deps(ext_path)
-            config['data_dir'] = os.path.join(DATA_DATA_DIR, name)
-            lang = config.get('language', 'python')
-            if lang != 'python' and lang != 'py':
-                ext_instance = SubprocessBridge(config, ext_path)
-            else:
-                spec = importlib.util.spec_from_file_location(f"extensions.{name}", main_path)
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[f"extensions.{name}"] = module
-                spec.loader.exec_module(module)
-                ext_instance = module.Extension(config)
-            extensions[name] = {'config': config, 'instance': ext_instance}
-            log.info("Loaded extension: %s (%s)", config.get('name', name), lang)
-        except json.JSONDecodeError as e:
-            msg = f"Invalid extension.json: {e}"
-            log.error("Failed to load %s: %s", name, msg)
-            failed_extensions[name] = {'name': name, 'loadError': msg}
-        except Exception as e:
-            msg = str(e)
-            log.error("Failed to load %s: %s", name, msg)
-            try:
-                with open(config_path, encoding='utf-8-sig') as f:
-                    config = json.load(f)
-                failed_extensions[name] = {'name': config.get('name', name), 'loadError': msg}
-            except Exception:
-                failed_extensions[name] = {'name': name, 'loadError': msg}
+        if os.path.exists(config_path) and os.path.exists(main_path):
+            candidates.append((name, ext_path))
+    
+    log.info("Found %d candidate extensions", len(candidates))
+    
+    # Fire off all loads in parallel with isolation
+    for ext_id, ext_path in candidates:
+        def make_loader(eid, epath):
+            def loader():
+                success, error = _load_extension_core(eid, epath)
+                if not success:
+                    failed_extensions[eid] = {'name': eid, 'loadError': error}
+                    _ext_isolation.mark_dead(eid, error)
+                    log.error("Extension %s failed: %s", eid, error)
+                return success
+            return loader
+        
+        _ext_isolation.start_load(ext_id, make_loader(ext_id, ext_path))
+
 
 def _load_single_extension(ext_id):
+    """Blocking load for dynamic installs - uses isolation with timeout."""
     ext_path = os.path.join(EXTENSIONS_DIR, ext_id)
     config_path = os.path.join(ext_path, 'extension.json')
-    main_path = os.path.join(ext_path, 'main.py')
     if not os.path.exists(config_path):
         return False
-    try:
-        with open(config_path, encoding='utf-8-sig') as f:
-            config = json.load(f)
-        lang = config.get('language', 'python')
-        _sync_extension_lib(ext_path)
-        _ensure_extension_deps(ext_path)
-        config['data_dir'] = os.path.join(DATA_DATA_DIR, ext_id)
-        if lang != 'python' and lang != 'py':
-            ext_instance = SubprocessBridge(config, ext_path)
-        else:
-            if not os.path.exists(main_path):
-                return False
-            mod_name = f"extensions.{ext_id}"
-            spec = importlib.util.spec_from_file_location(mod_name, main_path)
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[mod_name] = module
-            spec.loader.exec_module(module)
-            ext_instance = module.Extension(config)
-        extensions[ext_id] = {'config': config, 'instance': ext_instance}
-        failed_extensions.pop(ext_id, None)
-        log.info("Dynamically loaded extension: %s (%s)", config.get('name', ext_id), lang)
-        return True
-    except Exception as e:
-        log.error("Failed to dynamically load %s: %s", ext_id, e)
-        return False
+    
+    def loader():
+        success, error = _load_extension_core(ext_id, ext_path)
+        if not success:
+            failed_extensions[ext_id] = {'name': ext_id, 'loadError': error}
+            _ext_isolation.mark_dead(ext_id, error)
+        return success
+    
+    thread = _ext_isolation.start_load(ext_id, loader)
+    thread.join(timeout=15.0)  # Wait for dynamic install
+    return ext_id in extensions
 
 #  Multi-language bridge 
 
@@ -347,6 +542,8 @@ class SubprocessBridge:
         self._reader_lock = threading.Lock()
         self._read_buffer = {}
         self._running = True
+        self._started = False
+        self._start_time = 0.0
         self._start(ext_path)
 
     def _start(self, ext_path):
@@ -378,9 +575,29 @@ class SubprocessBridge:
             bufsize=1,
             startupinfo=startupinfo,
         )
+        self._started = True
+        self._start_time = time.monotonic()
         log.info("[Bridge] Started %s process for %s (pid=%d)", self.language, self.ext_id, self._proc.pid)
         self._reader = threading.Thread(target=self._read_loop, daemon=True, name=f'bridge-{self.ext_id}')
         self._reader.start()
+        
+        # Start heartbeat sender for subprocess extensions
+        if self.language not in ('python', 'py'):
+            self._hb_thread = threading.Thread(target=self._heartbeat_sender, daemon=True, name=f'bridge-hb-{self.ext_id}')
+            self._hb_thread.start()
+
+    def _heartbeat_sender(self):
+        """Send periodic heartbeats to subprocess extension."""
+        while self._running and self._proc and self._proc.poll() is None:
+            time.sleep(10.0)
+            if not self._running or not self._proc or self._proc.poll() is not None:
+                break
+            try:
+                with self._lock:
+                    self._proc.stdin.write(json.dumps({'method': 'heartbeat'}) + '\n')
+                    self._proc.stdin.flush()
+            except Exception:
+                break
 
     def _read_loop(self):
         while self._running and self._proc and self._proc.poll() is None:
@@ -392,6 +609,10 @@ class SubprocessBridge:
                 if not line:
                     continue
                 data = json.loads(line)
+                # Heartbeat for health monitoring
+                if data.get('method') == 'heartbeat':
+                    _ext_isolation.heartbeat(self.ext_id)
+                    continue
                 rid = data.get('id')
                 if rid is not None:
                     with self._reader_lock:
@@ -437,9 +658,19 @@ class SubprocessBridge:
         if self._proc and self._proc.poll() is None:
             try:
                 self._proc.terminate()
-                self._proc.wait(timeout=5)
+                self._proc.wait(timeout=2)
             except Exception:
-                self._proc.kill()
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+    
+    def heartbeat(self):
+        """Send heartbeat to subprocess to confirm it's alive."""
+        try:
+            return self._call('heartbeat', {})
+        except Exception:
+            return {'error': 'Heartbeat failed'}
 
 #  Auth 
 
@@ -494,7 +725,8 @@ def _set_autostart_enabled(enable):
             import winreg
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Run', 0, winreg.KEY_SET_VALUE)
             if enable:
-                winreg.SetValueEx(key, AUTOSTART_KEY, 0, winreg.REG_SZ, sys.executable)
+                # Use --autostart flag to start hidden/minimized on boot
+                winreg.SetValueEx(key, AUTOSTART_KEY, 0, winreg.REG_SZ, f'"{sys.executable}" --autostart')
             else:
                 try:
                     winreg.DeleteValue(key, AUTOSTART_KEY)
@@ -511,7 +743,7 @@ def _set_autostart_enabled(enable):
                     '[Desktop Entry]\n'
                     'Type=Application\n'
                     'Name=CoreFrame\n'
-                    f'Exec={sys.executable}\n'
+                    f'Exec={sys.executable} --autostart\n'
                     'Terminal=false\n'
                 )
                 with open(path, 'w', encoding='utf-8') as f:
@@ -590,6 +822,44 @@ def api_health():
         'extensions': len(extensions),
         'clients': _client_count,
     })
+
+
+@app.route('/api/extensions/health')
+def api_extensions_health():
+    """Get health status of all extensions."""
+    health_data = _ext_isolation.get_all_status()
+    result = {}
+    for ext_id, health in health_data.items():
+        ext_info = extensions.get(ext_id, {}).get('config', {})
+        failed_info = failed_extensions.get(ext_id, {})
+        result[ext_id] = {
+            'id': ext_id,
+            'name': ext_info.get('name', ext_id) or failed_info.get('name', ext_id),
+            'status': health['status'],
+            'load_time': health.get('load_time', 0),
+            'error_count': health.get('error_count', 0),
+            'last_error': health.get('last_error', ''),
+            'restart_count': health.get('restart_count', 0),
+            'loaded': ext_id in extensions,
+            'load_error': failed_info.get('loadError'),
+        }
+    return jsonify(result)
+
+
+@app.route('/api/extension/<ext_id>/heartbeat', methods=['POST'])
+def api_extension_heartbeat(ext_id):
+    """Receive heartbeat from extension."""
+    if ext_id not in extensions:
+        return jsonify({'error': 'Extension not loaded'}), 404
+    _ext_isolation.heartbeat(ext_id)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/window/focus', methods=['POST'])
+def api_window_focus():
+    """Focus the main window - called by second instance trying to start."""
+    socketio.emit('focus_window')
+    return jsonify({'ok': True})
 
 @app.route('/api/extension/<ext_id>/<action>', methods=['GET', 'POST'])
 def api_extension_action(ext_id, action):
@@ -1003,6 +1273,12 @@ def handle_disconnect():
     _client_count = max(0, _client_count - 1)
     log.info("WS client disconnected (%d)", _client_count)
 
+@socketio.on('focus_window')
+def handle_focus_window():
+    """Bring window to front - triggered by second instance trying to start."""
+    emit('focus_window', broadcast=True)
+    log.info("Focus window requested from second instance")
+
 def _start_polling(ext_id, ext_data):
     cfg = ext_data['config']
     interval = cfg.get('refresh_interval', 0)
@@ -1287,36 +1563,47 @@ def _save_registry():
 
 @app.route('/api/restart', methods=['POST'])
 def api_restart():
-    log.info("Restart: reloading extensions internally...")
-
-    # 1. Stop all extensions cleanly
-    for ext_id, ext_data in list(extensions.items()):
-        inst = ext_data.get('instance')
-        if hasattr(inst, 'on_stop'):
-            try:
-                inst.on_stop()
-                log.info("Restart: stopped extension %s", ext_id)
-            except Exception as e:
-                log.error("Restart: error stopping %s: %s", ext_id, e)
-
-    # 2. Clear all extension state
+    log.info("Restart: instant reload triggered")
+    
+    # Signal all extension load threads to cancel
+    _ext_isolation.stop_monitor()
+    
+    # 1. Fire-and-forget cleanup - don't wait
+    def _cleanup_async():
+        for ext_id, ext_data in list(extensions.items()):
+            inst = ext_data.get('instance')
+            if hasattr(inst, 'on_stop'):
+                try:
+                    inst.on_stop()
+                except Exception:
+                    pass
+        
+        # Clear subprocess bridges
+        for ext_id in list(extensions.keys()):
+            _ext_isolation.mark_dead(ext_id, 'Restart')
+    
+    threading.Thread(target=_cleanup_async, daemon=True, name='restart-cleanup').start()
+    
+    # 2. Instant state clear - immediate response
     extensions.clear()
     failed_extensions.clear()
     latest_update.clear()
-
-    # 3. Remove extension modules from sys.modules so they get fresh imports
+    
+    # 3. Remove extension modules from sys.modules
     mods_to_del = [k for k in list(sys.modules.keys()) if k.startswith('extensions.')]
     for k in mods_to_del:
         del sys.modules[k]
-
-    # 4. Reload extensions from disk
+    
+    # 4. Restart isolation manager and reload extensions (async)
+    _ext_isolation.__init__()  # Reset isolation manager
+    _ext_isolation.start_monitor()
     load_extensions()
-
-    # 5. Rebuild and save the registry
-    _save_registry()
-
-    log.info("Restart: done — %d extensions loaded", len(extensions))
-    return jsonify({'ok': True})
+    
+    # 5. Rebuild registry (async)
+    threading.Thread(target=_save_registry, daemon=True).start()
+    
+    log.info("Restart: instant response sent, %d extensions loading async", len(extensions))
+    return jsonify({'ok': True, 'status': 'reloading'})
 
 @app.route('/api/quit', methods=['POST'])
 def api_quit():
@@ -1337,6 +1624,7 @@ def api_quit():
 
 def _sigint_handler(signum, frame):
     log.info("Shutting down...")
+    _ext_isolation.stop_monitor()
     os._exit(0)
 
 def start_server(host='127.0.0.1', port=8420, debug=False):
@@ -1350,8 +1638,9 @@ def start_server(host='127.0.0.1', port=8420, debug=False):
     logging.getLogger('engineio.server').setLevel(logging.WARNING)
     logging.getLogger('werkzeug').setLevel(logging.DEBUG if debug else logging.WARNING)
 
-    log.info("Loading extensions...")
-    load_extensions()
+    log.info("Starting server (instant mode)...")
+    # Start extensions async - non-blocking!
+    threading.Thread(target=load_extensions, daemon=True, name='ext-initial-load').start()
     _save_registry()
     rt_thread = threading.Thread(target=realtime_broadcast, daemon=True)
     rt_thread.start()
@@ -1360,6 +1649,7 @@ def start_server(host='127.0.0.1', port=8420, debug=False):
         socketio.run(app, host=host, port=port, debug=debug, use_reloader=False, allow_unsafe_werkzeug=True, log_output=False)
     except (KeyboardInterrupt, SystemExit):
         log.info("Shutting down...")
+        _ext_isolation.stop_monitor()
         os._exit(0)
 
 if __name__ == '__main__':

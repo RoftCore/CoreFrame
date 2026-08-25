@@ -467,6 +467,7 @@
     if (window.pywebview) {
       pywebview.api.set_window_mode(mode).then(function (applied) {
         currentWindowMode = mode;
+        if (typeof updateUrlMode === 'function') updateUrlMode(mode);
         if (!applied && mode !== 'fullscreen') {
           s.showToast('Restart CoreFrame to apply');
         }
@@ -474,10 +475,12 @@
         console.warn('set_window_mode failed:', err);
         if (typeof applyWindowModeFallback !== 'undefined') applyWindowModeFallback(mode);
         currentWindowMode = mode;
+        if (typeof updateUrlMode === 'function') updateUrlMode(mode);
       });
     } else {
       if (typeof applyWindowModeFallback !== 'undefined') applyWindowModeFallback(mode);
       currentWindowMode = mode;
+      if (typeof updateUrlMode === 'function') updateUrlMode(mode);
     }
   };
 })();
