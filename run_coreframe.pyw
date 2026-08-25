@@ -11,15 +11,13 @@ kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00000080)  # HIGH_PRIO
 
 _SINGLE_INSTANCE_MUTEX = kernel32.CreateMutexW(None, False, 'CoreFrame-InstanceLock-8420')
 if _SINGLE_INSTANCE_MUTEX and kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-    # Another instance is running - try to focus its window via API
     kernel32.CloseHandle(_SINGLE_INSTANCE_MUTEX)
-    # Wait a bit for the server to be ready
     time.sleep(0.5)
     try:
         req = urllib.request.Request('http://127.0.0.1:8420/api/window/focus', method='POST')
         urllib.request.urlopen(req, timeout=2)
     except Exception:
-        pass  # If API fails, just exit silently - first instance will handle
+        pass
     sys.exit(0)
 
 # Check for autostart/minimized flags BEFORE importing heavy modules
@@ -103,10 +101,18 @@ debug_mode = not getattr(sys, 'frozen', False)
 t = threading.Thread(target=start_server, kwargs={'host': HOST, 'port': PORT, 'debug': debug_mode}, daemon=True)
 t.start()
 
-# Create window IMMEDIATELY with HTML content directly - no navigation, no white flash
-COREFRAME_BG = '#0d0d1a'
-with open(os.path.join(STATIC_DIR, 'loading.html'), 'r', encoding='utf-8') as f:
-    loading_html = f.read()
+if not _wait_for_server():
+    _show_error("CoreFrame",
+        f"CoreFrame failed to start on {HOST}:{PORT}.\n\n"
+        "Possible causes:\n"
+        "- Another instance is already running\n"
+        "- Port {PORT} is in use by another application\n"
+        "- An extension failed to load\n\n"
+        "Check the log at:\n"
+        f"{os.path.join(DATA_DIR, 'coreframe.log')}"
+    )
+    sys.exit(1)
+print('[BOOT] Flask ready', flush=True)
 
 config = load_config()
 mode = config.get('window_mode', 'windowed')
@@ -121,63 +127,31 @@ if mode == 'fullscreen':
 elif mode == 'frameless':
     initial_frameless = True
 
-# Create window IMMEDIATELY - hidden with CoreFrame background color
-# No URL, no HTML - just a blank window with our background color
+# Create window with HTML content directly - instant render, no navigation, no white flash
 COREFRAME_BG = '#0d0d1a'
+with open(os.path.join(STATIC_DIR, 'loading.html'), 'r', encoding='utf-8') as f:
+    loading_html = f.read()
+
 window = webview.create_window(
     'CoreFrame',
+    html=loading_html,  # Direct HTML content - instant render, no navigation
     width=1280, height=800,
     fullscreen=initial_fullscreen, 
     frameless=initial_frameless,
-    hidden=True,  # Start completely hidden
+    hidden=initial_hidden,  # Start hidden if autostart
     background_color=COREFRAME_BG,
 )
 
-# Load HTML content after window creation, then show
-def _load_and_show():
+# Load the actual app URL after HTML renders
+def _load_and_navigate():
     try:
-        with open(os.path.join(STATIC_DIR, 'loading.html'), 'r', encoding='utf-8') as f:
-            loading_html = f.read()
-        window.load_html(loading_html)
-        # Show after HTML is loaded
-        window.show()
-    except Exception:
-        try:
-            window.show()
-        except Exception:
-            pass
-
-# Load HTML immediately after window creation (still hidden)
-threading.Timer(0.01, _load_and_show).start()
-
-# Wait for server in background, then navigate
-def _wait_and_navigate():
-    if not _wait_for_server():
-        _show_error("CoreFrame",
-            f"CoreFrame failed to start on {HOST}:{PORT}.\n\n"
-            "Possible causes:\n"
-            "- Another instance is already running\n"
-            "- Port {PORT} is in use by another application\n"
-            "- An extension failed to load\n\n"
-            "Check the log at:\n"
-            f"{os.path.join(DATA_DIR, 'coreframe.log')}"
-        )
-        # Close the loading window
-        try:
-            window.destroy()
-        except Exception:
-            pass
-        sys.exit(1)
-    
-    print('[BOOT] Flask ready, navigating to app...', flush=True)
-    # Navigate to the real app
-    target_url = f'http://{HOST}:{PORT}/?mode={mode}'
-    try:
+        target_url = f'http://{HOST}:{PORT}/?mode={mode}'
         window.load_url(target_url)
     except Exception:
         pass
 
-threading.Thread(target=_wait_and_navigate, daemon=True, name='server-wait').start()
+# Load the actual app after a brief moment to let loading.html render
+threading.Timer(0.5, _load_and_navigate).start()
 
 _winforms_available = None
 def _get_winform():
