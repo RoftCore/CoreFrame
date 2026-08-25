@@ -62,6 +62,12 @@ PORT = 8420
 DATA_DIR = os.path.join(os.path.expanduser('~'), 'Documents', 'CoreFrame')
 CONFIG_PATH = os.path.join(DATA_DIR, 'coreframe.json')
 
+# Static files directory (for loading.html)
+if getattr(sys, 'frozen', False):
+    STATIC_DIR = os.path.join(sys._MEIPASS, 'static')
+else:
+    STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+
 def load_config():
     try:
         with open(CONFIG_PATH, encoding='utf-8') as f:
@@ -97,18 +103,13 @@ debug_mode = not getattr(sys, 'frozen', False)
 t = threading.Thread(target=start_server, kwargs={'host': HOST, 'port': PORT, 'debug': debug_mode}, daemon=True)
 t.start()
 
-if not _wait_for_server():
-    _show_error("CoreFrame",
-        f"CoreFrame failed to start on {HOST}:{PORT}.\n\n"
-        "Possible causes:\n"
-        "- Another instance is already running\n"
-        "- Port {PORT} is in use by another application\n"
-        "- An extension failed to load\n\n"
-        "Check the log at:\n"
-        f"{os.path.join(DATA_DIR, 'coreframe.log')}"
-    )
-    sys.exit(1)
-print('[BOOT] Flask ready', flush=True)
+# Create window IMMEDIATELY with local loading page (instant startup)
+loading_url = 'loading.html'
+if getattr(sys, 'frozen', False):
+    # In frozen exe, loading.html is in the same dir as the exe's extracted static files
+    loading_url = os.path.join(sys._MEIPASS, 'static', 'loading.html')
+else:
+    loading_url = os.path.join(STATIC_DIR, 'loading.html')
 
 config = load_config()
 mode = config.get('window_mode', 'windowed')
@@ -123,15 +124,44 @@ if mode == 'fullscreen':
 elif mode == 'frameless':
     initial_frameless = True
 
-# Create window with saved mode
+# Create window IMMEDIATELY with local loading page
 window = webview.create_window(
     'CoreFrame',
-    f'http://{HOST}:{PORT}/?mode={mode}',
+    loading_url,
     width=1280, height=800,
     fullscreen=initial_fullscreen, 
     frameless=initial_frameless,
     hidden=initial_hidden,  # Start hidden for autostart
 )
+
+# Wait for server in background, then navigate
+def _wait_and_navigate():
+    if not _wait_for_server():
+        _show_error("CoreFrame",
+            f"CoreFrame failed to start on {HOST}:{PORT}.\n\n"
+            "Possible causes:\n"
+            "- Another instance is already running\n"
+            "- Port {PORT} is in use by another application\n"
+            "- An extension failed to load\n\n"
+            "Check the log at:\n"
+            f"{os.path.join(DATA_DIR, 'coreframe.log')}"
+        )
+        # Close the loading window
+        try:
+            window.destroy()
+        except Exception:
+            pass
+        sys.exit(1)
+    
+    print('[BOOT] Flask ready, navigating to app...', flush=True)
+    # Navigate to the real app
+    target_url = f'http://{HOST}:{PORT}/?mode={mode}'
+    try:
+        window.load_url(target_url)
+    except Exception:
+        pass
+
+threading.Thread(target=_wait_and_navigate, daemon=True, name='server-wait').start()
 
 _winforms_available = None
 def _get_winform():
