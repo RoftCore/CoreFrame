@@ -37,20 +37,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Ensure Tcl/Tk data is available for PyInstaller
-          $pythonPath = (Get-Command python).Source
-          $pythonDir = Split-Path $pythonPath
-          $tclDir = Join-Path $pythonDir "tcl"
-          $tkDir = Join-Path $pythonDir "tk"
-          if (Test-Path $tclDir) { 
-            Write-Host "Found Tcl at: $tclDir"
-            $env:PYINSTALLER_TCL_DATA = $tclDir
-          }
-          if (Test-Path $tkDir) { 
-            Write-Host "Found Tk at: $tkDir"
-            $env:PYINSTALLER_TK_DATA = $tkDir
-          }
-          pyinstaller --noconfirm CoreFrame.spec
+          pyinstaller --noconfirm --collect-all tkinter CoreFrame.spec
 
       - name: Build (Linux)
         if: runner.os == 'Linux'

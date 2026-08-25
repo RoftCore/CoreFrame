@@ -6,69 +6,9 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 
 _WEBVIEW_LIB = os.path.join(os.path.dirname(os.path.abspath(webview.__file__)), 'lib')
 
-# Collect Tcl/Tk data files explicitly - required for tkinter on CI systems
-# The PyInstaller tkinter runtime hook (pyi_rth__tkinter.py) expects Tcl/Tk at
-# sys._MEIPASS/tcl and sys._MEIPASS/tk directly.
-def _collect_tcl_tk_data():
-    """Collect Tcl/Tk data directories for tkinter support at the correct paths."""
-    tcl_tk_data = []
-    
-    # First: Check for CI-provided paths (GitHub Actions sets these)
-    ci_tcl = os.environ.get('PYINSTALLER_TCL_DATA')
-    ci_tk = os.environ.get('PYINSTALLER_TK_DATA')
-    if ci_tcl and os.path.isdir(ci_tcl):
-        for root, dirs, files in os.walk(ci_tcl):
-            for f in files:
-                src = os.path.join(root, f)
-                rel = os.path.relpath(src, ci_tcl)
-                tcl_tk_data.append((src, os.path.join('tcl', rel)))
-    if ci_tk and os.path.isdir(ci_tk):
-        for root, dirs, files in os.walk(ci_tk):
-            for f in files:
-                src = os.path.join(root, f)
-                rel = os.path.relpath(src, ci_tk)
-                tcl_tk_data.append((src, os.path.join('tk', rel)))
-    
-    # Collect from tkinter runtime paths - this gives the actual loaded paths
-    try:
-        import tkinter
-        tcl_lib = tkinter.Tcl().eval('info library')
-        tk_lib = tkinter.Tcl().eval('set tk_library')
-        
-        for lib_path, target_name in [(tcl_lib, 'tcl'), (tk_lib, 'tk')]:
-            if lib_path and os.path.isdir(lib_path):
-                for root, dirs, files in os.walk(lib_path):
-                    for f in files:
-                        src = os.path.join(root, f)
-                        rel = os.path.relpath(src, lib_path)
-                        # PyInstaller's tkinter hook expects data at tcl/ and tk/ directly
-                        tcl_tk_data.append((src, os.path.join(target_name, rel)))
-    except Exception:
-        pass
-    
-    # Fallback: collect from standard Python locations
-    for base in (_sys.base_prefix, _sys.prefix):
-        for name in ('tcl', 'tk'):
-            lib_dir = os.path.join(base, 'lib', name)
-            if os.path.isdir(lib_dir):
-                for root, dirs, files in os.walk(lib_dir):
-                    for f in files:
-                        src = os.path.join(root, f)
-                        rel = os.path.relpath(src, lib_dir)
-                        tcl_tk_data.append((src, os.path.join(name, rel)))
-    
-    # Also collect Tcl/Tk DLLs if they exist (Windows)
-    for base in (_sys.base_prefix, _sys.prefix):
-        dll_dir = os.path.join(base, 'DLLs')
-        if os.path.isdir(dll_dir):
-            for f in os.listdir(dll_dir):
-                if f.startswith(('tcl', 'tk')) and f.endswith('.dll'):
-                    src = os.path.join(dll_dir, f)
-                    tcl_tk_data.append((src, f))
-    
-    return tcl_tk_data
-
-_tcl_tk_data = _collect_tcl_tk_data()
+# Use PyInstaller's built-in tkinter support - no custom collection needed
+# PyInstaller's hook-tkinter.py and pyi_rth__tkinter.py handle Tcl/Tk automatically
+_tcl_tk_data = []
 
 #  Fully bundle pip and its vendored deps (needed to `pip install` extension deps
 #  at runtime inside the frozen .exe). Collecting only `pip` as a hidden import
