@@ -1,5 +1,6 @@
 let extensionsData = {};
 let widgetTimers = {};
+let extensionLoadState = {}; // Tracks loading state per extension
 
 document.addEventListener('DOMContentLoaded', async () => {
   clockTick();
@@ -14,32 +15,176 @@ document.addEventListener('DOMContentLoaded', async () => {
   initResultPanel();
   initWebSocket();
 
+  // INSTANT: Show UI immediately, load extensions in background
   const loadingEl = document.getElementById('main-content');
-  let attempts = 0;
-  const maxAttempts = 30;
+  loadingEl.innerHTML = '<div class="widget-grid"></div>'; // Empty grid ready
+  
+  // Start async extension loading
+  loadExtensionsAsync();
+  
+  // Poll for extension updates
+  setInterval(pollExtensionUpdates, 1000);
+  
+  setTimeout(applyStartupMode, 500);
+});
 
-  const tryLoad = async () => {
+async function loadExtensionsAsync() {
+  try {
     const data = await apiFetch('/api/extensions');
-    if (!data.error) {
+    if (data && !data.error) {
       extensionsData = data;
       window.extensionsData = data;
+      
+      // Initialize load state for each extension
+      for (const [extId, ext] of Object.entries(data)) {
+        extensionLoadState[extId] = {
+          status: ext.loadError ? 'error' : 'loaded',
+          loadError: ext.loadError,
+        };
+      }
+      
       buildSidebar(data);
       renderWidgets(data);
       loadExtensionAssets(data);
-      setTimeout(applyStartupMode, 500);
-      return;
     }
-    attempts++;
-    if (attempts < maxAttempts) {
-      loadingEl.innerHTML = `<div class="loading"><div class="spinner"></div>Connecting to server (${attempts}/${maxAttempts})...</div>`;
-      setTimeout(tryLoad, 1000);
-    } else {
-      loadingEl.innerHTML = `<div class="loading"><div class="spinner"></div>Failed to connect after ${maxAttempts}s. <button onclick="location.reload()" style="background:#00d4ff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;margin-top:8px">Retry</button></div>`;
-    }
-  };
+  } catch (e) {
+    console.error('Initial extension load failed:', e);
+  }
+}
 
-  tryLoad();
-});
+async function pollExtensionUpdates() {
+  try {
+    const health = await apiFetch('/api/extensions/health');
+    if (!health || health.error) return;
+    
+    let hasChanges = false;
+    
+    for (const [extId, info] of Object.entries(health)) {
+      const prevState = extensionLoadState[extId] || { status: 'unknown' };
+      
+      // Update load state
+      extensionLoadState[extId] = {
+        status: info.status,
+        loadError: info.load_error,
+        loaded: info.loaded,
+      };
+      
+      // Check for state changes
+      if (prevState.status !== info.status || prevState.loaded !== info.loaded) {
+        hasChanges = true;
+        
+        if (info.status === 'loaded' && info.loaded && !prevState.loaded) {
+          // Extension just loaded - add to UI
+          const extData = await apiFetch('/api/extensions');
+          if (extData && extData[extId]) {
+            extensionsData = extData;
+            window.extensionsData = extData;
+            addExtensionToUI(extId, extData[extId]);
+          }
+        } else if (info.status === 'error' || info.status === 'dead') {
+          // Extension failed - show error in sidebar
+          updateExtensionStatusInSidebar(extId, info.status, info.last_error);
+        } else if (info.status === 'loading') {
+          // Extension loading - show spinner in sidebar
+          updateExtensionStatusInSidebar(extId, 'loading');
+        }
+      }
+    }
+    
+    if (hasChanges && window.__widgetControl) {
+      window.__widgetControl.applyWidgetState();
+    }
+  } catch (e) {
+    // Silently ignore polling errors
+  }
+}
+
+function addExtensionToUI(extId, ext) {
+  // Add to sidebar
+  const sidebar = document.getElementById('sidebar-extensions');
+  if (sidebar) {
+    const existing = sidebar.querySelector(`.sidebar-ext[data-ext-id="${extId}"]`);
+    if (!existing) {
+      const item = createSidebarExtensionItem(ext, extId);
+      sidebar.appendChild(item);
+    }
+  }
+  
+  // Add widget if it has widgets
+  if (ext.widgets && ext.widgets.length > 0) {
+    const grid = document.querySelector('.widget-grid');
+    if (grid && !grid.querySelector(`.widget-extension.ext-${extId}`)) {
+      const card = createExtensionCard({ ...ext, id: extId });
+      grid.appendChild(card);
+      loadExtensionAssets({ [extId]: ext });
+      
+      // Start widget intervals
+      if (!ext.realtime) {
+        const interval = ext.refresh_interval || 5000;
+        if (interval > 0) {
+          ext.widgets.forEach(wDef => {
+            const key = `${extId}-${wDef.id}`;
+            widgetTimers[key] = setInterval(() => refreshWidget(extId, wDef), interval);
+          });
+        }
+      }
+      
+      // Initial widget refresh
+      ext.widgets.forEach(wDef => refreshWidget(extId, wDef));
+    }
+  }
+  
+  if (window.__widgetControl) {
+    window.__widgetControl.applyWidgetState();
+  }
+}
+
+function updateExtensionStatusInSidebar(extId, status, error = '') {
+  const item = document.querySelector(`.sidebar-ext[data-ext-id="${extId}"]`);
+  if (!item) return;
+  
+  const statusEl = item.querySelector('.ext-status');
+  if (statusEl) {
+    statusEl.className = `ext-status ${status}`;
+    if (status === 'error' || status === 'dead') {
+      statusEl.title = error || 'Failed to load';
+    } else if (status === 'loading') {
+      statusEl.title = 'Loading...';
+    } else {
+      statusEl.title = 'Loaded';
+    }
+  }
+}
+
+function createSidebarExtensionItem(ext, extId) {
+  const item = document.createElement('div');
+  item.className = 'sidebar-ext';
+  item.dataset.extId = extId;
+  
+  const isError = extensionLoadState[extId]?.status === 'error';
+  const isLoading = extensionLoadState[extId]?.status === 'loading';
+  
+  item.innerHTML = `
+    <span class="ext-icon">${ext.icon || '📦'}</span>
+    <span class="ext-name">${escapeHtml(ext.name || extId)}</span>
+    <span class="ext-status ${isError ? 'error' : isLoading ? 'loading' : 'loaded'}" 
+          title="${isError ? escapeHtml(extensionLoadState[extId].loadError || 'Error') : isLoading ? 'Loading...' : 'Loaded'}">
+      ${isError ? '✗' : isLoading ? '⟳' : '✓'}
+    </span>
+  `;
+  
+  item.addEventListener('click', () => {
+    // Scroll to extension widget
+    const widget = document.querySelector(`.widget-extension.ext-${extId}`);
+    if (widget) {
+      widget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      widget.style.animation = 'pulse 1s ease';
+      setTimeout(() => widget.style.animation = '', 1000);
+    }
+  });
+  
+  return item;
+}
 
 function loadExtensionAssets(data) {
   for (const [extId, ext] of Object.entries(data)) {
@@ -157,6 +302,16 @@ function initWebSocket() {
       }
     });
   });
+
+  socket.on('focus_window', () => {
+    // Bring window to front and restore if minimized
+    if (window.pywebview) {
+      pywebview.api.focus_window().catch(() => {});
+    }
+    // Fallback: focus the window
+    window.focus();
+    document.body.focus();
+  });
 }
 
 function initResultPanel() {
@@ -227,45 +382,12 @@ function showInstallChoice() {
 
 function refreshAfterInstall(extName, extId) {
   hideInstallToast();
-  showInstallOverlay('Installed! Refreshing...');
-  apiFetch('/api/extensions').then(function (data) {
-    hideInstallOverlay();
-    if (data && !data.error) {
-      extensionsData = data;
-      window.extensionsData = data;
-      buildSidebar(data);
-      var ext = data[extId];
-      if (ext) loadExtensionAssets({ [extId]: ext });
-      if (ext && ext.widgets) {
-        if (!ext.js_modules || !ext.js_modules.length) {
-          ext.widgets.forEach(function (wDef) { refreshWidget(extId, wDef); });
-        }
-        if (!ext.realtime) {
-          var interval = ext.refresh_interval || 5000;
-          if (interval > 0) {
-            ext.widgets.forEach(function (wDef) {
-              var key = extId + '-' + wDef.id;
-              widgetTimers[key] = setInterval(function () { refreshWidget(extId, wDef); }, interval);
-            });
-          }
-        }
-      }
-      if (window.__widgetControl) {
-        window.__widgetControl.applyWidgetState();
-        // Mark newly installed extension as hidden so it doesn't auto-show
-        var wc = window.__widgetControl;
-        var scene = wc.currentScene ? wc.currentScene() : null;
-        if (scene && scene.widgets && scene.widgets[extId]) {
-          scene.widgets[extId].hidden = true;
-          if (wc.persistScenes) wc.persistScenes();
-        }
-      }
-    }
-    showInstallConfirm(extName, extId);
-  }).catch(function () {
+  showInstallOverlay('Installed! Loading...');
+  // Just trigger a health poll - the extension will appear when loaded
+  setTimeout(() => {
     hideInstallOverlay();
     showInstallConfirm(extName, extId);
-  });
+  }, 1000);
 }
 
 function showInstallConfirm(extName, extId) {
@@ -676,11 +798,8 @@ document.getElementById('btn-reload').addEventListener('click', async () => {
   try {
     await apiFetch('/api/restart', { method: 'POST' });
   } catch (e) {}
-  let attempts = 0;
-  const poll = () => {
-    fetch('/api/token').then(r => { if (r.ok) location.reload(); else if (++attempts < 30) setTimeout(poll, 1000); else location.reload(); }).catch(() => { if (++attempts < 30) setTimeout(poll, 1000); else location.reload(); });
-  };
-  setTimeout(poll, 1500);
+  // Instant reload - server responds immediately, just wait a tiny bit and refresh
+  setTimeout(() => location.reload(), 500);
 });
 
 //  Window mode state & F11 
@@ -747,6 +866,7 @@ document.addEventListener('keydown', (e) => {
       const next = currentWindowMode === 'fullscreen' ? 'windowed' : 'fullscreen';
       pywebview.api.set_window_mode(next).then(function(applied) {
         currentWindowMode = next;
+        updateUrlMode(next);
         if (!applied && next !== 'fullscreen') {
           showToast('Reinicia CoreFrame para aplicar');
         }
@@ -754,14 +874,22 @@ document.addEventListener('keydown', (e) => {
         console.warn('set_window_mode pywebview failed:', err);
         applyWindowModeFallback(next);
         currentWindowMode = next;
+        updateUrlMode(next);
       });
     } else {
       const next = currentWindowMode === 'fullscreen' ? 'windowed' : 'fullscreen';
       applyWindowModeFallback(next);
       currentWindowMode = next;
+      updateUrlMode(next);
     }
   }
 });
+
+function updateUrlMode(mode) {
+  const url = new URL(window.location);
+  url.searchParams.set('mode', mode);
+  window.history.replaceState({}, '', url);
+}
 
 //  Minimize window
 document.getElementById('btn-minimize').addEventListener('click', function () {
