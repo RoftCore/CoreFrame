@@ -17,12 +17,12 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'RoftCore'),
             StringStruct('FileDescription', 'CoreFrame control center'),
-            StringStruct('FileVersion', '1.0.0'),
+            StringStruct('FileVersion', '1.0.2'),
             StringStruct('InternalName', 'CoreFrame'),
             StringStruct('LegalCopyright', 'Copyright (c) RoftCore'),
             StringStruct('OriginalFilename', 'CoreFrame.exe'),
             StringStruct('ProductName', 'CoreFrame'),
-            StringStruct('ProductVersion', '1.0.0')
+            StringStruct('ProductVersion', '1.0.2')
           ]
         )
       ]
