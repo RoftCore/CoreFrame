@@ -104,12 +104,12 @@ t = threading.Thread(target=start_server, kwargs={'host': HOST, 'port': PORT, 'd
 t.start()
 
 # Create window IMMEDIATELY with local loading page (instant startup)
-loading_url = 'loading.html'
-if getattr(sys, 'frozen', False):
-    # In frozen exe, loading.html is in the same dir as the exe's extracted static files
-    loading_url = os.path.join(sys._MEIPASS, 'static', 'loading.html')
-else:
-    loading_url = os.path.join(STATIC_DIR, 'loading.html')
+# CoreFrame dark theme background color to prevent white flash
+COREFRAME_BG = '#0d0d1a'
+with open(os.path.join(STATIC_DIR, 'loading.html'), 'r', encoding='utf-8') as f:
+    loading_html = f.read()
+# Use data URL for instant loading - no file I/O, no white background flash
+loading_url = 'data:text/html;charset=utf-8,' + urllib.parse.quote(loading_html)
 
 config = load_config()
 mode = config.get('window_mode', 'windowed')
@@ -132,6 +132,7 @@ window = webview.create_window(
     fullscreen=initial_fullscreen, 
     frameless=initial_frameless,
     hidden=initial_hidden,  # Start hidden for autostart
+    background_color=COREFRAME_BG,
 )
 
 # Wait for server in background, then navigate
