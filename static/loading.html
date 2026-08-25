@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CoreFrame - Loading</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d0d1a;
+      color: #e0e0e0;
+      font-family: 'Consolas', 'Monaco', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .loader {
+      text-align: center;
+    }
+    .logo {
+      font-size: 48px;
+      font-weight: 600;
+      letter-spacing: 8px;
+      color: #00d4ff;
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+      margin-bottom: 32px;
+    }
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid rgba(0, 212, 255, 0.15);
+      border-top-color: #00d4ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 24px;
+    }
+    .status {
+      font-size: 14px;
+      color: #888;
+      font-family: monospace;
+    }
+    .dots::after {
+      content: '';
+      animation: dots 1.5s steps(3) infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes dots {
+      0% { content: ''; }
+      33% { content: '.'; }
+      66% { content: '..'; }
+      100% { content: '...'; }
+    }
+  </style>
+</head>
+<body>
+  <div class="loader">
+    <div class="logo">CoreFrame</div>
+    <div class="spinner"></div>
+    <div class="status">Starting<span class="dots"></span></div>
+  </div>
+  <script>
+    // Check if server is ready, then redirect
+    const checkServer = async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:8420/api/health');
+        if (res.ok) {
+          window.location.href = 'http://127.0.0.1:8420/?mode=' + new URLSearchParams(window.location.search).get('mode') || 'windowed';
+          return;
+        }
+      } catch (e) {}
+      setTimeout(checkServer, 200);
+    };
+    checkServer();
+  </script>
+</body>
+</html>

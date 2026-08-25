@@ -263,7 +263,8 @@ def _version_satisfies(spec_str, version, name):
     return SpecifierSet(spec_str).contains(version, prereleases=True)
 
 
-def _ensure_extension_deps(ext_path):
+def _ensure_extension_deps_async(ext_path, ext_id):
+    """Start dependency installation in background, return immediately."""
     req_path = os.path.join(ext_path, 'requirements.txt')
     if not os.path.exists(req_path):
         return
@@ -273,7 +274,6 @@ def _ensure_extension_deps(ext_path):
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
-            # Allowed: "flask", "yt-dlp>=2023.7.6", "spotifyscraper>=2.1.5,<3"
             head = re.split(r'[<>=~!]', line)[0].strip()
             name = re.sub(r'\[.*\]$', '', head).strip()
             if not name:
@@ -287,22 +287,28 @@ def _ensure_extension_deps(ext_path):
             if found_dist:
                 installed_ok = _version_satisfies(spec_str, found_dist[1], name)
             elif not spec_str and found_mod:
-                # No version pin and the module import works (e.g. bundled copy).
                 installed_ok = True
             if installed_ok:
                 continue
-            # Requirement is missing OR the installed version fails the pin:
-            # pass the full spec line to pip so it installs the right version.
             missing.append(line)
     if not missing:
         return
-    log.info("Installing missing deps: %s", missing)
-    _patch_pip_for_frozen()
-    try:
-        from pip._internal.cli.main import main as _pip_main
-        _pip_main(['install', '--target', SHARED_LIB_DIR, '--no-input', '--quiet'] + missing)
-    except Exception as e:
-        log.warning("Failed to install deps: %s", e)
+    
+    def _install_deps():
+        log.info("Installing missing deps for %s: %s", ext_id, missing)
+        _patch_pip_for_frozen()
+        try:
+            from pip._internal.cli.main import main as _pip_main
+            _pip_main(['install', '--target', SHARED_LIB_DIR, '--no-input', '--quiet'] + missing)
+            log.info("Deps installed for %s", ext_id)
+        except Exception as e:
+            log.warning("Failed to install deps for %s: %s", ext_id, e)
+    
+    threading.Thread(target=_install_deps, daemon=True, name=f'pip-{ext_id}').start()
+
+def _ensure_extension_deps(ext_path):
+    """Legacy sync version - kept for compatibility."""
+    _ensure_extension_deps_async(ext_path, os.path.basename(ext_path))
 
 #  Paths 
 
@@ -439,7 +445,7 @@ def _load_extension_core(ext_id: str, ext_path: str) -> tuple[bool, str]:
     
     try:
         _sync_extension_lib(ext_path)
-        _ensure_extension_deps(ext_path)
+        _ensure_extension_deps_async(ext_path, ext_id)
         config['data_dir'] = os.path.join(DATA_DATA_DIR, ext_id)
         lang = config.get('language', 'python')
         
