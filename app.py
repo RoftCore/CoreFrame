@@ -61,10 +61,10 @@ class ExtensionHealth:
 class ExtensionIsolation:
     """Per-extension isolation with timeout, health monitoring, and auto-recovery."""
     
-    MAX_LOAD_TIME = 10.0  # seconds
-    MAX_HEARTBEAT_AGE = 30.0  # seconds
+    MAX_LOAD_TIME = 60.0  # seconds - increased for extensions with pip deps
+    MAX_HEARTBEAT_AGE = 60.0  # seconds - increased
     MAX_RESTARTS = 3
-    RESTART_COOLDOWN = 5.0  # seconds
+    RESTART_COOLDOWN = 10.0  # seconds
     
     def __init__(self):
         self.health: Dict[str, ExtensionHealth] = {}
@@ -97,6 +97,7 @@ class ExtensionIsolation:
                 if health.status == 'dead':
                     continue
                 # Check heartbeat for running extensions
+                # Only check heartbeat if we've received at least one heartbeat before
                 if health.status == 'healthy' and health.last_heartbeat > 0:
                     if now - health.last_heartbeat > self.MAX_HEARTBEAT_AGE:
                         log.warning("Extension %s heartbeat timeout, marking degraded", ext_id)
@@ -331,6 +332,22 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(EXTENSIONS_DIR, exist_ok=True)
 os.makedirs(SHARED_LIB_DIR, exist_ok=True)
 os.makedirs(DATA_DATA_DIR, exist_ok=True)
+
+# Clean stale binaries from shared lib dir that conflict with bundled ones
+# (e.g. stale cffi/_cffi_backend.pyd causes version mismatch with bundled cffi)
+if getattr(sys, 'frozen', False):
+    _bundled_binaries = {'_cffi_backend', '_ctypes', '_ssl', '_sqlite3', '_hashlib', '_bz2', '_lzma'}
+    try:
+        for f in os.listdir(SHARED_LIB_DIR):
+            name, ext = os.path.splitext(f)
+            if ext in ('.pyd', '.dll') and name in _bundled_binaries:
+                try:
+                    os.remove(os.path.join(SHARED_LIB_DIR, f))
+                    log.info("Removed stale binary from shared lib: %s", f)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 MARKETPLACE_URL = 'https://raw.githubusercontent.com/RoftCore/extensions-coreframe/main/registry.json'
 if SHARED_LIB_DIR not in sys.path:
