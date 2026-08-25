@@ -103,13 +103,10 @@ debug_mode = not getattr(sys, 'frozen', False)
 t = threading.Thread(target=start_server, kwargs={'host': HOST, 'port': PORT, 'debug': debug_mode}, daemon=True)
 t.start()
 
-# Create window IMMEDIATELY with local loading page (instant startup)
-# CoreFrame dark theme background color to prevent white flash
+# Create window IMMEDIATELY with HTML content directly - no navigation, no white flash
 COREFRAME_BG = '#0d0d1a'
 with open(os.path.join(STATIC_DIR, 'loading.html'), 'r', encoding='utf-8') as f:
     loading_html = f.read()
-# Use data URL for instant loading - no file I/O, no white background flash
-loading_url = 'data:text/html;charset=utf-8,' + urllib.parse.quote(loading_html)
 
 config = load_config()
 mode = config.get('window_mode', 'windowed')
@@ -124,16 +121,34 @@ if mode == 'fullscreen':
 elif mode == 'frameless':
     initial_frameless = True
 
-# Create window IMMEDIATELY with local loading page
+# Create window IMMEDIATELY - hidden with CoreFrame background color
+# No URL, no HTML - just a blank window with our background color
+COREFRAME_BG = '#0d0d1a'
 window = webview.create_window(
     'CoreFrame',
-    loading_url,
     width=1280, height=800,
     fullscreen=initial_fullscreen, 
     frameless=initial_frameless,
-    hidden=initial_hidden,  # Start hidden for autostart
+    hidden=True,  # Start completely hidden
     background_color=COREFRAME_BG,
 )
+
+# Load HTML content after window creation, then show
+def _load_and_show():
+    try:
+        with open(os.path.join(STATIC_DIR, 'loading.html'), 'r', encoding='utf-8') as f:
+            loading_html = f.read()
+        window.load_html(loading_html)
+        # Show after HTML is loaded
+        window.show()
+    except Exception:
+        try:
+            window.show()
+        except Exception:
+            pass
+
+# Load HTML immediately after window creation (still hidden)
+threading.Timer(0.01, _load_and_show).start()
 
 # Wait for server in background, then navigate
 def _wait_and_navigate():
