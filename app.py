@@ -1098,11 +1098,17 @@ def api_debug_js():
 
 @app.route('/')
 def index():
-    return send_from_directory(STATIC_DIR, 'index.html')
+    resp = send_from_directory(STATIC_DIR, 'index.html')
+    resp.headers['Cache-Control'] = 'no-store, must-revalidate'
+    return resp
 
 @app.route('/<path:path>')
 def static_files(path):
-    return send_from_directory(STATIC_DIR, path)
+    resp = send_from_directory(STATIC_DIR, path)
+    # Never let WebView2 serve stale JS/CSS across builds — caused phantom
+    # regressions where old frontend code raced new backend behavior.
+    resp.headers['Cache-Control'] = 'no-store, must-revalidate'
+    return resp
 
 #  Package extension 
 
