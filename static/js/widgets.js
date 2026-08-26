@@ -97,6 +97,36 @@ function startProgressPoll(extId, id, action, interval) {
 const EXT_DEFAULT_GRID = { w: 4, h: 2 };
 
 function createExtensionCard(ext) {
+  try {
+    return _createExtensionCardInner(ext);
+  } catch (e) {
+    console.error('[EXT] Error creating card for ' + (ext.id || '?') + ':', e);
+    var el = document.createElement('div');
+    el.className = 'widget widget-extension ext-error-boundary';
+    el.dataset.extId = ext.id || '';
+    el.style.gridColumn = 'span 2';
+    el.style.gridRow = 'span 1';
+    el.style.minWidth = '0';
+    el.style.minHeight = '0';
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'center';
+    el.style.border = '1px solid rgba(255,51,85,0.3)';
+    el.style.borderRadius = 'var(--radius-md)';
+    el.style.background = 'rgba(255,51,85,0.05)';
+    el.style.color = 'var(--accent-red)';
+    el.style.fontFamily = 'var(--font-mono)';
+    el.style.fontSize = '11px';
+    el.style.textAlign = 'center';
+    el.style.padding = '12px';
+    el.innerHTML = '<div><div style="font-size:18px;margin-bottom:4px">&#x26A0;</div>' +
+      '<div>Error loading</div><div style="font-size:9px;color:var(--text-muted);margin-top:2px">' +
+      escapeHtml(ext.name || ext.id || 'extension') + '</div></div>';
+    return el;
+  }
+}
+
+function _createExtensionCardInner(ext) {
   const { id: extId, name, widgets, grid_size, overlayable } = ext;
   const gs = grid_size || EXT_DEFAULT_GRID;
 
@@ -136,8 +166,17 @@ function createExtensionCard(ext) {
 
   if (widgets && widgets.length > 0) {
     for (const wDef of widgets) {
-      const sub = createSubWidget(wDef, extId);
-      body.appendChild(sub);
+      try {
+        const sub = createSubWidget(wDef, extId);
+        body.appendChild(sub);
+      } catch (e) {
+        console.error('[EXT] Error creating sub-widget ' + (wDef.id || '?') + ':', e);
+        var errEl = document.createElement('div');
+        errEl.className = 'widget-sub';
+        errEl.style.cssText = 'color:var(--accent-red);font-size:10px;padding:8px;text-align:center;';
+        errEl.textContent = 'Widget error';
+        body.appendChild(errEl);
+      }
     }
   }
 
@@ -199,8 +238,8 @@ function createSubWidget(widgetDef, extId) {
           '<button class="widget-input-btn" id="btn-' + extId + '-' + id + '">' + escapeHtml(bl) + '</button>' +
         '</div>' +
         '<div class="widget-input-result" id="res-' + extId + '-' + id + '"></div>';
-      const inp = document.getElementById('inp-' + extId + '-' + id);
-      const btn = document.getElementById('btn-' + extId + '-' + id);
+      const inp = body.querySelector('#inp-' + extId + '-' + id);
+      const btn = body.querySelector('#btn-' + extId + '-' + id);
       if (inp && btn) {
         const origLabel = bl;
         const submit = function () {
@@ -459,13 +498,21 @@ function updateWidgetValue(widgetEl, response) {
       valEl.textContent = '\u26A0 ' + response.error;
       valEl.style.color = 'var(--accent-red)';
     }
-    if (typeof showToast !== 'undefined') showToast('\u26A0 Widget error: ' + response.error);
     return;
   }
 
+  try {
+    _updateWidgetValueInner(widgetEl, response);
+  } catch (e) {
+    console.error('[EXT] Error updating widget:', e);
+  }
+}
+
+function _updateWidgetValueInner(widgetEl, response) {
+
   const extId = widgetEl.dataset.extId;
   const id = widgetEl.dataset.widgetId;
-  const val = response.value;
+  const val = response !== undefined && response !== null ? response.value : undefined;
   const type =
     widgetEl.classList.contains('widget-text') ? 'text'
     : widgetEl.classList.contains('widget-badge') ? 'badge'

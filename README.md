@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/HTML-5+-E34F26?logo=html5" alt="Html">
   <img src="https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black" alt="Javascript">
   <img src="https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey" alt="Platform">
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/license-GPLv3-blue" alt="License">
 </p>
 
 <table>
@@ -221,4 +221,4 @@ Extensions are packaged as `.zip` from the UI (Package button, visible in dev mo
 
 ## License
 
-MIT
+GPL-3.0-or-later

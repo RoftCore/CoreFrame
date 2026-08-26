@@ -82,7 +82,7 @@ async function pollExtensionUpdates() {
       if (prevState.status !== info.status || prevState.loaded !== info.loaded) {
         hasChanges = true;
         
-        if (info.status === 'loaded' && info.loaded && !prevState.loaded) {
+        if (info.loaded && !prevState.loaded) {
           // Extension just loaded - add to UI
           const extData = await apiFetch('/api/extensions');
           if (extData && extData[extId]) {
@@ -196,23 +196,50 @@ function createSidebarExtensionItem(ext, extId) {
 }
 
 function loadExtensionAssets(data) {
-  for (const [extId, ext] of Object.entries(data)) {
-    var loaded = 0, total = 0;
-    for (const mod of (ext.js_modules || [])) {
-      total++;
-      const script = document.createElement('script');
-      script.src = `/ext-static/${extId}/${mod}`;
-      script.onload = function () { loaded++; if (loaded === total) console.log(`[EXT] All assets loaded for ${extId}`); };
-      script.onerror = function () { console.warn(`[EXT] Failed to load ${mod}: ${script.src}`); };
-      document.body.appendChild(script);
+  var light = [];
+  var heavy = [];
+  for (var extId in data) {
+    var ext = data[extId];
+    var jsCount = (ext.js_modules || []).length;
+    var cssCount = (ext.css_modules || []).length;
+    var isNode = ext.language === 'node' || ext.language === 'javascript';
+    var isHeavy = isNode || jsCount > 2 || cssCount > 2;
+    if (isHeavy) {
+      heavy.push([extId, ext]);
+    } else {
+      light.push([extId, ext]);
     }
-    for (const mod of (ext.css_modules || [])) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = `/ext-static/${extId}/${mod}`;
-      link.onerror = function () { console.warn(`[EXT] Failed to load CSS for ${extId}: ${link.href}`); };
-      document.head.appendChild(link);
+  }
+
+  function loadExtAssets(extId, ext) {
+    for (var i = 0; i < (ext.js_modules || []).length; i++) {
+      (function (mod) {
+        var src = '/ext-static/' + extId + '/' + mod;
+        if (document.querySelector('script[src="' + src + '"]')) return;
+        var script = document.createElement('script');
+        script.src = src;
+        script.onerror = function () { console.warn('[EXT] Failed to load ' + mod); };
+        document.body.appendChild(script);
+      })(ext.js_modules[i]);
     }
+    for (var j = 0; j < (ext.css_modules || []).length; j++) {
+      (function (cssMod) {
+        var href = '/ext-static/' + extId + '/' + cssMod;
+        if (document.querySelector('link[href="' + href + '"]')) return;
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = href;
+        link.onerror = function () { console.warn('[EXT] Failed to load CSS for ' + extId + ': ' + cssMod); };
+        document.head.appendChild(link);
+      })(ext.css_modules[j]);
+    }
+  }
+
+  light.forEach(function (pair) { loadExtAssets(pair[0], pair[1]); });
+  if (heavy.length) {
+    setTimeout(function () {
+      heavy.forEach(function (pair) { loadExtAssets(pair[0], pair[1]); });
+    }, 500);
   }
 }
 
@@ -227,8 +254,12 @@ function renderWidgets(data) {
 
   for (const [extId, ext] of Object.entries(data)) {
     if (!ext.widgets || ext.widgets.length === 0) continue;
-    const card = createExtensionCard({ ...ext, id: extId });
-    grid.appendChild(card);
+    try {
+      const card = createExtensionCard({ ...ext, id: extId });
+      grid.appendChild(card);
+    } catch (e) {
+      console.error('[EXT] Failed to render card for ' + extId + ':', e);
+    }
   }
 
   container.style.visibility = 'hidden';
@@ -243,7 +274,11 @@ function refreshAllWidgets(data) {
   for (const [extId, ext] of Object.entries(data)) {
     if (ext.js_modules && ext.js_modules.length) continue;
     for (const wDef of (ext.widgets || [])) {
-      refreshWidget(extId, wDef);
+      try {
+        refreshWidget(extId, wDef);
+      } catch (e) {
+        console.error('[EXT] Error refreshing ' + extId + ':', e);
+      }
     }
   }
 }
@@ -256,7 +291,7 @@ async function refreshWidget(extId, wDef) {
       const response = await apiFetch(`/api/extension/${extId}/${wDef.action}`);
       updateWidgetValue(el, response);
     } catch (e) {
-      updateWidgetValue(el, { error: 'Connection error' });
+      try { updateWidgetValue(el, { error: 'Connection error' }); } catch (e2) {}
     }
   }
 }
@@ -361,6 +396,7 @@ document.getElementById('btn-install').addEventListener('click', function () {
 });
 
 function showInstallChoice() {
+  if (document.querySelector('.pkg-overlay')) return;
   var overlay = document.createElement('div');
   overlay.className = 'pkg-overlay';
   var dialog = document.createElement('div');
@@ -368,9 +404,11 @@ function showInstallChoice() {
   dialog.innerHTML =
     '<div class="pkg-header">Install Extension</div>' +
     '<div class="pkg-body" style="text-align:center;padding:24px 14px">' +
-      '<button class="mkt-btn mkt-btn-file" id="mkt-file-btn">📁 From file</button>' +
+      '<button class="mkt-btn mkt-btn-file" id="mkt-file-btn"> From file</button>' +
       '<div style="margin:12px 0;color:var(--text-muted);font-size:10px">or</div>' +
-      '<button class="mkt-btn mkt-btn-market" id="mkt-market-btn">📦 Marketplace</button>' +
+      '<button class="mkt-btn mkt-btn-market" id="mkt-market-btn"> Marketplace</button>' +
+      '<div style="margin:12px 0;color:var(--text-muted);font-size:10px">or</div>' +
+      '<button class="mkt-btn mkt-btn-provider" id="mkt-provider-btn"> External Providers</button>' +
     '</div>' +
     '<div class="pkg-footer"><button class="pkg-btn" id="mkt-close">Cancel</button></div>';
   overlay.appendChild(dialog);
@@ -386,6 +424,11 @@ function showInstallChoice() {
 
   document.getElementById('mkt-market-btn').addEventListener('click', function () {
     showMarketplaceList(overlay);
+  });
+
+  document.getElementById('mkt-provider-btn').addEventListener('click', function () {
+    overlay.remove();
+    showExternalProviders();
   });
 }
 
@@ -451,8 +494,9 @@ function triggerFileInstall() {
   input.accept = '.zip';
   input.style.display = 'none';
   input.addEventListener('change', function () {
-    if (!input.files || !input.files[0]) return;
+    if (!input.files || !input.files[0]) { input.remove(); return; }
     var file = input.files[0];
+    input.remove();
     var formData = new FormData();
     formData.append('extension', file);
 
@@ -512,10 +556,10 @@ function triggerFileInstall() {
   });
   document.body.appendChild(input);
   input.click();
-  setTimeout(function () { input.remove(); }, 2000);
 }
 
 function showMarketplaceList(choiceOverlay) {
+  if (!choiceOverlay && document.querySelector('.pkg-overlay')) return;
   var overlay = choiceOverlay || document.createElement('div');
   if (!choiceOverlay) {
     overlay.className = 'pkg-overlay';
@@ -529,6 +573,7 @@ function showMarketplaceList(choiceOverlay) {
   }
   dialog.innerHTML =
     '<div class="pkg-header">Marketplace</div>' +
+    '<div class="pkg-search"><input type="text" id="mkt-search" placeholder="Search marketplace..."></div>' +
     '<div class="pkg-body" id="mkt-body">Loading...</div>' +
     '<div class="pkg-footer"><button class="pkg-btn" id="mkt-close2">Close</button></div>';
 
@@ -537,12 +582,19 @@ function showMarketplaceList(choiceOverlay) {
 
   var _mktExts = [];
   var _mktShowHidden = false;
+  var _mktFilter = '';
 
   function renderMarketplace() {
     var body = document.getElementById('mkt-body');
     if (!body) return;
     body.innerHTML = '';
     var filtered = _mktShowHidden ? _mktExts : _mktExts.filter(function(e) { return !e.hidden; });
+    if (_mktFilter) {
+      var f = _mktFilter.toLowerCase();
+      filtered = filtered.filter(function (e) {
+        return (e.name || '').toLowerCase().indexOf(f) >= 0 || (e.id || '').toLowerCase().indexOf(f) >= 0 || (e.description || '').toLowerCase().indexOf(f) >= 0;
+      });
+    }
     if (!filtered.length) {
       body.innerHTML = '<div class="pkg-empty">No extensions available.</div>';
       return;
@@ -553,6 +605,14 @@ function showMarketplaceList(choiceOverlay) {
       var installed = !!(window.extensionsData && window.extensionsData[ext.id]);
       var card = document.createElement('div');
       card.className = 'mkt-card' + (ext.hidden ? ' mkt-hidden' : '') + (installed ? ' mkt-installed' : '');
+      var iconHtml = window.renderExtIconHtml ? window.renderExtIconHtml(ext.icon || '', ext.id) : '';
+      if (iconHtml) {
+        var iconWrap = document.createElement('div');
+        iconWrap.className = 'ext-card-icon';
+        iconWrap.style.cssText = 'width:36px;height:36px;margin:0 auto 2px;font-size:16px;';
+        iconWrap.innerHTML = iconHtml;
+        card.appendChild(iconWrap);
+      }
       var nameEl = document.createElement('div');
       nameEl.className = 'mkt-card-name';
       nameEl.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span>';
@@ -662,6 +722,7 @@ function showMarketplaceList(choiceOverlay) {
       grid.appendChild(card);
     });
     body.appendChild(grid);
+    if (window.feather) window.feather.replace();
     var toggleRow = document.createElement('div');
     toggleRow.style.cssText = 'padding:8px 0;border-top:1px solid var(--border-color);margin-top:4px';
     var label = document.createElement('label');
@@ -706,6 +767,226 @@ function showMarketplaceList(choiceOverlay) {
     });
   }
   doLoadMarketplace(0);
+
+  var mktSearch = document.getElementById('mkt-search');
+  if (mktSearch) {
+    mktSearch.addEventListener('input', function () {
+      _mktFilter = this.value;
+      renderMarketplace();
+    });
+  }
+}
+
+function showExternalProviders() {
+  if (document.querySelector('.pkg-overlay')) return;
+  var overlay = document.createElement('div');
+  overlay.className = 'pkg-overlay';
+  var dialog = document.createElement('div');
+  dialog.className = 'pkg-dialog';
+  dialog.style.maxWidth = '560px';
+  dialog.innerHTML =
+    '<div class="pkg-header">External Providers</div>' +
+    '<div class="pkg-body" id="ep-body">Loading...</div>' +
+    '<div class="pkg-footer"><button class="pkg-btn" id="ep-close">Close</button></div>';
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  document.getElementById('ep-close').addEventListener('click', function () { overlay.remove(); });
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+
+  function renderProviders(providers) {
+    var body = document.getElementById('ep-body');
+    if (!body) return;
+    var html = '';
+    html += '<div class="provider-warning">' +
+      '<span class="provider-warning-icon">\u26A0</span>' +
+      '<span>External providers are not supervised or verified by CoreFrame. ' +
+      'Extensions from these sources may be unsafe. Install only from providers you trust.</span>' +
+      '</div>';
+    html += '<div class="provider-input-row">' +
+      '<input type="text" id="ep-url-input" placeholder="https://example.com/registry.json">' +
+      '<button id="ep-add-btn">Add</button>' +
+      '</div>';
+    if (providers && providers.length) {
+      html += '<div style="display:flex;flex-direction:column;gap:6px;" id="ep-list">';
+      providers.forEach(function (p, i) {
+        html += '<div class="provider-card" data-idx="' + i + '">' +
+          '<div class="provider-card-icon">\uD83C\uDF10</div>' +
+          '<div class="provider-card-info">' +
+            '<div class="provider-card-name">' + escapeHtml(p.name || p.url) + '</div>' +
+            '<div class="provider-card-url">' + escapeHtml(p.url) + '</div>' +
+          '</div>' +
+          '<button class="ext-card-btn ext-card-btn-danger ep-remove" data-idx="' + i + '">Remove</button>' +
+        '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:11px;">No external providers configured.</div>';
+    }
+    body.innerHTML = html;
+
+    document.getElementById('ep-add-btn').addEventListener('click', function () {
+      var input = document.getElementById('ep-url-input');
+      var url = (input.value || '').trim();
+      if (!url) return;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+      }
+      apiFetch('/api/providers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      }).then(function (res) {
+        if (res && res.error) { showToast('Error: ' + res.error); return; }
+        if (res && res.providers) renderProviders(res.providers);
+      });
+    });
+
+    body.querySelectorAll('.ep-remove').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = parseInt(btn.dataset.idx, 10);
+        apiFetch('/api/providers/' + idx, { method: 'DELETE' }).then(function (res) {
+          if (res && res.providers) renderProviders(res.providers);
+        });
+      });
+    });
+
+    body.querySelectorAll('.provider-card').forEach(function (card) {
+      card.addEventListener('click', function (e) {
+        if (e.target.closest('.ep-remove')) return;
+        var idx = parseInt(card.dataset.idx, 10);
+        var provider = providers[idx];
+        if (provider) {
+          overlay.remove();
+          showProviderMarketplace(provider);
+        }
+      });
+    });
+  }
+
+  apiFetch('/api/providers').then(function (res) {
+    renderProviders((res && res.providers) || []);
+  });
+}
+
+function showProviderMarketplace(provider) {
+  // Close any existing provider marketplace first
+  var existing = document.querySelector('.pkg-overlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.className = 'pkg-overlay';
+  var dialog = document.createElement('div');
+  dialog.className = 'pkg-dialog mkt-dialog';
+  dialog.innerHTML =
+    '<div class="pkg-header">' + escapeHtml(provider.name || provider.url) + '</div>' +
+    '<div class="pkg-search"><input type="text" id="pvm-search" placeholder="Search..."></div>' +
+    '<div class="pkg-body" id="pvm-body">Loading...</div>' +
+    '<div class="pkg-footer"><button class="pkg-btn" id="pvm-close">Close</button></div>';
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  document.getElementById('pvm-close').addEventListener('click', function () { overlay.remove(); });
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+
+  var _pvmExts = [];
+  var _pvmFilter = '';
+
+  function renderProviderMkt() {
+    var body = document.getElementById('pvm-body');
+    if (!body) return;
+    var exts = _pvmExts;
+    if (_pvmFilter) {
+      var f = _pvmFilter.toLowerCase();
+      exts = exts.filter(function (e) {
+        return (e.name || '').toLowerCase().indexOf(f) >= 0 || (e.id || '').toLowerCase().indexOf(f) >= 0 || (e.description || '').toLowerCase().indexOf(f) >= 0;
+      });
+    }
+    if (!exts.length) {
+      body.innerHTML = '<div class="pkg-empty">' + (_pvmFilter ? 'No matches' : 'No extensions found in this provider.') + '</div>';
+      return;
+    }
+    var grid = document.createElement('div');
+    grid.className = 'mkt-grid';
+    exts.forEach(function (ext) {
+      var installed = !!(window.extensionsData && window.extensionsData[ext.id]);
+      var card = document.createElement('div');
+      card.className = 'mkt-card' + (installed ? ' mkt-installed' : '');
+      var iconHtml = window.renderExtIconHtml ? window.renderExtIconHtml(ext.icon || '', ext.id) : '';
+      if (iconHtml) {
+        var iconWrap = document.createElement('div');
+        iconWrap.className = 'ext-card-icon';
+        iconWrap.style.cssText = 'width:36px;height:36px;margin:0 auto 2px;font-size:16px;';
+        iconWrap.innerHTML = iconHtml;
+        card.appendChild(iconWrap);
+      }
+      var nameEl = document.createElement('div');
+      nameEl.className = 'mkt-card-name';
+      nameEl.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span>';
+      var descEl = document.createElement('div');
+      descEl.className = 'mkt-card-desc';
+      descEl.textContent = ext.description || '';
+      var btn = document.createElement('button');
+      if (installed) {
+        btn.className = 'pkg-btn mkt-installed-btn';
+        btn.textContent = 'Installed';
+        btn.addEventListener('mouseenter', function () { btn.textContent = 'Uninstall'; btn.style.color = 'var(--accent-red)'; btn.style.borderColor = 'var(--accent-red)'; });
+        btn.addEventListener('mouseleave', function () { btn.textContent = 'Installed'; btn.style.color = ''; btn.style.borderColor = ''; });
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var wc = window.__wc;
+          if (wc && wc.showDeleteExtensionConfirm) {
+            wc.showDeleteExtensionConfirm(ext.id, function () { renderProviderMkt(); });
+          }
+        });
+      } else {
+        btn.className = 'pkg-btn pkg-btn-primary';
+        btn.textContent = 'Install';
+        btn.addEventListener('click', function () {
+          btn.textContent = '...';
+          btn.disabled = true;
+          apiFetch('/api/providers/install', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider_url: provider.url, ext_id: ext.id })
+          }).then(function (res) {
+            if (res && res.error) {
+              showToast('Error: ' + res.error);
+              btn.textContent = 'Install';
+              btn.disabled = false;
+              return;
+            }
+            refreshAfterInstall(ext.name || ext.id, ext.id);
+            renderProviderMkt();
+          });
+        });
+      }
+      card.appendChild(nameEl);
+      card.appendChild(descEl);
+      card.appendChild(btn);
+      grid.appendChild(card);
+    });
+    body.innerHTML = '';
+    body.appendChild(grid);
+    if (window.feather) window.feather.replace();
+  }
+
+  apiFetch('/api/providers/extensions?url=' + encodeURIComponent(provider.url)).then(function (res) {
+    var body = document.getElementById('pvm-body');
+    if (!res || res.error) {
+      body.innerHTML = '<div class="pkg-empty">Failed to load: ' + (res ? res.error : 'unknown') + '</div>';
+      return;
+    }
+    _pvmExts = res.extensions || [];
+    renderProviderMkt();
+  });
+
+  var pvmSearch = document.getElementById('pvm-search');
+  if (pvmSearch) {
+    pvmSearch.addEventListener('input', function () {
+      _pvmFilter = this.value;
+      renderProviderMkt();
+    });
+  }
 }
 
 document.getElementById('btn-package').addEventListener('click', function () {
