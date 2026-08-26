@@ -92,47 +92,53 @@
   background: rgba(255, 51, 85, 0.3);
 }
 
-/* --- Move Mode --- */
-body.move-mode .widget-grid {
+/* --- Edit Mode (unified move + resize) --- */
+body.edit-mode .widget-grid {
   overflow: hidden;
   position: relative;
 }
-body.move-mode .widget-grid .grid-overlay,
-body.resize-mode .widget-grid .grid-overlay {
+body.edit-mode .widget-grid .grid-overlay {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 10;
 }
-body.move-mode .widget {
+body.edit-mode .widget {
   cursor: grab;
   user-select: none;
 }
-body.move-mode .widget:active {
+body.edit-mode .widget:active {
   cursor: grabbing;
 }
-body.move-mode .widget.widget-moving {
+body.edit-mode .widget.widget-edge-hover {
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.5), 0 0 12px rgba(0, 212, 255, 0.2);
+  border-color: rgba(0, 212, 255, 0.6);
+}
+body.edit-mode .widget.widget-edge-hover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px dashed rgba(0, 212, 255, 0.4);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  animation: edgePulse 1.2s ease-in-out infinite;
+}
+@keyframes edgePulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+body.edit-mode .widget.widget-dragging {
   border-color: var(--accent-cyan);
   box-shadow: 0 0 20px rgba(0, 212, 255, 0.3), var(--shadow-lg);
 }
-
-
-/* --- Resize Mode (PowerPoint-style) --- */
-body.resize-mode .widget-grid {
-  overflow: hidden;
-  position: relative;
-}
-body.resize-mode .widget-resizing {
+body.edit-mode .widget.widget-resizing {
   pointer-events: auto;
   border-color: var(--accent-cyan) !important;
   box-shadow: 0 0 0 1px var(--accent-cyan), 0 0 20px rgba(0, 212, 255, 0.3), var(--shadow-lg) !important;
   cursor: default;
   transition: none !important;
 }
-body.resize-mode .widget-resizing:hover {
-  border-color: var(--accent-cyan) !important;
-}
-body.resize-mode .widget-resizing::after {
+body.edit-mode .widget.widget-resizing::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -148,33 +154,211 @@ body.resize-mode .widget-resizing::after {
   z-index: 11;
 }
 
-/* --- Hidden Items in Panel --- */
-.ctx-hidden-item {
+/* --- Extension Card Grid (shared for hidden panel, settings, marketplace) --- */
+.ext-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  padding: 4px 0;
+}
+.ext-card {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(0, 212, 255, 0.05);
+  padding: 14px 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  gap: 6px;
   cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: center;
+  position: relative;
+}
+.ext-card:hover {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.08);
+}
+.ext-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--accent-cyan);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.ext-card-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ext-card-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke: var(--accent-cyan);
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ext-card-name {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ext-card-meta {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+.ext-card-actions {
+  margin-top: 4px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.ext-card-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
   color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  cursor: pointer;
   transition: all var(--transition-fast);
 }
-.ctx-hidden-item:hover {
-  background: rgba(0, 212, 255, 0.06);
+.ext-card-btn:hover {
+  border-color: var(--accent-cyan);
   color: var(--accent-cyan);
 }
-.ctx-hidden-item .ctx-show-action {
-  color: var(--accent-cyan);
+.ext-card-btn.ext-card-btn-danger {
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+.ext-card-btn.ext-card-btn-danger:hover {
+  background: rgba(255, 51, 85, 0.1);
+}
+.ext-card-error {
+  border-color: rgba(255, 51, 85, 0.3);
+}
+.ext-card-error .ext-card-icon {
+  background: rgba(255, 51, 85, 0.1);
+  border-color: rgba(255, 51, 85, 0.2);
+  color: var(--accent-red);
+}
+.ext-card-installed {
+  border-color: rgba(0, 200, 120, 0.3);
+}
+
+/* --- Provider Card --- */
+.provider-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  transition: all var(--transition-fast);
+}
+.provider-card:hover {
+  border-color: rgba(255, 152, 0, 0.4);
+}
+.provider-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.provider-card-info {
+  flex: 1;
+  min-width: 0;
+}
+.provider-card-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.provider-card-url {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.provider-warning {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: var(--radius-md);
+  background: rgba(255, 152, 0, 0.06);
+  font-family: var(--font-mono);
   font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  color: #ffb74d;
+  line-height: 1.5;
+  margin-bottom: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
 }
-.ctx-hidden-item svg {
-  width: 18px;
-  height: 18px;
-  vertical-align: middle;
+.provider-warning-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.provider-input-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.provider-input-row input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+}
+.provider-input-row input:focus {
+  border-color: #ffb74d;
+}
+.provider-input-row button {
+  padding: 6px 12px;
+  border: 1px solid #ffb74d;
+  border-radius: 4px;
+  background: rgba(255, 152, 0, 0.1);
+  color: #ffb74d;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.provider-input-row button:hover {
+  background: rgba(255, 152, 0, 0.2);
 }
 
 /* --- Overlayable widgets --- */
@@ -184,7 +368,7 @@ body.resize-mode .widget-resizing::after {
 .widget-overlayable.widget-moving {
   z-index: 100;
 }
-body.move-mode .widget-overlayable {
+body.edit-mode .widget-overlayable {
   z-index: 50;
 }
 
@@ -192,6 +376,44 @@ body.move-mode .widget-overlayable {
 .widget-collision {
   border-color: var(--accent-red) !important;
   box-shadow: 0 0 20px rgba(255, 51, 85, 0.4) !important;
+}
+
+/* --- Drag ghost --- */
+.widget-dragging {
+  position: fixed !important;
+  z-index: 9999 !important;
+  pointer-events: none;
+  opacity: 0.88;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--accent-cyan) !important;
+  border-color: var(--accent-cyan) !important;
+  transform: scale(1.02);
+  transition: none !important;
+}
+
+/* --- Drag placeholder (target indicator during drag) --- */
+.widget-drag-placeholder {
+  border: 2px dashed var(--accent-cyan);
+  border-radius: var(--radius-md);
+  background: rgba(0, 212, 255, 0.06);
+  pointer-events: none;
+  min-height: 0;
+  min-width: 0;
+  transition: border-color 0.15s, background 0.15s;
+}
+.widget-drag-placeholder.widget-drag-placeholder-occupied {
+  border-color: var(--accent-red);
+  background: rgba(255, 51, 85, 0.08);
+}
+.widget-drag-placeholder.widget-drag-placeholder-displace {
+  border-color: var(--accent-green);
+  background: rgba(0, 200, 120, 0.12);
+}
+
+/* --- Swap target highlight --- */
+.widget-swap-target {
+  outline: 2px dashed var(--accent-cyan) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 16px rgba(0, 212, 255, 0.25) !important;
 }
 
 /* --- Disable right-click on sub-widgets with click_action --- */

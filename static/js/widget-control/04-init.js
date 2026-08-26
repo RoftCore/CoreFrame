@@ -33,9 +33,12 @@
         s.closeCtxMenu();
         s.closeSceneCtxMenu();
         s.closeSettingsDropdown();
-        s.exitMoveMode();
-        s.resizeTarget = null;
-        s.exitResizeMode();
+        s.exitEditMode();
+        // Close result panel
+        if (typeof closeResultPanel === 'function') closeResultPanel();
+        // Close any pkg-overlay dialogs
+        var overlay = document.querySelector('.pkg-overlay');
+        if (overlay) overlay.remove();
       }
     });
 
@@ -74,24 +77,20 @@
     var sw = s.sceneWidgets();
     var col = 1, row = 1;
     var maxCols = s.sceneCols();
-    // "first run" = first auto-apply of the app AND this scene has no
-    // saved layout. NOT every empty scene: a newly created scene that is
-    // switched into must stay empty.
     var firstRun = !_firstAutoAddDone && Object.keys(sw).length === 0;
-    // Only mark as "first run done" when it runs against a real scene,
-    // so a premature call while scenes are still loading doesn't consume it.
     if (s.currentScene()) _firstAutoAddDone = true;
     for (var extId in (window.extensionsData || {})) {
       if (sw[extId]) continue;
-      // Skip extensions that were already present at page load —
-      // they should only appear if the user explicitly shows them.
-      // On first run (empty page layout), add everything so the user sees something.
       if (!firstRun && _knownExtensions && _knownExtensions[extId]) continue;
-      // Check if user wants to hide this extension by default
-      var saved = s._scenes && s._scenes.default && s._scenes.default.widgets && s._scenes.default.widgets[extId];
+      // Check saved hidden state from the ACTIVE scene, not hardcoded 'default'
+      var activeWidgets = s.currentScene() && s.currentScene().widgets || {};
+      var saved = activeWidgets[extId];
       var hidden = false;
       if (saved && saved.hidden !== undefined) {
         hidden = saved.hidden;
+      } else {
+        // New widget: hidden by default (user must click Show)
+        hidden = true;
       }
       var gs = s.getExtGrid(extId);
       var w = gs.w || 2;
@@ -154,10 +153,12 @@
   }
 
   window.__widgetControl = {
-    enterMoveMode: s.enterMoveMode,
-    exitMoveMode: s.exitMoveMode,
-    enterResizeMode: s.enterResizeMode,
-    exitResizeMode: s.exitResizeMode,
+    enterEditMode: s.enterEditMode,
+    exitEditMode: s.exitEditMode,
+    enterMoveMode: s.enterEditMode,
+    exitMoveMode: s.exitEditMode,
+    enterResizeMode: s.enterEditMode,
+    exitResizeMode: s.exitEditMode,
     applyWidgetState: applyWidgetState,
     autoAddExtensions: autoAddExtensions,
     persistScenes: s.persistScenes,

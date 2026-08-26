@@ -17,7 +17,6 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Callable
-import threading
 
 #  Force no console windows on any subprocess 
 if sys.platform.startswith('win'):
@@ -57,6 +56,33 @@ class ExtensionHealth:
     load_thread: Optional[threading.Thread] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
 
+
+def _is_safe_url(url):
+    """Validate URL to prevent SSRF. Only allows HTTPS, blocks private/internal IPs."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme not in ('https',):
+            return False
+        hostname = parsed.hostname or ''
+        if not hostname:
+            return False
+        # Block private/internal IPs
+        import ipaddress
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+        except ValueError:
+            # Not an IP, check hostname patterns
+            if hostname in ('localhost', '127.0.0.1', '0.0.0.0', '::1'):
+                return False
+            # Block common internal hostnames
+            if hostname.endswith('.local') or hostname.endswith('.internal') or hostname.endswith('.localhost'):
+                return False
+        return True
+    except Exception:
+        return False
 
 class ExtensionIsolation:
     """Per-extension isolation with timeout, health monitoring, and auto-recovery."""
@@ -333,6 +359,7 @@ _widget_state_lock = threading.Lock()
 SHARED_LIB_DIR = os.path.join(DATA_DIR, 'lib')
 
 DATA_DATA_DIR = os.path.join(DATA_DIR, 'data')
+PROVIDERS_PATH = os.path.join(DATA_DIR, 'providers.json')
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(EXTENSIONS_DIR, exist_ok=True)
@@ -394,6 +421,7 @@ socketio = SocketIO(app, async_mode='threading', cors_allowed_origins=["http://1
 _LOCAL_TOKEN = hashlib.sha256(os.urandom(32)).hexdigest()[:16]
 extensions = {}
 failed_extensions = {}
+_poll_stop_events = {}  # ext_id -> threading.Event
 latest_update = {}
 _client_count = 0
 _shutdown_callback = None  # Set by run_coreframe.pyw to close window gracefully
@@ -795,8 +823,6 @@ def api_autostart():
 @app.before_request
 def check_token():
     if request.path.startswith('/api/') and request.path not in ('/api/token', '/api/health', '/api/debug', '/api/debug.js'):
-        if request.path.startswith('/api/package_extension/') or request.path.startswith('/api/scenes/image/'):
-            return
         token = request.headers.get('X-CoreFrame-Token', '')
         if token != _LOCAL_TOKEN:
             return jsonify({'error': 'Unauthorized'}), 403
@@ -888,11 +914,16 @@ def api_window_focus():
 def api_extension_action(ext_id, action):
     if ext_id not in extensions:
         return jsonify({'error': 'Extension not found'}), 404
+    # Block dunder methods and private methods
+    if action.startswith('_') or action.startswith('__'):
+        return jsonify({'error': 'Action not allowed'}), 403
     try:
         ext = extensions[ext_id]['instance']
         method = getattr(ext, action, None)
         if not method:
             return jsonify({'error': f'Action {action} not found'}), 404
+        if not callable(method):
+            return jsonify({'error': 'Action not callable'}), 400
         if request.method == 'POST':
             result = method(request.get_json(silent=True) or {})
         else:
@@ -903,6 +934,8 @@ def api_extension_action(ext_id, action):
 
 @app.route('/ext-static/<ext_id>/<path:path>')
 def ext_static(ext_id, path):
+    if '..' in ext_id or '/' in ext_id or '\\' in ext_id:
+        return Response('Invalid extension id', 400)
     ext_dir = os.path.join(EXTENSIONS_DIR, ext_id)
     static_dir = os.path.join(ext_dir, 'static')
     if not os.path.isdir(static_dir):
@@ -971,6 +1004,8 @@ def api_install_extension():
             else:
                 rel = n
             if not rel:
+                continue
+            if '..' in rel or rel.startswith('/'):
                 continue
             # Wrap static assets in static/ for correct server serving
             if rel in static_assets_install and not rel.startswith('static/'):
@@ -1052,6 +1087,9 @@ def api_delete_extension(ext_id):
                 return jsonify({'error': f'Failed to delete extension files: {last_err}'}), 500
 
     # Unload from memory
+    stop_evt = _poll_stop_events.pop(ext_id, None)
+    if stop_evt:
+        stop_evt.set()
     extensions.pop(ext_id, None)
     failed_extensions.pop(ext_id, None)
     mod_name = f"extensions.{ext_id}"
@@ -1312,6 +1350,8 @@ def _start_polling(ext_id, ext_data):
     cfg = ext_data['config']
     interval = cfg.get('refresh_interval', 0)
     if cfg.get('realtime', False) and interval > 0 and cfg.get('widgets', []):
+        stop_event = threading.Event()
+        _poll_stop_events[ext_id] = stop_event
         t = threading.Thread(target=_poll_extension, args=(ext_id, ext_data, interval), daemon=True)
         t.start()
 
@@ -1326,7 +1366,10 @@ def _poll_extension(ext_id, ext_data, interval_ms):
     cfg = ext_data['config']
     interval = interval_ms / 1000.0
     next_tick = time.monotonic()
+    stop_event = _poll_stop_events.get(ext_id)
     while True:
+        if stop_event and stop_event.is_set():
+            break
         tick = time.monotonic()
         values = {}
         for wDef in cfg.get('widgets', []):
@@ -1624,6 +1667,7 @@ def api_restart():
         del sys.modules[k]
     
     # 4. Restart isolation manager and reload extensions (async)
+    _ext_isolation.stop_monitor()
     _ext_isolation.__init__()  # Reset isolation manager
     _ext_isolation.start_monitor()
     load_extensions()
@@ -1648,6 +1692,132 @@ def api_quit():
                 print(f"[-] Extension cleanup error: {e}")
     import signal
     os.kill(os.getpid(), signal.SIGTERM)
+
+#  External Providers
+
+def _load_providers():
+    try:
+        with open(PROVIDERS_PATH, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def _save_providers(providers):
+    with open(PROVIDERS_PATH, 'w', encoding='utf-8') as f:
+        json.dump(providers, f, indent=2)
+
+@app.route('/api/providers', methods=['GET'])
+def api_providers_list():
+    return jsonify({'providers': _load_providers()})
+
+@app.route('/api/providers', methods=['POST'])
+def api_providers_add():
+    data = request.get_json(force=True, silent=True) or {}
+    url = (data.get('url') or '').strip()
+    if not url:
+        return jsonify({'error': 'URL is required'}), 400
+    if not url.startswith('http://') and not url.startswith('https://'):
+        return jsonify({'error': 'Invalid URL'}), 400
+    providers = _load_providers()
+    for p in providers:
+        if p.get('url') == url:
+            return jsonify({'error': 'Provider already exists'}), 409
+    name = data.get('name', '') or url.split('//')[-1].split('/')[0]
+    providers.append({'url': url, 'name': name})
+    _save_providers(providers)
+    return jsonify({'providers': providers})
+
+@app.route('/api/providers/<int:idx>', methods=['DELETE'])
+def api_providers_remove(idx):
+    providers = _load_providers()
+    if idx < 0 or idx >= len(providers):
+        return jsonify({'error': 'Invalid index'}), 400
+    providers.pop(idx)
+    _save_providers(providers)
+    return jsonify({'providers': providers})
+
+@app.route('/api/providers/extensions')
+def api_providers_extensions():
+    url = request.args.get('url', '').strip()
+    if not url:
+        return jsonify({'error': 'URL is required'}), 400
+    if not _is_safe_url(url):
+        return jsonify({'error': 'URL must be HTTPS and cannot point to private/internal addresses'}), 400
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read())
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+
+@app.route('/api/providers/install', methods=['POST'])
+def api_providers_install():
+    data = request.get_json(force=True, silent=True) or {}
+    provider_url = (data.get('provider_url') or '').strip()
+    ext_id = (data.get('ext_id') or '').strip()
+    if not provider_url or not ext_id:
+        return jsonify({'error': 'provider_url and ext_id are required'}), 400
+    if not _is_safe_url(provider_url):
+        return jsonify({'error': 'provider_url must be HTTPS and cannot point to private/internal addresses'}), 400
+    try:
+        req = urllib.request.Request(provider_url)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            registry = json.loads(r.read())
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch registry: {e}'}), 502
+    ext_info = None
+    for ex in registry.get('extensions', []):
+        if ex.get('id') == ext_id:
+            ext_info = ex
+            break
+    if not ext_info:
+        return jsonify({'error': f'Extension "{ext_id}" not found in provider'}), 404
+    download_url = ext_info.get('download_url')
+    if not download_url:
+        return jsonify({'error': 'No download_url for this extension'}), 400
+    if not _is_safe_url(download_url):
+        return jsonify({'error': 'download_url must be HTTPS and cannot point to private/internal addresses'}), 400
+    target = os.path.join(EXTENSIONS_DIR, ext_id)
+    existing_cfg = os.path.join(target, 'extension.json')
+    if os.path.exists(existing_cfg):
+        try:
+            with open(existing_cfg, encoding='utf-8-sig') as _f:
+                _existing = json.load(_f)
+            if _existing.get('id') == ext_id:
+                return jsonify({'exists': True, 'message': f'Extension "{ext_info.get("name", ext_id)}" has already been imported before and cannot be imported again.'})
+        except Exception:
+            pass
+        shutil.rmtree(target, ignore_errors=True)
+    elif os.path.exists(target):
+        shutil.rmtree(target, ignore_errors=True)
+    os.makedirs(target, exist_ok=True)
+    try:
+        req = urllib.request.Request(download_url)
+        with urllib.request.urlopen(req, timeout=30) as r:
+            zip_data = r.read()
+        import zipfile, io as _io
+        with zipfile.ZipFile(_io.BytesIO(zip_data)) as zf:
+            for member in zf.namelist():
+                member_path = os.path.realpath(os.path.join(target, member))
+                target_real = os.path.realpath(target)
+                if not member_path.startswith(target_real):
+                    raise ValueError(f"Zip Slip: {member} escapes target directory")
+            zf.extractall(target)
+    except Exception as e:
+        shutil.rmtree(target, ignore_errors=True)
+        return jsonify({'error': f'Download failed: {e}'}), 500
+    def _bg_load():
+        try:
+            _sync_extension_lib(target)
+            _ensure_extension_deps(target)
+            _load_single_extension(ext_id)
+            socketio.emit('extension_install_progress', {'id': ext_id, 'step': 'done'})
+        except Exception as e:
+            log.error("Provider install bg error: %s", e)
+            socketio.emit('extension_install_progress', {'id': ext_id, 'step': 'error', 'error': str(e)})
+    threading.Thread(target=_bg_load, daemon=True).start()
+    return jsonify({'status': 'installing', 'id': ext_id})
 
 #  Startup 
 

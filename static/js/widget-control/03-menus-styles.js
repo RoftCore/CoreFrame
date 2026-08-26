@@ -19,8 +19,7 @@
     m.className = 'ctx-menu';
     m.innerHTML =
       '<div class="ctx-menu-item" data-action="hide">\u{1F5D1}  Hide widget</div>' +
-      '<div class="ctx-menu-item" data-action="move">\u{2194}  Move widget</div>' +
-      '<div class="ctx-menu-item" data-action="resize">\u{2197}  Resize widget</div>' +
+      '<div class="ctx-menu-item" data-action="edit">\u{270E}  Edit widget</div>' +
       '<div class="ctx-menu-item" data-action="style" id="ctx-style-btn" style="display:none">\u{265B} Change Style</div>' +
       '<div class="ctx-menu-separator"></div>' +
       '<div class="ctx-menu-item" data-action="show" id="ctx-show-btn" style="display:none">\u{1F441}  Show hidden widgets...</div>' +
@@ -41,8 +40,7 @@
         s.showStylePicker(target);
       } else if (target) {
         if (action === 'hide') s.hideWidget(target);
-        else if (action === 'move') s.enterMoveMode();
-        else if (action === 'resize') s.enterResizeMode(target);
+        else if (action === 'edit') s.enterEditMode();
       }
       s.closeCtxMenu();
     });
@@ -56,7 +54,7 @@
     widget.classList.add('ctx-target');
 
     const menu = getOrCreateCtxMenu();
-    menu.querySelectorAll('[data-action="hide"],[data-action="move"],[data-action="resize"]').forEach(function (el) { return el.style.display = 'flex'; });
+    menu.querySelectorAll('[data-action="hide"],[data-action="edit"]').forEach(function (el) { return el.style.display = 'flex'; });
     menu.querySelector('.ctx-menu-separator').style.display = 'block';
     const hidden = s.getHidden();
     document.getElementById('ctx-show-btn').style.display = Object.keys(hidden).length > 0 ? 'flex' : 'none';
@@ -86,7 +84,7 @@
     s.closeCtxMenu();
     document.querySelectorAll('.ctx-target').forEach(function (el) { return el.classList.remove('ctx-target'); });
     const menu = getOrCreateCtxMenu();
-    menu.querySelectorAll('[data-action="hide"],[data-action="move"],[data-action="resize"],[data-action="style"]').forEach(function (el) { return el.style.display = 'none'; });
+    menu.querySelectorAll('[data-action="hide"],[data-action="edit"],[data-action="style"]').forEach(function (el) { return el.style.display = 'none'; });
     menu.querySelector('.ctx-menu-separator').style.display = 'none';
     document.getElementById('ctx-show-btn').style.display = hasHidden ? 'flex' : 'none';
     document.getElementById('ctx-install-btn').style.display = hasHidden ? 'none' : 'flex';
@@ -104,43 +102,53 @@
     var body = document.getElementById('result-panel-body');
     title.textContent = 'Extensions';
 
-    body.innerHTML =
-      '<div style="font-family:var(--font-mono);padding:2px 0;">' +
-      '<input type="text" id="ext-settings-search" placeholder="Search extensions..." ' +
-      'style="width:100%;padding:6px 8px;margin-bottom:8px;border:1px solid var(--border-color);border-radius:4px;' +
-      'background:var(--bg-primary);color:var(--text-primary);font-family:var(--font-mono);font-size:12px;outline:none;box-sizing:border-box;">' +
-      '<div id="ext-settings-list"></div>' +
-      '</div>';
+    var existingSearch = panel.querySelector('.result-panel-search');
+    if (existingSearch) existingSearch.remove();
+
+    var searchDiv = document.createElement('div');
+    searchDiv.className = 'result-panel-search';
+    searchDiv.innerHTML = '<input type="text" id="ext-settings-search" placeholder="Search extensions...">';
+    panel.querySelector('.result-panel-header').insertAdjacentElement('afterend', searchDiv);
+
+    body.innerHTML = '<div id="ext-settings-list"></div>';
 
     function renderExtList(filter) {
       var list = document.getElementById('ext-settings-list');
+      if (!list) return;
       var data = window.extensionsData || {};
       var ids = Object.keys(data).sort();
       var f = (filter || '').toLowerCase();
-      var html = '';
+      var html = '<div class="ext-grid">';
+      var count = 0;
       ids.forEach(function (id) {
         var ext = data[id];
         var name = ext.name || id;
         if (f && name.toLowerCase().indexOf(f) < 0 && id.toLowerCase().indexOf(f) < 0) return;
+        count++;
         var isError = ext.loadError ? true : false;
-        html += '<div class="ctx-hidden-item" data-ext="' + id + '" style="margin-bottom:6px;">';
-        html += '<span style="display:flex;flex-direction:column;gap:1px;' + (isError ? 'max-width:60%;' : '') + '">';
-        html += '<span>' + (isError ? '<span style="color:var(--accent-red);font-size:10px;margin-right:4px;">\u26A0</span>' : '') + '<strong style="color:var(--text-primary);font-size:12px;">' + escapeHtml(name) + '</strong> <span style="color:var(--text-muted);font-size:10px;">(' + escapeHtml(id) + ')</span></span>';
+        var icon = ext.icon || '';
+        var iconHtml = window.renderExtIconHtml ? window.renderExtIconHtml(icon, id) : '<i data-feather="box"></i>';
+        var cardClass = 'ext-card' + (isError ? ' ext-card-error' : '');
+        html += '<div class="' + cardClass + '" data-ext="' + id + '">';
+        html += '<div class="ext-card-icon">' + iconHtml + '</div>';
+        html += '<div class="ext-card-name">' + escapeHtml(name) + '</div>';
         if (isError) {
-          html += '<span style="color:var(--accent-red);font-size:10px;">' + escapeHtml(ext.loadError) + '</span>';
+          html += '<div class="ext-card-meta" style="color:var(--accent-red);max-width:100%;white-space:normal;text-align:center;">' + escapeHtml(ext.loadError) + '</div>';
         } else {
-          html += '<span style="color:var(--text-muted);font-size:10px;">v' + escapeHtml(ext.version || '?') + (ext.author ? ' &middot; ' + escapeHtml(ext.author) : '') + '</span>';
+          html += '<div class="ext-card-meta">v' + escapeHtml(ext.version || '?') + (ext.author ? ' &middot; ' + escapeHtml(ext.author) : '') + '</div>';
         }
-        html += '</span>';
-        html += '<span style="display:flex;gap:4px;">';
-        html += '<button class="pkg-btn ext-settings-del" data-ext="' + id + '" style="font-size:10px;padding:2px 6px;border-color:var(--accent-red);color:var(--accent-red)">Delete</button>';
-        html += '</span></div>';
+        html += '<div class="ext-card-actions"><button class="ext-card-btn ext-card-btn-danger ext-settings-del" data-ext="' + id + '">Delete</button></div>';
+        html += '</div>';
       });
-      if (!html) html = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">No extensions found.</div>';
+      html += '</div>';
+      if (!count) html = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">No extensions found.</div>';
       list.innerHTML = html;
 
+      if (window.feather) window.feather.replace();
+
       list.querySelectorAll('.ext-settings-del').forEach(function (btn) {
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
           var eid = btn.dataset.ext;
           s.showDeleteExtensionConfirm(eid);
         });
