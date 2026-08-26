@@ -6,6 +6,7 @@
   <title>CoreFrame</title>
   <style>html,body{background:#0d0d1a;margin:0}</style>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="/css/palette.css?v=102">
   <link rel="stylesheet" href="/css/reset.css?v=102">
   <link rel="stylesheet" href="/css/layout.css?v=102">
@@ -13,8 +14,6 @@
   <link rel="stylesheet" href="/css/utilities.css?v=102">
   <link rel="stylesheet" href="/css/core-effects.css?v=102">
   <link rel="stylesheet" href="/css/widget-control.css?v=102">
-  <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
-  <script src="/js/socket.io.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -56,15 +55,17 @@
   </div>
   <input type="file" id="scene-img-input" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" style="display:none">
 
-  <script src="/api/debug.js"></script>
-  <script src="/js/utils.js?v=102"></script>
-  <script src="/js/widgets.js?v=102"></script>
-  <script src="/js/menu.js?v=102"></script>
-  <script src="/js/core.js?v=102"></script>
-  <script src="/js/widget-control/00-state.js?v=102"></script>
-  <script src="/js/widget-control/01-scenes.js?v=102"></script>
-  <script src="/js/widget-control/02-layout.js?v=102"></script>
-  <script src="/js/widget-control/03-menus-styles.js?v=102"></script>
-  <script src="/js/widget-control/04-init.js?v=102"></script>
+  <script src="/api/debug.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js" defer></script>
+  <script src="/js/socket.io.min.js" defer></script>
+  <script src="/js/utils.js?v=102" defer></script>
+  <script src="/js/widgets.js?v=102" defer></script>
+  <script src="/js/menu.js?v=102" defer></script>
+  <script src="/js/core.js?v=102" defer></script>
+  <script src="/js/widget-control/00-state.js?v=102" defer></script>
+  <script src="/js/widget-control/01-scenes.js?v=102" defer></script>
+  <script src="/js/widget-control/02-layout.js?v=102" defer></script>
+  <script src="/js/widget-control/03-menus-styles.js?v=102" defer></script>
+  <script src="/js/widget-control/04-init.js?v=102" defer></script>
 </body>
 </html>
