@@ -435,11 +435,40 @@ function showInstallChoice() {
 function refreshAfterInstall(extName, extId) {
   hideInstallToast();
   showInstallOverlay('Installed! Loading...');
-  // Just trigger a health poll - the extension will appear when loaded
-  setTimeout(() => {
-    hideInstallOverlay();
-    showInstallConfirm(extName, extId);
-  }, 1000);
+  // Wait until extension is actually loaded and responding before showing confirm
+  var attempts = 0;
+  var maxAttempts = 30;
+  function checkReady() {
+    attempts++;
+    apiFetch('/api/extensions').then(function (data) {
+      if (data && data[extId] && !data[extId].loadError) {
+        // Extension is loaded, try to get a widget value to confirm it responds
+        var ext = data[extId];
+        var testAction = ext.widgets && ext.widgets[0] && ext.widgets[0].action;
+        if (testAction) {
+          apiFetch('/api/extension/' + extId + '/' + testAction).then(function (resp) {
+            hideInstallOverlay();
+            showInstallConfirm(extName, extId);
+          }).catch(function () {
+            if (attempts < maxAttempts) setTimeout(checkReady, 500);
+            else { hideInstallOverlay(); showInstallConfirm(extName, extId); }
+          });
+        } else {
+          hideInstallOverlay();
+          showInstallConfirm(extName, extId);
+        }
+      } else if (attempts < maxAttempts) {
+        setTimeout(checkReady, 500);
+      } else {
+        hideInstallOverlay();
+        showInstallConfirm(extName, extId);
+      }
+    }).catch(function () {
+      if (attempts < maxAttempts) setTimeout(checkReady, 500);
+      else { hideInstallOverlay(); showInstallConfirm(extName, extId); }
+    });
+  }
+  setTimeout(checkReady, 500);
 }
 
 function showInstallConfirm(extName, extId) {

@@ -1,6 +1,0 @@
-MEIPASS root: C:\Users\Trape\AppData\Local\Temp\_MEI154762
-webview dir: C:\Users\Trape\AppData\Local\Temp\_MEI154762\webview
-Check1 (webview/lib/win-arm64): C:\Users\Trape\AppData\Local\Temp\_MEI154762\webview\lib\win-arm64 exists=False
-Check2 (runtimes/win-arm64/native): C:\Users\Trape\AppData\Local\Temp\_MEI154762\webview\lib\runtimes\win-arm64\native exists=True
-Check3 (exe_dir/win-arm64): E:\Programming\CoreFrame\dist\win-arm64 exists=False
-Check4 (MEIPASS/win-arm64): C:\Users\Trape\AppData\Local\Temp\_MEI154762\win-arm64 exists=False

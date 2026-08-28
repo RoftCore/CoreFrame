@@ -560,6 +560,26 @@
       return result;
     }
 
+    function getOverlappingWidgetsMulti(col, row, w, h, excludeList) {
+      var result = [];
+      var targetCells = {};
+      for (var c = col; c < col + w; c++)
+        for (var r = row; r < row + h; r++)
+          targetCells[c + ',' + r] = true;
+      document.querySelectorAll('.widget-extension').forEach(function (el) {
+        if (excludeList.indexOf(el) !== -1 || el.style.display === 'none' || el.dataset.overlayable === 'true') return;
+        var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+        var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+        if (!gc || !gr) return;
+        var eCol = parseInt(gc[1], 10), eSpan = parseInt(gc[2], 10);
+        var eRow = parseInt(gr[1], 10), eSpanH = parseInt(gr[2], 10);
+        for (var ec = eCol; ec < eCol + eSpan; ec++)
+          for (var er = eRow; er < eRow + eSpanH; er++)
+            if (targetCells[ec + ',' + er]) { result.push(el); return; }
+      });
+      return result;
+    }
+
     function canWidgetFit(el, col, row) {
       var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
@@ -592,7 +612,7 @@
             for (var sr = r; sr < r + sh; sr++)
               if (blockedCells[sc + ',' + sr]) { hitsBlocked = true; break; }
           if (hitsBlocked) continue;
-          var others = getOverlappingWidgets(c, r, sw, sh, el);
+          var others = getOverlappingWidgetsMulti(c, r, sw, sh, [el, avoidEl]);
           if (others.length === 0 && dist < bestDist) {
             bestDist = dist;
             best = { col: c, row: r };
@@ -873,11 +893,30 @@
             var otherId = other.dataset.extId;
 
             if (oW === wSpan && oH === hSpan) {
-              placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
-              if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
-              other.style.gridColumn = startCol + ' / span ' + oW;
-              other.style.gridRow = startRow + ' / span ' + oH;
-              if (otherId) s.saveWidgetLayout(otherId, startCol, startRow, oW, oH);
+              var swapFree = canWidgetFit(other, startCol, startRow);
+              if (swapFree) {
+                placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
+                if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
+                placeWidget(other, startCol, startRow, oW, oH);
+                if (otherId) s.saveWidgetLayout(otherId, startCol, startRow, oW, oH);
+              } else {
+                var altSpot = findFreeSpot(other, dragEl, tCol, tRow, wSpan, hSpan, metrics);
+                if (altSpot) {
+                  placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
+                  if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
+                  placeWidget(other, altSpot.col, altSpot.row, oW, oH);
+                  if (otherId) s.saveWidgetLayout(otherId, altSpot.col, altSpot.row, oW, oH);
+                } else {
+                  var selfSpot = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+                  if (selfSpot) {
+                    placeWidget(dragEl, selfSpot.col, selfSpot.row, wSpan, hSpan);
+                    if (extId) s.saveWidgetLayout(extId, selfSpot.col, selfSpot.row, wSpan, hSpan);
+                  } else {
+                    placeWidget(dragEl, startCol, startRow, wSpan, hSpan);
+                    if (extId) s.saveWidgetLayout(extId, startCol, startRow, wSpan, hSpan);
+                  }
+                }
+              }
             } else {
               var spot = findFreeSpot(other, dragEl, tCol, tRow, wSpan, hSpan, metrics);
               if (spot) {
@@ -886,13 +925,25 @@
                 placeWidget(other, spot.col, spot.row, oW, oH);
                 if (otherId) s.saveWidgetLayout(otherId, spot.col, spot.row, oW, oH);
               } else {
-                placeWidget(dragEl, startCol, startRow, wSpan, hSpan);
-                if (extId) s.saveWidgetLayout(extId, startCol, startRow, wSpan, hSpan);
+                var selfSpot2 = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+                if (selfSpot2) {
+                  placeWidget(dragEl, selfSpot2.col, selfSpot2.row, wSpan, hSpan);
+                  if (extId) s.saveWidgetLayout(extId, selfSpot2.col, selfSpot2.row, wSpan, hSpan);
+                } else {
+                  placeWidget(dragEl, startCol, startRow, wSpan, hSpan);
+                  if (extId) s.saveWidgetLayout(extId, startCol, startRow, wSpan, hSpan);
+                }
               }
             }
           } else {
-            placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
-            if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
+            var safeSpot = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+            if (safeSpot) {
+              placeWidget(dragEl, safeSpot.col, safeSpot.row, wSpan, hSpan);
+              if (extId) s.saveWidgetLayout(extId, safeSpot.col, safeSpot.row, wSpan, hSpan);
+            } else {
+              placeWidget(dragEl, startCol, startRow, wSpan, hSpan);
+              if (extId) s.saveWidgetLayout(extId, startCol, startRow, wSpan, hSpan);
+            }
           }
         } else if (!overlayable) {
           var placed = false;
@@ -918,8 +969,14 @@
             }
           }
           if (!placed) {
-            placeWidget(dragEl, startCol, startRow, wSpan, hSpan);
-            if (extId) s.saveWidgetLayout(extId, startCol, startRow, wSpan, hSpan);
+            var lastResort = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+            if (lastResort) {
+              placeWidget(dragEl, lastResort.col, lastResort.row, wSpan, hSpan);
+              if (extId) s.saveWidgetLayout(extId, lastResort.col, lastResort.row, wSpan, hSpan);
+            } else {
+              placeWidget(dragEl, startCol, startRow, wSpan, hSpan);
+              if (extId) s.saveWidgetLayout(extId, startCol, startRow, wSpan, hSpan);
+            }
           }
         } else {
           placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
@@ -927,6 +984,21 @@
         }
       } else {
         placeWidget(dragEl, startCol, startRow, wSpan, hSpan);
+      }
+
+      var finalGc = (dragEl.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      var finalGr = (dragEl.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      if (finalGc && finalGr) {
+        var fCol = parseInt(finalGc[1], 10), fW = parseInt(finalGc[2], 10);
+        var fRow = parseInt(finalGr[1], 10), fH = parseInt(finalGr[2], 10);
+        var finalOverlap = getOverlappingWidgets(fCol, fRow, fW, fH, dragEl);
+        if (finalOverlap.length > 0) {
+          var rescue = findFreeSpot(dragEl, null, fCol, fRow, fW, fH, getGridMetrics());
+          if (rescue) {
+            placeWidget(dragEl, rescue.col, rescue.row, fW, fH);
+            if (extId) s.saveWidgetLayout(extId, rescue.col, rescue.row, fW, fH);
+          }
+        }
       }
 
       dragEl.classList.remove('widget-dragging', 'widget-collision');
