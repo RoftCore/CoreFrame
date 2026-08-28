@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CoreFrame</title>
+  <style>html,body{background:#0d0d1a;margin:0}</style>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
-  <link rel="stylesheet" href="/css/palette.css">
-  <link rel="stylesheet" href="/css/reset.css">
-  <link rel="stylesheet" href="/css/layout.css">
-  <link rel="stylesheet" href="/css/components.css">
-  <link rel="stylesheet" href="/css/utilities.css">
-  <link rel="stylesheet" href="/css/core-effects.css">
-  <link rel="stylesheet" href="/css/widget-control.css">
-  <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
-  <script src="/js/socket.io.min.js"></script>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="/css/palette.css?v=102">
+  <link rel="stylesheet" href="/css/reset.css?v=102">
+  <link rel="stylesheet" href="/css/layout.css?v=102">
+  <link rel="stylesheet" href="/css/components.css?v=102">
+  <link rel="stylesheet" href="/css/utilities.css?v=102">
+  <link rel="stylesheet" href="/css/core-effects.css?v=102">
+  <link rel="stylesheet" href="/css/widget-control.css?v=102">
 </head>
 <body>
   <div id="app">
@@ -55,15 +55,20 @@
   </div>
   <input type="file" id="scene-img-input" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" style="display:none">
 
-  <script src="/api/debug.js"></script>
-  <script src="/js/utils.js"></script>
-  <script src="/js/widgets.js"></script>
-  <script src="/js/menu.js"></script>
-  <script src="/js/core.js"></script>
-  <script src="/js/widget-control/00-state.js"></script>
-  <script src="/js/widget-control/01-scenes.js"></script>
-  <script src="/js/widget-control/02-layout.js"></script>
-  <script src="/js/widget-control/03-menus-styles.js"></script>
-  <script src="/js/widget-control/04-init.js"></script>
+  <script src="/api/debug.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js" defer></script>
+  <script src="/js/socket.io.min.js" defer></script>
+  <script src="/js/utils.js?v=103" defer></script>
+  <script src="/js/widgets.js?v=103" defer></script>
+  <script src="/js/menu.js?v=103" defer></script>
+  <script src="/js/app.js?v=103" defer></script>
+  <script src="/js/install.js?v=103" defer></script>
+  <script src="/js/window.js?v=103" defer></script>
+  <script src="/js/core.js?v=103" defer></script>
+  <script src="/js/widget-control/00-state.js?v=103" defer></script>
+  <script src="/js/widget-control/01-scenes.js?v=103" defer></script>
+  <script src="/js/widget-control/02-layout.js?v=103" defer></script>
+  <script src="/js/widget-control/03-menus-styles.js?v=103" defer></script>
+  <script src="/js/widget-control/04-init.js?v=103" defer></script>
 </body>
 </html>

@@ -53,3 +53,9 @@
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Boot lock: no hover/click/tooltip until window mode is applied */
+body.booting,
+body.booting * {
+  pointer-events: none !important;
+}

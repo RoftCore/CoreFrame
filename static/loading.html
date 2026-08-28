@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CoreFrame - Loading</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-primary: #0d0d1a;
+      --bg-secondary: #14142b;
+      --bg-widget: #1a1a2e;
+      --accent-cyan: #00d4ff;
+      --accent-cyan-dim: rgba(0, 212, 255, 0.15);
+      --text-primary: #e0e0e0;
+      --text-secondary: #a0a0b0;
+      --text-muted: #606070;
+      --border-color: rgba(0, 212, 255, 0.1);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .loader {
+      text-align: center;
+      position: relative;
+      z-index: 1;
+    }
+    .logo {
+      font-size: 48px;
+      font-weight: 600;
+      letter-spacing: 8px;
+      color: var(--accent-cyan);
+      text-shadow: 0 0 30px rgba(0, 212, 255, 0.6), 0 0 60px rgba(0, 212, 255, 0.3);
+      margin-bottom: 8px;
+      animation: logoPulse 2s ease-in-out infinite;
+    }
+    @keyframes logoPulse {
+      0%, 100% { text-shadow: 0 0 30px rgba(0, 212, 255, 0.6), 0 0 60px rgba(0, 212, 255, 0.3); }
+      50% { text-shadow: 0 0 40px rgba(0, 212, 255, 0.8), 0 0 80px rgba(0, 212, 255, 0.5); }
+    }
+    .tagline {
+      font-size: 12px;
+      letter-spacing: 4px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 40px;
+      opacity: 0.7;
+    }
+    .spinner-wrap {
+      position: relative;
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 24px;
+    }
+    .spinner-ring {
+      position: absolute;
+      border: 2px solid transparent;
+      border-radius: 50%;
+      animation: spin 2s linear infinite;
+    }
+    .spinner-ring:nth-child(1) {
+      width: 64px; height: 64px;
+      border-top-color: var(--accent-cyan);
+      animation-duration: 1.5s;
+    }
+    .spinner-ring:nth-child(2) {
+      width: 48px; height: 48px; top: 8px; left: 8px;
+      border-right-color: var(--accent-cyan);
+      animation-duration: 2s; animation-direction: reverse;
+    }
+    .spinner-ring:nth-child(3) {
+      width: 32px; height: 32px; top: 16px; left: 16px;
+      border-bottom-color: var(--accent-cyan);
+      animation-duration: 1s;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .status {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-family: monospace;
+      letter-spacing: 0.5px;
+    }
+    .dots::after {
+      content: '';
+      animation: dots 1.5s steps(3) infinite;
+    }
+    @keyframes dots {
+      0% { content: ''; }
+      33% { content: '.'; }
+      66% { content: '..'; }
+      100% { content: '...'; }
+    }
+    /* Subtle corner accents */
+    .corner {
+      position: fixed;
+      width: 60px;
+      height: 60px;
+      border: 1px solid var(--border-color);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .corner-tl { top: 20px; left: 20px; border-right: none; border-bottom: none; }
+    .corner-tr { top: 20px; right: 20px; border-left: none; border-bottom: none; }
+    .corner-bl { bottom: 20px; left: 20px; border-right: none; border-top: none; }
+    .corner-br { bottom: 20px; right: 20px; border-left: none; border-top: none; }
+  </style>
+</head>
+<body>
+  <div class="corner corner-tl"></div>
+  <div class="corner corner-tr"></div>
+  <div class="corner corner-bl"></div>
+  <div class="corner corner-br"></div>
+  
+  <div class="loader">
+    <div class="logo">CoreFrame</div>
+    <div class="tagline">Personal Control Center</div>
+    <div class="spinner-wrap">
+      <div class="spinner-ring"></div>
+      <div class="spinner-ring"></div>
+      <div class="spinner-ring"></div>
+    </div>
+    <div class="status">Initializing<span class="dots"></span></div>
+  </div>
+  <script>
+    // Navigation is driven by Python (window.load_url) after this page renders.
+    // No polling here: this page is served from an internal origin, so calling
+    // the API cross-origin would be blocked by CORS.
+  </script>
+</body>
+</html>

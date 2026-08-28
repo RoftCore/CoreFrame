@@ -6,49 +6,9 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 
 _WEBVIEW_LIB = os.path.join(os.path.dirname(os.path.abspath(webview.__file__)), 'lib')
 
-# Collect Tcl/Tk data files explicitly - required for tkinter on CI systems
-# The PyInstaller tkinter runtime hook (pyi_rth__tkinter.py) expects Tcl/Tk at
-# sys._MEIPASS/tcl and sys._MEIPASS/tk, NOT in a subdirectory.
-def _collect_tcl_tk_data():
-    """Collect Tcl/Tk data directories for tkinter support at the correct paths."""
-    tcl_tk_data = []
-    # First try: use PyInstaller's collect_data_files for tkinter
-    try:
-        tk_data = collect_data_files('tkinter')
-        tcl_tk_data.extend(tk_data)
-    except Exception:
-        pass
-    
-    # Second try: collect from tkinter runtime paths
-    try:
-        import tkinter
-        tcl_lib = tkinter.Tcl().eval('info library')
-        tk_lib = tkinter.Tcl().eval('set tk_library')
-        
-        for lib_path, target_name in [(tcl_lib, 'tcl'), (tk_lib, 'tk')]:
-            if lib_path and os.path.isdir(lib_path):
-                for root, dirs, files in os.walk(lib_path):
-                    for f in files:
-                        src = os.path.join(root, f)
-                        rel = os.path.relpath(src, lib_path)
-                        # PyInstaller's tkinter hook expects data at tcl/ and tk/ directly
-                        tcl_tk_data.append((src, os.path.join(target_name, rel)))
-    except Exception:
-        pass
-    
-    # Fallback: collect from standard Python locations
-    for base in (_sys.base_prefix, _sys.prefix):
-        for name in ('tcl', 'tk'):
-            lib_dir = os.path.join(base, 'lib', name)
-            if os.path.isdir(lib_dir):
-                for root, dirs, files in os.walk(lib_dir):
-                    for f in files:
-                        src = os.path.join(root, f)
-                        rel = os.path.relpath(src, lib_dir)
-                        tcl_tk_data.append((src, os.path.join(name, rel)))
-    return tcl_tk_data
-
-_tcl_tk_data = _collect_tcl_tk_data()
+# Use PyInstaller's built-in tkinter support - no custom collection needed
+# PyInstaller's hook-tkinter.py and pyi_rth__tkinter.py handle Tcl/Tk automatically
+_tcl_tk_data = []
 
 #  Fully bundle pip and its vendored deps (needed to `pip install` extension deps
 #  at runtime inside the frozen .exe). Collecting only `pip` as a hidden import
@@ -56,6 +16,7 @@ _tcl_tk_data = _collect_tcl_tk_data()
 _pip_datas, _pip_binaries, _pip_hidden = collect_all('pip')
 _st_datas, _st_binaries, _st_hidden = collect_all('setuptools')
 _w_datas, _w_binaries, _w_hidden = collect_all('wheel')
+_tk_datas, _tk_binaries, _tk_hidden = collect_all('tkinter')
 
 #  Bundle the ENTIRE Python standard library (pure .py modules + C extensions).
 #  Extension widgets load their third-party deps at runtime from the shared lib
@@ -87,12 +48,12 @@ _stdlib_all = _collect_full_stdlib()
 a = Analysis(
     ['run_coreframe.pyw'],
     pathex=[],
-    binaries=_pip_binaries + _st_binaries + _w_binaries,
+    binaries=_pip_binaries + _st_binaries + _w_binaries + _tk_binaries,
     datas=[
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
         (_WEBVIEW_LIB, 'webview\\lib'),
-    ] + _pip_datas + _st_datas + _w_datas + _tcl_tk_data,
+    ] + _pip_datas + _st_datas + _w_datas + _tk_datas,
     hiddenimports=[
         'ssl',
         '_ssl',
