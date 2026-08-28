@@ -10,16 +10,19 @@ import urllib.request
 import ctypes
 from ctypes import wintypes
 
-# Freeze forensics: dump ALL thread stacks to a file every 15s.
+# Freeze forensics: dump ALL thread stacks to coreframe.log every 15s.
 # When the app hangs, the last dump shows exactly where each thread is stuck.
+_boot_log_file = None
+
 def _start_stack_dumper():
+    global _boot_log_file
     try:
         d = os.path.join(_real_docs_dir(), 'CoreFrame')
         os.makedirs(d, exist_ok=True)
-        f = open(os.path.join(d, 'boot_stacks.log'), 'a', encoding='utf-8')
-        f.write('\n===== %s launch =====\n' % time.strftime('%H:%M:%S'))
-        f.flush()
-        faulthandler.dump_traceback_later(15, repeat=True, file=f)
+        _boot_log_file = open(os.path.join(d, 'coreframe.log'), 'a', encoding='utf-8')
+        _boot_log_file.write('\n===== %s launch =====\n' % time.strftime('%H:%M:%S'))
+        _boot_log_file.flush()
+        faulthandler.dump_traceback_later(15, repeat=True, file=_boot_log_file)
     except Exception:
         pass
 
@@ -76,12 +79,17 @@ DATA_DIR_EARLY = os.path.join(_real_docs_dir(), 'CoreFrame')
 os.makedirs(DATA_DIR_EARLY, exist_ok=True)
 _start_stack_dumper()
 
+import logging
+LOG_PATH_EARLY = os.path.join(DATA_DIR_EARLY, 'coreframe.log')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.FileHandler(LOG_PATH_EARLY, encoding='utf-8')],
+)
+log = logging.getLogger('CoreFrame')
+
 def _trace(msg):
-    try:
-        with open(os.path.join(DATA_DIR_EARLY, 'boot_trace.log'), 'a', encoding='utf-8') as f:
-            f.write(f'{time.strftime("%H:%M:%S")} {msg}\n')
-    except Exception:
-        pass
+    log.info('[boot] %s', msg)
 
 _trace('--- launch ---')
 
@@ -393,8 +401,6 @@ _trace('splash thread started')
 
 import urllib.request  # deferred: keep pre-splash boot minimal
 
-import urllib.request  # deferred: keep pre-splash boot minimal
-
 def _destroy_splash():
     global _splash_hwnd
     if _splash_hwnd:
@@ -429,9 +435,7 @@ def _patched_bform_init(self, window, cache_dir):
     try:
         _orig_bform_init(self, window, cache_dir)
     except Exception:
-        import traceback
-        with open('sta_crash.log', 'w') as f:
-            traceback.print_exc(file=f)
+        log.exception('STA thread init failure (BrowserForm.__init__)')
         raise
 _wf.BrowserView.BrowserForm.__init__ = _patched_bform_init
 
@@ -757,7 +761,5 @@ try:
     _trace('webview.start returned')
 except Exception as e:
     _trace(f'webview.start exception: {e}')
-    import traceback
-    with open('crash.log', 'w') as f:
-        traceback.print_exc(file=f)
+    log.exception('webview.start failed')
     raise

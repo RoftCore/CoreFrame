@@ -25,7 +25,7 @@ pyproject.toml
 # User data
 logs/
 widget_state.json
-coreframe.log
+*.log
 
 # Extensions (users install their own)
 extensions/*
