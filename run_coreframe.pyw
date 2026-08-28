@@ -380,7 +380,7 @@ def _create_splash():
         _splash_w[0], _splash_h[0] = w, h
 
         hwnd = user32.CreateWindowExW(
-            0x8 | 0x80, 'CoreFrameSplashCls', 'CoreFrame',
+            0x80, 'CoreFrameSplashCls', 'CoreFrame',
             0x80000000 | 0x10000000,   # POPUP | VISIBLE
             x, y, w, h, None, None, kernel32.GetModuleHandleW(None), None)
         if not hwnd:
