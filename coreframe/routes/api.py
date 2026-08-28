@@ -44,7 +44,7 @@ def register_api_routes(app):
 
     @app.route('/api/health')
     def api_health():
-        from coreframe.extensions import _client_count
+        from coreframe.websocket import _client_count
         return jsonify({
             'status': 'ok',
             'extensions': len(extensions),
