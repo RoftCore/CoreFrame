@@ -19,13 +19,12 @@ dist-tmp/
 *.manifest
 
 # Pip package (removed from repo)
-coreframe/
 pyproject.toml
 
 # User data
 logs/
 widget_state.json
-coreframe.log
+*.log
 
 # Extensions (users install their own)
 extensions/*
