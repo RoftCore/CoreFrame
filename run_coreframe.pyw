@@ -746,7 +746,7 @@ def _focus_impl():
 
 window.expose(set_window_mode, minimize_window, focus_window)
 
-import app as _app_mod
+import coreframe.app as _app_mod
 def _shutdown():
     try:
         window.destroy()
