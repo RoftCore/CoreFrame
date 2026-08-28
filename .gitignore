@@ -19,7 +19,6 @@ dist-tmp/
 *.manifest
 
 # Pip package (removed from repo)
-coreframe/
 pyproject.toml
 
 # User data
