@@ -10,6 +10,26 @@ import urllib.request
 import ctypes
 from ctypes import wintypes
 
+# WinForms / System imports (via pythonnet)
+try:
+    import clr
+    clr.AddReference('System.Drawing')
+    clr.AddReference('System.Windows.Forms')
+    from System.Drawing import Point
+    from System.Windows.Forms import Timer as WinFormsTimer
+except Exception:
+    Point = None
+    WinFormsTimer = None
+
+# DPI Awareness - must be set BEFORE any WinForms/WebView2 initialization
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()  # fallback for older Windows
+    except Exception:
+        pass
+
 # Freeze forensics: dump ALL thread stacks to coreframe.log every 15s.
 # When the app hangs, the last dump shows exactly where each thread is stuck.
 _boot_log_file = None
@@ -439,6 +459,43 @@ def _patched_bform_init(self, window, cache_dir):
         raise
 _wf.BrowserView.BrowserForm.__init__ = _patched_bform_init
 
+# Fix: Python 3.14 ctypes rejects None for integer params in SetWindowPos.
+# pywebview's move() passes None for cx/cy (SWP_NOSIZE) — causes
+# ctypes.ArgumentError flood → main thread deadlock → crash.
+# v2: wrapped in try/except with handle validation for native crash diagnostics.
+_orig_bv_move = _wf.BrowserView.BrowserForm.move
+_MOVE_CALLS = 0
+def _patched_bv_move(self, x, y):
+    global _MOVE_CALLS
+    _MOVE_CALLS += 1
+    try:
+        SWP_NOSIZE = 0x0001
+        SWP_NOZORDER = 0x0004
+        SWP_SHOWWINDOW = 0x0040
+        scale = self._scale
+        if scale != 1:
+            x_phys = int(x * scale)
+            y_phys = int(y * scale)
+        else:
+            x_phys = int(x)
+            y_phys = int(y)
+        handle = self.Handle.ToInt32()
+        if handle == 0 or handle == -1:
+            log.warning('move() called with invalid handle=%s (call #%d, xy=%s,%s)',
+                        handle, _MOVE_CALLS, x, y)
+            return
+        ctypes.windll.user32.SetWindowPos(
+            handle, None,
+            x_phys, y_phys, 0, 0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW
+        )
+    except Exception:
+        log.exception('move() FAILED call #%d: handle=%s, xy=%s,%s, scale=%s',
+                      _MOVE_CALLS,
+                      getattr(self, 'Handle', 'N/A').ToInt32() if hasattr(getattr(self, 'Handle', None), 'ToInt32') else 'N/A',
+                      x, y, getattr(self, '_scale', 'N/A'))
+_wf.BrowserView.BrowserForm.move = _patched_bv_move
+
 HOST = '127.0.0.1'
 PORT = 8420
 DATA_DIR = DATA_DIR_EARLY
@@ -555,6 +612,46 @@ def _on_loaded():
     _trace('loaded event fired — revealing (worker)')
     threading.Thread(target=_do_reveal, daemon=True, name='reveal').start()
 
+def _apply_initial_frameless():
+    """Apply frameless + maximize at startup.  Safe to call multiple times.
+    Retries up to 2s waiting for the WinForms form to become available —
+    pywebview may not have registered it in BrowserView.instances yet.
+    Uses the EXACT same logic as _ui_set_mode (BeginInvoke, center then
+    maximize) — that path is proven to work."""
+    i, WinForms = None, None
+    for attempt in range(10):
+        i, WinForms = _get_winform()
+        if i:
+            break
+        time.sleep(0.2)
+    if not i:
+        _trace('_apply_initial_frameless: form not available after 2s, skipping')
+        return
+    def _mutate():
+        try:
+            screen = WinForms.Screen.FromHandle(i.Handle)
+            # Identical logic to _ui_set_mode 'frameless' branch
+            i.FormBorderStyle = getattr(WinForms.FormBorderStyle, 'None')
+            i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
+            sw, sh = screen.Bounds.Width, screen.Bounds.Height
+            fw, fh = i.Width, i.Height
+            if fw == 0 or fh == 0:
+                fw, fh = 1280, 800
+            if Point:
+                i.Location = Point((sw - fw) // 2, (sh - fh) // 2)
+            else:
+                i.Location = WinForms.Point((sw - fw) // 2, (sh - fh) // 2)
+            i.WindowState = getattr(WinForms.FormWindowState, 'Maximized')
+            i.TopMost = False
+            _start_frameless_taskbar_watcher(i, screen)
+            _trace('initial frameless applied successfully')
+        except Exception as e:
+            _trace(f'initial frameless _mutate error: {e}')
+    try:
+        i.BeginInvoke(WinForms.MethodInvoker(_mutate))
+    except Exception as e:
+        _trace(f'initial frameless BeginInvoke error: {e}')
+
 def _do_reveal():
     try:
         print('[BOOT] App rendered — revealing', flush=True)
@@ -587,14 +684,18 @@ def _do_reveal():
                                     rc.right - rc.left, rc.bottom - rc.top,
                                     SWP_NOACTIVATE | SWP_NOZORDER)
 
-        # Enforce saved window mode natively right now (insurance in case the
-        # creation-time styles were deferred while hidden). Serialized via uiq.
-        if mode != 'windowed':
-            threading.Thread(target=_set_window_mode_impl, args=(mode,),
-                             daemon=True, name='mode-enforce').start()
-
         _destroy_splash()
         _trace('reveal: done')
+
+        # Apply frameless bounds at startup AFTER window is visible.
+        # Use Invoke (synchronous) instead of BeginInvoke: we're on a
+        # worker thread so this blocks only this thread while the UI
+        # thread processes the resize synchronously — no race.
+        if initial_frameless:
+            _apply_initial_frameless()
+            # Safety-net: re-apply after 1s in case the first pass was
+            # overridden by late WinForms layout processing.
+            threading.Timer(1.0, _apply_initial_frameless).start()
     except Exception as e:
         _trace(f'_do_reveal exception: {e}')
 
@@ -620,6 +721,10 @@ def _watchdog():
                 pass
             _ui(i, WinForms, lambda: setattr(i, 'Opacity', 1.0))
         _destroy_splash()
+        # Apply frameless if the app started in frameless mode
+        if initial_frameless:
+            _apply_initial_frameless()
+            threading.Timer(1.0, _apply_initial_frameless).start()
     threading.Timer(0.2, _force).start()
 
 threading.Timer(4.0, _watchdog).start()
@@ -681,21 +786,42 @@ def _ui_set_mode(i, WinForms, new_mode):
             screen = WinForms.Screen.FromHandle(i.Handle)
             if new_mode == 'fullscreen':
                 i.FormBorderStyle = getattr(WinForms.FormBorderStyle, 'None')
+                i.WindowState = getattr(WinForms.FormWindowState, 'Maximized')
                 i.Bounds = screen.Bounds
                 i.TopMost = True
             elif new_mode == 'frameless':
                 i.FormBorderStyle = getattr(WinForms.FormBorderStyle, 'None')
-                i.Bounds = screen.WorkingArea
+                # Explicit centering for frameless: set Normal first, then center, then Maximized
+                i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
+                sw, sh = screen.Bounds.Width, screen.Bounds.Height
+                fw, fh = i.Width, i.Height
+                if fw == 0 or fh == 0:
+                    fw, fh = 1280, 800
+                if Point:
+                    i.Location = Point((sw - fw) // 2, (sh - fh) // 2)
+                else:
+                    i.Location = WinForms.Point((sw - fw) // 2, (sh - fh) // 2)
+                i.WindowState = getattr(WinForms.FormWindowState, 'Maximized')
                 i.TopMost = False
+                # Start timer to auto-adjust for auto-hidden taskbar
+                _start_frameless_taskbar_watcher(i, screen)
             else:
+                # windowed: restore normal border, normal state, and reasonable size
                 i.FormBorderStyle = WinForms.FormBorderStyle.Sizable
                 i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
                 i.TopMost = False
+                i.Size = WinForms.Size(1280, 800)
+                sw, sh = screen.Bounds.Width, screen.Bounds.Height
+                if Point:
+                    i.Location = Point((sw - 1280) // 2, (sh - 800) // 2)
+                else:
+                    i.Location = WinForms.Point((sw - 1280) // 2, (sh - 800) // 2)
         except Exception as e:
             try:
                 _trace(f'_mutate error: {e}')
             except Exception:
                 pass
+
     try:
         i.BeginInvoke(WinForms.MethodInvoker(_mutate))
     except Exception as e:
@@ -703,6 +829,34 @@ def _ui_set_mode(i, WinForms, new_mode):
             _trace(f'BeginInvoke error: {e}')
         except Exception:
             pass
+
+def _start_frameless_taskbar_watcher(i, screen):
+    """Periodic timer to re-adjust frameless bounds when taskbar auto-hides/shows."""
+    try:
+        last_wa = screen.WorkingArea
+        def _check():
+            nonlocal last_wa
+            try:
+                if not i.IsHandleCreated or i.IsDisposed:
+                    return
+                current_wa = screen.WorkingArea
+                if current_wa != last_wa:
+                    last_wa = current_wa
+                    # Re-apply bounds to match new WorkingArea
+                    if current_wa == screen.Bounds:
+                        # Taskbar hidden → full screen
+                        i.Bounds = screen.Bounds
+                    else:
+                        # Taskbar visible → leave space
+                        i.Bounds = current_wa
+            except Exception:
+                pass
+        timer = WinFormsTimer() if WinFormsTimer else System.Windows.Forms.Timer()
+        timer.Interval = 1000  # check every 1s
+        timer.Tick += lambda s, e: _check()
+        timer.Start()
+    except Exception:
+        pass
 
 def minimize_window():
     _trace('api: minimize_window')

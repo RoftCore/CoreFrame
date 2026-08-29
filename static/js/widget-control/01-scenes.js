@@ -65,7 +65,7 @@
         i.setAttribute('height', '18');
         btn.appendChild(i);
       } else {
-        btn.textContent = s._scenes[sid].label || '\u{1F4C4}';
+        btn.innerHTML = '<i data-feather="file" width="18" height="18"></i>';
       }
       btn.title = s._scenes[sid].name || sid;
       btn.draggable = true;
@@ -154,7 +154,7 @@
     (s._sceneOrder.length ? s._sceneOrder : Object.keys(s._scenes)).forEach(function (sid) {
       var sc = s._scenes[sid];
       var isDefault = sid === 'default';
-      var label = sc.label || '\u{1F4C4}';
+      var label = sc.label || 'file';
       var name = sc.name || sid;
       html += '<div class="ctx-hidden-item" data-scene="' + sid + '" style="margin-bottom:6px;">';
       var iconHtml = '';
@@ -248,9 +248,10 @@
       menu.id = 'scene-ctx-menu';
       menu.className = 'ctx-menu';
       menu.innerHTML =
-        '<div class="ctx-menu-item" data-action="icon">\u{1F4F7}  Change icon</div>' +
+        '<div class="ctx-menu-item" data-action="icon"><i data-feather="camera" width="16" height="16"></i>  Change icon</div>' +
+        '<div class="ctx-menu-item" data-action="size"><i data-feather="maximize-2" width="16" height="16"></i>  Size</div>' +
         '<div class="ctx-menu-separator"></div>' +
-        '<div class="ctx-menu-item" data-action="delete" style="color:var(--accent-red)">\u{1F5D1}  Delete scene</div>';
+        '<div class="ctx-menu-item" data-action="delete" style="color:var(--accent-red)"><i data-feather="trash-2" width="16" height="16"></i>  Delete scene</div>';
       document.body.appendChild(menu);
       menu.addEventListener('click', function (e) {
         var item = e.target.closest('.ctx-menu-item');
@@ -261,6 +262,8 @@
           s.showDeleteConfirmation(sceneId);
         } else if (action === 'icon') {
           s.showIconPicker(sceneId);
+        } else if (action === 'size') {
+          s.showSizeEditor(sceneId, true);
         }
         s.closeSceneCtxMenu();
       });
@@ -271,6 +274,7 @@
     menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');
+    if (typeof feather !== 'undefined') feather.replace();
   };
 
   s.closeSceneCtxMenu = function () {
@@ -310,7 +314,7 @@
     };
   };
 
-  s.showSizeEditor = function (sid) {
+  s.showSizeEditor = function (sid, fromToolmenu) {
     var panel = document.getElementById('result-panel');
     var overlay = document.getElementById('overlay');
     var title = document.getElementById('result-panel-title');
@@ -329,13 +333,14 @@
       '<label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:3px;">Rows</label>' +
       '<input type="number" id="size-editor-rows" value="' + rows + '" min="1" max="24" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:5px 8px;color:var(--text-primary);font-family:var(--font-mono);font-size:13px;">' +
       '</div>' +
-      '<div id="size-editor-warning" style="display:none;margin-bottom:10px;padding:6px 10px;background:rgba(255,170,0,0.15);border:1px solid rgba(255,170,0,0.3);border-radius:4px;color:var(--text-primary);font-size:11px;line-height:1.4;">\u26A0\uFE0F  Values above 16 may look cramped or overflow. Consider reducing if elements are cut off.</div>' +
+      '<div id="size-editor-warning" style="display:none;margin-bottom:10px;padding:6px 10px;background:rgba(255,170,0,0.15);border:1px solid rgba(255,170,0,0.3);border-radius:4px;color:var(--text-primary);font-size:11px;line-height:1.4;"><i data-feather="alert-triangle" width="14" height="14"></i>  Values above 16 may look cramped or overflow. Consider reducing if elements are cut off.</div>' +
       '<div style="text-align:center;display:flex;gap:8px;justify-content:center;">' +
       '<button id="size-editor-save" class="pkg-btn" style="font-size:11px;padding:4px 14px;border-color:var(--accent-cyan);">Save</button>' +
       '<button id="size-editor-cancel" class="pkg-btn" style="font-size:11px;padding:4px 14px;">Cancel</button>' +
       '</div></div>';
     panel.classList.add('open');
     overlay.classList.add('open');
+    if (typeof feather !== 'undefined') feather.replace();
 
     function updateWarning() {
       var c = parseInt(document.getElementById('size-editor-cols').value, 10);
@@ -368,7 +373,11 @@
       });
     };
     document.getElementById('size-editor-cancel').onclick = function () {
-      s.openSceneSettings();
+      if (fromToolmenu) {
+        s.closeResultPanel();
+      } else {
+        s.openSceneSettings();
+      }
     };
   };
 
@@ -379,21 +388,21 @@
   //  settings dropdown 
 
   s._settingsMainHTML =
-    '<div class="ctx-menu-item" data-action="scenes">\u{1F5A7}  Scene settings</div>' +
+    '<div class="ctx-menu-item" data-action="scenes"><i data-feather="image" width="16" height="16"></i>  Scene settings</div>' +
     '<div class="ctx-menu-item" data-action="extensions"><i data-feather="package" width="16" height="16"></i>  Extensions</div>' +
     '<div class="ctx-menu-separator"></div>' +
     '<div class="ctx-menu-item" data-action="window"><i data-feather="square" width="16" height="16"></i>  Window settings</div>' +
     '<div class="ctx-menu-separator"></div>' +
-    '<div class="ctx-menu-item" id="autostart-item" data-action="autostart">\u{23F1}  Loading...</div>';
+    '<div class="ctx-menu-item" id="autostart-item" data-action="autostart"><i data-feather="clock" width="16" height="16"></i>  Loading...</div>';
 
   s._updateWindowHTML = function () {
     var m = typeof currentWindowMode !== 'undefined' ? currentWindowMode : 'windowed';
     return (
-      '<div class="ctx-menu-item" data-action="back" style="color:var(--text-muted);font-size:10px">\u{2190}  Back</div>' +
+      '<div class="ctx-menu-item" data-action="back" style="color:var(--text-muted);font-size:10px"><i data-feather="arrow-left" width="16" height="16"></i>  Back</div>' +
       '<div class="ctx-menu-separator"></div>' +
-      '<div class="ctx-menu-item" data-action="windowed">' + (m === 'windowed' ? '\u{2705}  ' : '') + '\u{1F5A5}  Windowed</div>' +
-      '<div class="ctx-menu-item" data-action="frameless">' + (m === 'frameless' ? '\u{2705}  ' : '') + '\u{1F5A5}  Frameless</div>' +
-      '<div class="ctx-menu-item" data-action="fullscreen">' + (m === 'fullscreen' ? '\u{2705}  ' : '') + '\u{1F5A5}  Fullscreen</div>'
+      '<div class="ctx-menu-item" data-action="windowed">' + (m === 'windowed' ? '<i data-feather="check" width="16" height="16"></i>  ' : '') + '<i data-feather="monitor" width="16" height="16"></i>  Windowed</div>' +
+      '<div class="ctx-menu-item" data-action="frameless">' + (m === 'frameless' ? '<i data-feather="check" width="16" height="16"></i>  ' : '') + '<i data-feather="monitor" width="16" height="16"></i>  Frameless</div>' +
+      '<div class="ctx-menu-item" data-action="fullscreen">' + (m === 'fullscreen' ? '<i data-feather="check" width="16" height="16"></i>  ' : '') + '<i data-feather="monitor" width="16" height="16"></i>  Fullscreen</div>'
     );
   };
 
@@ -417,8 +426,10 @@
         var action = item.dataset.action;
         if (action === 'window') {
           menu.innerHTML = s._updateWindowHTML();
+          if (typeof feather !== 'undefined') feather.replace();
         } else if (action === 'back') {
           menu.innerHTML = s._settingsMainHTML;
+          if (typeof feather !== 'undefined') feather.replace();
         } else if (action === 'scenes') {
           s.closeSettingsDropdown();
           s.openSceneSettings();
@@ -449,12 +460,11 @@
     var item = document.getElementById('autostart-item');
     if (!item) return;
     if (res.available === false) {
-      item.textContent = '\u{23F1}  Start on boot (not available)';
+      item.innerHTML = '<i data-feather="clock" width="16" height="16"></i>  Start on boot (not available)';
       item.style.opacity = '0.4';
       return;
     }
-    item.style.opacity = '1';
-    item.textContent = res.enabled ? '\u2705  Start on boot' : '\u{2B1C}  Start on boot';
+    item.innerHTML = res.enabled ? '<i data-feather="check" width="16" height="16"></i>  Start on boot' : '<i data-feather="square" width="16" height="16"></i>  Start on boot';
   };
 
   s.closeSettingsDropdown = function () {

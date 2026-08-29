@@ -328,7 +328,7 @@ function createSubWidget(widgetDef, extId) {
               html += '<div style="display:flex;gap:4px">';
               html += '<input type="' + (f.input_type || 'text') + '" class="widget-form-input" data-field="' + f.id + '" value="' + escVal + '">';
               if (f.browse_action) {
-                html += '<button class="widget-form-browse" data-browse="' + f.id + '" data-browse-action="' + f.browse_action + '">\uD83D\uDCC1</button>';
+                html += '<button class="widget-form-browse" data-browse="' + f.id + '" data-browse-action="' + f.browse_action + '"><i data-feather="folder" width="14" height="14"></i></button>';
               }
               html += '</div>';
             }
@@ -339,6 +339,7 @@ function createSubWidget(widgetDef, extId) {
           html += '</div>';
           html += '<div class="widget-form-msg" id="form-msg-' + extId + '-' + id + '"></div>';
           formBody.innerHTML = html;
+          if (typeof feather !== 'undefined') feather.replace();
           formBody.querySelectorAll('.widget-form-browse').forEach(function (btn) {
             btn.addEventListener('click', function () {
               var fid = btn.dataset.browse;
@@ -387,13 +388,17 @@ function createSubWidget(widgetDef, extId) {
       break;
     }
     case 'dropdown': {
-      const icon = widgetDef.icon || '\u2699';
+      const icon = widgetDef.icon || 'settings';
       const pos = widgetDef.position || 'top-right';
       const tooltip = widgetDef.tooltip || '';
       const items = widgetDef.items || [];
       var ddTrigger = document.createElement('button');
       ddTrigger.className = 'widget-dd-trigger';
-      ddTrigger.innerHTML = icon;
+      if (icon && icon.startsWith('/')) {
+        ddTrigger.innerHTML = '<img src="' + icon + '" alt="" style="width:16px;height:16px">';
+      } else {
+        ddTrigger.innerHTML = '<i data-feather="' + icon + '" width="16" height="16"></i>';
+      }
       if (tooltip) ddTrigger.title = tooltip;
       var ddMenu = document.createElement('div');
       ddMenu.className = 'widget-dd-menu';
@@ -496,7 +501,7 @@ function updateWidgetValue(widgetEl, response) {
   if (response && response.error) {
     var valEl = widgetEl.querySelector('.widget-value, .widget-list-items, .widget-terminal-output, .badge-label');
     if (valEl) {
-      valEl.textContent = '\u26A0 ' + response.error;
+      valEl.innerHTML = '<i data-feather="alert-triangle" width="14" height="14"></i> ' + escapeHtml(response.error);
       valEl.style.color = 'var(--accent-red)';
     }
     return;

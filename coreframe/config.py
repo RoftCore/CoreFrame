@@ -45,6 +45,16 @@ if SHARED_LIB_DIR not in sys.path:
     else:
         sys.path.insert(0, SHARED_LIB_DIR)
 
+# Add site-packages from --prefix installs
+_site_pkgs = os.path.join(SHARED_LIB_DIR, 'Lib', 'site-packages')
+if os.path.isdir(_site_pkgs) and _site_pkgs not in sys.path:
+    sys.path.insert(0, _site_pkgs)
+
+# Also check for unix-style path
+_site_pkgs_unix = os.path.join(SHARED_LIB_DIR, 'lib', 'python3.11', 'site-packages')
+if os.path.isdir(_site_pkgs_unix) and _site_pkgs_unix not in sys.path:
+    sys.path.insert(0, _site_pkgs_unix)
+
 # ── Stale binary cleanup ──────────────────────────────────────────
 
 if getattr(sys, 'frozen', False):

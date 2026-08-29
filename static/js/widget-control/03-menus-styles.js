@@ -18,12 +18,12 @@
     m.id = 'ctx-menu';
     m.className = 'ctx-menu';
     m.innerHTML =
-      '<div class="ctx-menu-item" data-action="hide">\u{1F5D1}  Hide widget</div>' +
-      '<div class="ctx-menu-item" data-action="edit">\u{270E}  Edit widget</div>' +
-      '<div class="ctx-menu-item" data-action="style" id="ctx-style-btn" style="display:none">\u{265B} Change Style</div>' +
+      '<div class="ctx-menu-item" data-action="hide"><i data-feather="trash-2" width="16" height="16"></i>  Hide widget</div>' +
+      '<div class="ctx-menu-item" data-action="edit"><i data-feather="edit" width="16" height="16"></i>  Edit widget</div>' +
+      '<div class="ctx-menu-item" data-action="style" id="ctx-style-btn" style="display:none"><i data-feather="layers" width="16" height="16"></i> Change Style</div>' +
       '<div class="ctx-menu-separator"></div>' +
-      '<div class="ctx-menu-item" data-action="show" id="ctx-show-btn" style="display:none">\u{1F441}  Show hidden widgets...</div>' +
-      '<div class="ctx-menu-item" data-action="install" id="ctx-install-btn" style="display:none">\u{2795}  Install extension...</div>';
+      '<div class="ctx-menu-item" data-action="show" id="ctx-show-btn" style="display:none"><i data-feather="eye" width="16" height="16"></i>  Show hidden widgets...</div>' +
+      '<div class="ctx-menu-item" data-action="install" id="ctx-install-btn" style="display:none"><i data-feather="download" width="16" height="16"></i>  Install extension...</div>';
     document.body.appendChild(m);
 
     m.addEventListener('click', function (e) {
@@ -76,6 +76,7 @@
     menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 160) + 'px';
     menu.classList.add('visible');
+    if (typeof feather !== 'undefined') feather.replace();
   };
 
   s.openEmptyCtxMenu = function (e) {
@@ -91,6 +92,7 @@
     menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');
+    if (typeof feather !== 'undefined') feather.replace();
   };
 
   //  extensions settings 
@@ -333,7 +335,7 @@
     var body = document.getElementById('result-panel-body');
     var sc = s._scenes[sid];
     title.textContent = 'Change icon - ' + sid;
-    var currentLabel = sc.label || '\u{1F4C4}';
+    var currentLabel = sc.label || 'file';
     var currentImage = sc.image || '';
     var featherNames = ['activity','airplay','alert-circle','alert-triangle','align-center','align-justify','align-left','align-right','anchor','aperture','archive','arrow-down','arrow-down-circle','arrow-down-left','arrow-down-right','arrow-left','arrow-left-circle','arrow-right','arrow-right-circle','arrow-up','arrow-up-circle','arrow-up-left','arrow-up-right','at-sign','award','bar-chart-2','battery','battery-charging','bell','bluetooth','bold','book','bookmark','box','briefcase','calendar','camera','cast','check','check-circle','check-square','chevron-down','chevron-left','chevron-right','chevron-up','chrome','circle','clipboard','clock','cloud','cloud-drizzle','cloud-lightning','cloud-rain','cloud-snow','code','codepen','coffee','command','compass','copy','cpu','credit-card','crop','crosshair','database','delete','disc','divide','dollar-sign','download','droplet','edit','edit-2','edit-3','external-link','eye','eye-off','facebook','fast-forward','feather','figma','file','file-text','film','filter','flag','folder','frown','gift','git-branch','git-commit','git-merge','git-pull-request','github','gitlab','globe','grid','hard-drive','hash','headphones','heart','help-circle','hexagon','home','image','inbox','info','instagram','italic','key','layers','layout','life-buoy','link-2','linkedin','list','loader','lock','log-in','log-out','mail','map','map-pin','maximize','maximize-2','meh','menu','message-circle','message-square','mic','minimize','minimize-2','minus','minus-circle','monitor','moon','more-horizontal','more-vertical','move','music','navigation','navigation-2','npm','octagon','package','paperclip','pause','pause-circle','pen-tool','percent','phone','phone-call','phone-forwarded','phone-incoming','phone-missed','phone-off','phone-outgoing','pie-chart','play','play-circle','plus','plus-circle','plus-square','pocket','power','printer','radio','refresh-ccw','refresh-cw','repeat','rewind','rss','save','scissors','search','send','server','settings','share-2','shield','shopping-bag','shopping-cart','shuffle','sidebar','skip-back','skip-forward','slack','slash','sliders','smartphone','smile','speaker','square','star','stop-circle','sun','sunrise','sunset','tablet','tag','target','terminal','thermometer','thumbs-down','thumbs-up','toggle-left','toggle-right','trash-2','trending-down','trending-up','triangle','truck','tv','twitter','type','umbrella','underline','undo','unlock','upload','user','user-check','user-minus','user-plus','user-x','users','video','video-off','voicemail','volume','volume-1','volume-2','volume-x','watch','wifi','wind','x','x-circle','x-square','youtube','zap','zap-off','zoom-in','zoom-out'];
     var html = '<div style="font-family:var(--font-mono);padding:4px 0;">';

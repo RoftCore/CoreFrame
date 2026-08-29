@@ -12,7 +12,7 @@ from coreframe.config import log, EXTENSIONS_DIR, MARKETPLACE_URL, PROVIDERS_PAT
 from coreframe.utils import _is_safe_url
 from coreframe.extensions import extensions, _ext_isolation
 from coreframe.extensions.loader import _load_single_extension, _sync_extension_lib
-from coreframe.extensions.deps import _ensure_extension_deps
+from coreframe.extensions.deps import _ensure_extension_deps_async
 
 MARKETPLACE_CACHE = None
 MARKETPLACE_CACHE_TIME = 0
@@ -131,7 +131,7 @@ def register_marketplace_routes(app, socketio):
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'syncing'})
                     _sync_extension_lib(target)
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'deps'})
-                    _ensure_extension_deps(target)
+                    _ensure_extension_deps_async(target, ext_id)
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'loading'})
                     if _load_single_extension(ext_id):
                         ext_data = extensions.get(ext_id)
@@ -261,7 +261,7 @@ def register_marketplace_routes(app, socketio):
         def _bg_load():
             try:
                 _sync_extension_lib(target)
-                _ensure_extension_deps(target)
+                _ensure_extension_deps_async(target, ext_id)
                 _load_single_extension(ext_id)
                 socketio.emit('extension_install_progress', {'id': ext_id, 'step': 'done'})
             except Exception as e:

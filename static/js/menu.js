@@ -30,19 +30,20 @@ function buildSidebar(extensionsData) {
 
 function getIcon(name) {
   const icons = {
-    shield: '\u{1F6E1}',
-    monitor: '\u{1F4BB}',
-    vault: '\u{1F512}',
-    cpu: '\u{2699}',
-    network: '\u{1F310}',
-    disk: '\u{1F4BE}',
-    lock: '\u{1F510}',
-    terminal: '\u{2328}',
-    chart: '\u{1F4C8}',
-    folder: '\u{1F4C1}',
-    circle: '\u{25CF}'
+    shield: 'shield',
+    monitor: 'monitor',
+    vault: 'lock',
+    cpu: 'cpu',
+    network: 'globe',
+    disk: 'hard-drive',
+    lock: 'lock',
+    terminal: 'terminal',
+    chart: 'bar-chart-2',
+    folder: 'folder',
+    circle: 'circle'
   };
-  return icons[name] || '\u{25CF}';
+  var featherName = icons[name] || 'circle';
+  return '<i data-feather="' + featherName + '" width="16" height="16"></i>';
 }
 
 async function executeMenuAction(extId, action, label) {
