@@ -112,7 +112,11 @@ def _ensure_extension_deps_async(ext_path, ext_id):
         _patch_pip_for_frozen()
         try:
             from pip._internal.cli.main import main as _pip_main
-            _pip_main(['install', '--target', SHARED_LIB_DIR, '--no-input', '--quiet'] + missing)
+            _pip_main([
+                'install', '--prefix', SHARED_LIB_DIR,
+                '--no-input', '--quiet',
+                '--only-binary', ':all:',
+            ] + missing)
             log.info("Deps installed for %s", ext_id)
         except Exception as e:
             log.warning("Failed to install deps for %s: %s", ext_id, e)

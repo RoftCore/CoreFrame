@@ -68,6 +68,7 @@ function addExtensionToUI(extId, ext) {
     if (!existing) {
       const item = createSidebarExtensionItem(ext, extId);
       sidebar.appendChild(item);
+      if (typeof feather !== 'undefined') feather.replace();
     }
   }
   if (ext.widgets && ext.widgets.length > 0) {
@@ -115,8 +116,11 @@ function createSidebarExtensionItem(ext, extId) {
   item.dataset.extId = extId;
   const isError = extensionLoadState[extId]?.status === 'error';
   const isLoading = extensionLoadState[extId]?.status === 'loading';
+  const iconHtml = ext.icon
+    ? (ext.icon.startsWith('/') ? '<img src="' + ext.icon + '" alt="" style="width:16px;height:16px">' : '<i data-feather="' + ext.icon + '" width="16" height="16"></i>')
+    : '<i data-feather="cpu" width="16" height="16"></i>';
   item.innerHTML = `
-    <span class="ext-icon">${ext.icon || '📦'}</span>
+    <span class="ext-icon">${iconHtml}</span>
     <span class="ext-name">${escapeHtml(ext.name || extId)}</span>
     <span class="ext-status ${isError ? 'error' : isLoading ? 'loading' : 'loaded'}" 
           title="${isError ? escapeHtml(extensionLoadState[extId].loadError || 'Error') : isLoading ? 'Loading...' : 'Loaded'}">

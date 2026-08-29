@@ -352,18 +352,19 @@ function showExternalProviders() {
     var body = document.getElementById('ep-body');
     if (!body) return;
     var html = '';
-    html += '<div class="provider-warning"><span class="provider-warning-icon">\u26A0</span><span>External providers are not supervised or verified by CoreFrame. Extensions from these sources may be unsafe. Install only from providers you trust.</span></div>';
+    html += '<div class="provider-warning"><span class="provider-warning-icon"><i data-feather="alert-triangle" width="16" height="16"></i></span><span>External providers are not supervised or verified by CoreFrame. Extensions from these sources may be unsafe. Install only from providers you trust.</span></div>';
     html += '<div class="provider-input-row"><input type="text" id="ep-url-input" placeholder="https://example.com/registry.json"><button id="ep-add-btn">Add</button></div>';
     if (providers && providers.length) {
       html += '<div style="display:flex;flex-direction:column;gap:6px;" id="ep-list">';
       providers.forEach(function (p, i) {
-        html += '<div class="provider-card" data-idx="' + i + '"><div class="provider-card-icon">\uD83C\uDF10</div><div class="provider-card-info"><div class="provider-card-name">' + escapeHtml(p.name || p.url) + '</div><div class="provider-card-url">' + escapeHtml(p.url) + '</div></div><button class="ext-card-btn ext-card-btn-danger ep-remove" data-idx="' + i + '">Remove</button></div>';
+        html += '<div class="provider-card" data-idx="' + i + '"><div class="provider-card-icon"><i data-feather="globe" width="16" height="16"></i></div><div class="provider-card-info"><div class="provider-card-name">' + escapeHtml(p.name || p.url) + '</div><div class="provider-card-url">' + escapeHtml(p.url) + '</div></div><button class="ext-card-btn ext-card-btn-danger ep-remove" data-idx="' + i + '">Remove</button></div>';
       });
       html += '</div>';
     } else {
       html += '<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:11px;">No external providers configured.</div>';
     }
     body.innerHTML = html;
+    if (typeof feather !== 'undefined') feather.replace();
     document.getElementById('ep-add-btn').addEventListener('click', function () {
       var input = document.getElementById('ep-url-input');
       var url = (input.value || '').trim();
