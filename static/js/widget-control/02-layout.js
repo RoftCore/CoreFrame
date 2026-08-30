@@ -780,6 +780,7 @@
         dragEl.style.margin = '0';
         dragEl.classList.add('widget-dragging');
         document.body.appendChild(dragEl);
+        document.body.classList.add('widget-drag-active');
 
         document.addEventListener('mousemove', onMove, true);
         document.addEventListener('mouseup', onMoveUp, true);
@@ -1002,6 +1003,7 @@
       }
 
       dragEl.classList.remove('widget-dragging', 'widget-collision');
+      document.body.classList.remove('widget-drag-active');
       dragEl = null;
       _wasDragged = false;
       _mode = null;
@@ -1096,6 +1098,7 @@
     if (grid) { grid.style.minHeight = ''; grid.style.position = ''; removeGridOverlay(grid); }
     window.removeEventListener('resize', redrawOverlay);
     document.body.classList.remove('edit-mode');
+    document.body.classList.remove('widget-drag-active');
     if (document._editCleanup) { document._editCleanup(); document._editCleanup = null; }
     const bar = document.getElementById('mode-indicator-bar');
     if (bar) bar.remove();
