@@ -565,12 +565,14 @@ window = webview.create_window(
     width=1280, height=800,
     fullscreen=initial_fullscreen,
     frameless=initial_frameless,
+    easy_drag=False,
     hidden=True,
     background_color=COREFRAME_BG,
 )
 _trace('window object created')
 
 _shown = threading.Event()
+_frameless_ok = False
 
 def _ui(i, WinForms, fn):
     """Run fn on the UI thread WITHOUT risking Invoke-deadlock:
@@ -644,6 +646,8 @@ def _apply_initial_frameless():
             i.WindowState = getattr(WinForms.FormWindowState, 'Maximized')
             i.TopMost = False
             _start_frameless_taskbar_watcher(i, screen)
+            global _frameless_ok
+            _frameless_ok = True
             _trace('initial frameless applied successfully')
         except Exception as e:
             _trace(f'initial frameless _mutate error: {e}')
@@ -695,7 +699,10 @@ def _do_reveal():
             _apply_initial_frameless()
             # Safety-net: re-apply after 1s in case the first pass was
             # overridden by late WinForms layout processing.
-            threading.Timer(1.0, _apply_initial_frameless).start()
+            def _frameless_timer():
+                if not _frameless_ok:
+                    _apply_initial_frameless()
+            threading.Timer(1.0, _frameless_timer).start()
     except Exception as e:
         _trace(f'_do_reveal exception: {e}')
 
@@ -724,7 +731,10 @@ def _watchdog():
         # Apply frameless if the app started in frameless mode
         if initial_frameless:
             _apply_initial_frameless()
-            threading.Timer(1.0, _apply_initial_frameless).start()
+            def _frameless_timer_watchdog():
+                if not _frameless_ok:
+                    _apply_initial_frameless()
+            threading.Timer(1.0, _frameless_timer_watchdog).start()
     threading.Timer(0.2, _force).start()
 
 threading.Timer(4.0, _watchdog).start()
