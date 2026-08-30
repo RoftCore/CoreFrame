@@ -390,6 +390,11 @@ body.edit-mode .widget-overlayable {
   transition: none !important;
 }
 
+/* --- Blanket protection: disable ALL pointer events on widgets during drag --- */
+body.widget-drag-active .widget-extension:not(.widget-dragging) {
+  pointer-events: none !important;
+}
+
 /* --- Drag placeholder (target indicator during drag) --- */
 .widget-drag-placeholder {
   border: 2px dashed var(--accent-cyan);
