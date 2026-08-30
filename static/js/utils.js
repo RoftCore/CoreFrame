@@ -14,7 +14,7 @@ async function apiFetch(url, options = {}) {
   try {
     var headers = {};
     if (options.headers && typeof options.headers === 'object') {
-      for (var k in options.headers) headers[k] = options.headers[k];
+      for (var key in options.headers) headers[key] = options.headers[key];
     }
     if (_COREFRAME_TOKEN) headers['X-CoreFrame-Token'] = _COREFRAME_TOKEN;
     if (typeof options.body === 'string' && !headers['Content-Type']) {
@@ -23,12 +23,12 @@ async function apiFetch(url, options = {}) {
     delete options.headers;
     var timeout = (options && options.timeout) || 90000;
     const controller = new AbortController();
-    var t = setTimeout(function () { controller.abort(); }, timeout);
+    var timeoutId = setTimeout(function () { controller.abort(); }, timeout);
     var res;
     try {
       res = await fetch(url, { ...options, headers, signal: controller.signal });
     } finally {
-      clearTimeout(t);
+      clearTimeout(timeoutId);
     }
     if (!res) return { error: 'Request timed out' };
     if (!res.ok) {

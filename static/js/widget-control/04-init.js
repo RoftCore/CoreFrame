@@ -131,8 +131,8 @@
     s.applyHiddenState();
     s.applySavedLayouts();
     s.applyWidgetStyles();
-    var mc = document.getElementById('main-content');
-    if (mc) mc.style.visibility = '';
+    var mainContent = document.getElementById('main-content');
+    if (mainContent) mainContent.style.visibility = '';
   }
 
   function ensureApplied() {
