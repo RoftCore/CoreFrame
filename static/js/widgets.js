@@ -31,8 +31,8 @@ function clearProgressTimers() {
 
 function clearDropdownMenus() {
   for (var i = 0; i < _dropdownMenus.length; i++) {
-    var m = _dropdownMenus[i];
-    if (m.parentNode) m.parentNode.removeChild(m);
+    var menu = _dropdownMenus[i];
+    if (menu.parentNode) menu.parentNode.removeChild(menu);
   }
   _dropdownMenus.length = 0;
 }
