@@ -61,6 +61,7 @@ a = Analysis(
         'eventlet',
         'psutil',
         'requests',
+        'orjson',
         'PIL.Image',
         'PIL._imaging',
         'PIL._imagingcms',
@@ -73,6 +74,7 @@ a = Analysis(
         'webview.platforms.win32',
         'webview.platforms.edgechromium',
         'clr',
+        'coreframe.extensions.ext_runner',
         # Full stdlib so runtime-loaded widget deps always import cleanly,
         # with no system Python dependency. See _collect_full_stdlib() above.
         *_stdlib_all,

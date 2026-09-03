@@ -30,7 +30,7 @@ class ExtensionIsolation:
 
     def __init__(self):
         self.health: Dict[str, ExtensionHealth] = {}
-        self._executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix='ext-load')
+        self._executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix='ext-load')
         self._lock = threading.RLock()
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_monitor = threading.Event()

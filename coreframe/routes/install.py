@@ -14,7 +14,8 @@ from coreframe.extensions import (
     _load_single_extension, _sync_extension_lib, _start_polling,
 )
 from coreframe.extensions.deps import _ensure_extension_deps, _ensure_extension_deps_async
-from coreframe.extensions.loader import _load_extension_core
+from coreframe.extensions.loader import _load_extension_core, pending_consent, pending_migration
+from coreframe.extensions.permissions import get_permission_manager, PERMISSION_LEVELS
 
 
 def register_install_routes(app, socketio):
@@ -99,12 +100,27 @@ def register_install_routes(app, socketio):
             with open(REGISTRY_PATH, 'w', encoding='utf-8') as rf:
                 json.dump(registry, rf, indent=2)
 
+            # ── Check permissions before background load ────────────
+            perm = get_permission_manager()
+            required_level = perm.get_required_level(cfg_data)
+            needs_consent = required_level >= 3 and not perm.has_consent(ext_id)
+            is_legacy = required_level == -1
+
             def _bg_install(ext_id, ext_path):
                 try:
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'syncing'})
                     _sync_extension_lib(ext_path)
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'deps'})
                     _ensure_extension_deps(ext_path)
+
+                    if is_legacy:
+                        socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'needs_migration'})
+                        return
+
+                    if needs_consent:
+                        socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'needs_consent'})
+                        return
+
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'loading'})
                     if _load_single_extension(ext_id):
                         ext_data = extensions.get(ext_id)
@@ -159,9 +175,15 @@ def register_install_routes(app, socketio):
             stop_evt.set()
         extensions.pop(ext_id, None)
         failed_extensions.pop(ext_id, None)
+        pending_consent.pop(ext_id, None)
+        pending_migration.pop(ext_id, None)
         mod_name = f"extensions.{ext_id}"
         if mod_name in sys.modules:
             del sys.modules[mod_name]
+
+        # Revoke permissions
+        perm = get_permission_manager()
+        perm.revoke(ext_id)
 
         try:
             from coreframe.extensions.loader import _load_extension_core
@@ -235,3 +257,5 @@ def register_install_routes(app, socketio):
             return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=f'{ext_id}.zip')
         except Exception as e:
             return jsonify({'error': str(e)}), 500
+
+

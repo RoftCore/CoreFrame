@@ -1,4 +1,5 @@
 {
+  "permissions": { "level": "basic" },
   "id": "fortune_cookie",
   "name": "Fortune Cookie",
   "icon": "circle",
