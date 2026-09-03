@@ -54,6 +54,72 @@ extensions/mi_extension/
 | `js_modules` | string[] | `[]` | ❌ | JS files in `static/` |
 | `css_modules` | string[] | `[]` | ❌ | CSS files in `static/` |
 | `widgets` | array | `[]` | ✅ | Array of widget definitions |
+| `permissions` | object | — | ❌ | Permission declaration (see [Permissions](#permisos)) |
+
+### permissions
+
+CoreFrame 1.1.0 introduces a 6-level permission system with subprocess isolation. Every Python extension runs in its own OS process (`--ext-runner` embebido) with file/network/subprocess restrictions enforced at the OS level.
+
+| Level | Name | Value | Description | Needs consent | Escalation |
+|-------|------|-------|-------------|---------------|------------|
+| `basic` | Básico | 0 | UI only, no file/network access | No | — |
+| `storage` | Almacenamiento | 1 | Only `data_dir` (own files) | No | — |
+| `user_files` | Archivos del usuario | 2 | Whitelisted files only (mediated via file dialog) | No | — |
+| `network` | Red | 3 | Outbound HTTP/HTTPS + read `data_dir` | **Yes** | — |
+| `system` | Sistema | 4 | Read system info, processes, registry (read-only) | **Yes** | `registry_write` → admin |
+| `admin` | Admin | 5 | Full control: registry write, services, files | **Yes** | — |
+
+Declare in `extension.json`:
+
+```json
+{
+  "permissions": {
+    "level": "system",
+    "requires": ["system_info"],
+    "mediated": false,
+    "escalation": {
+      "admin": {
+        "methods": ["registry_write", "service_control", "delete_file", "toggle"],
+        "description": "Deshabilitar entradas de inicio"
+      }
+    }
+  }
+}
+```
+
+- `level` < 3 loads without modal. `network`/`system`/`admin` show a consent modal on first load.
+- `escalation.admin.methods` lists actions that require **extra** admin approval even if base level is `system`. When the frontend calls one of those methods, CoreFrame shows a second modal: **Once** (single use, consumed after one successful call) vs **Always** (permanent). If denied, the widget must stay in waiting state for **10s** (cancellable) and then show a CoreFrame timeout message, not an error.
+
+**Isolation:** All Python extensions go through `coreframe/extensions/ext_runner.py` (embebido como string en `run_coreframe.pyw`, sin archivos en `MEIPASS`). `builtins.open` is restricted to `allowed_dirs` + `exe dir` + `_MEIPASS` + `TEMP` + `ext_path`. `socket` and `subprocess` are blocked below the required level. `DATA_DIR` and `SHARED_LIB_DIR` are injected via `config['_coreframe']`.
+
+**Admin elevation:** Methods in `escalation.admin` that need to write the system must not do `winreg`/`sc` directly. Use the helper:
+
+```python
+# inside Extension.toggle / service_control etc.
+from coreframe.extensions.bridge import _call_elevated  # or use helper via _elevated_via_helper
+# For registry/service, call helper which runs coreframe_helper.exe with UAC:
+ok, res = _elevated_via_helper("service_control", {"service": svc, "action": "disable"})
+# or for registry:
+ok, res = _elevated_via_helper("registry_write", {"hive":"HKEY_LOCAL_MACHINE","key":subkey,"name":vname, ...})
+```
+
+If you do direct `winreg`/`sc` without helper, it will fail with `Access is denied` unless CoreFrame itself is run as admin. With helper, CoreFrame shows **Windows UAC** (blue prompt) once, then AVG whitelists `coreframe_helper.exe`.
+
+**Frontend:** Always use global `apiFetch` (handles `X-CoreFrame-Token`). Handle `403` with `needs_escalation` / `needs_consent`:
+
+```javascript
+try {
+  const r = await apiFetch('/api/extension/my_ext/toggle', {method:'POST', body:JSON.stringify({id})});
+} catch(e) {
+  if(e.message.includes('Escalation')) {
+    // Show single waiting UI for 10s, cancellable
+    showPermWaiting(e.message); // 10s, no error on timeout → CoreFrame message
+    // Poll GET /api/extensions/my_ext/permissions until granted, then retry once
+  }
+}
+```
+
+Widgets must never show `Error: Escalation required` as a red error. Instead show a CoreFrame waiting message for 10s (`Esperando permiso... 10s` + Cancel) and on timeout show `CoreFrame: tiempo de espera agotado` (not `Error`). The `Once` grant is consumed after one successful call, `Always` persists in `permissions_consent.json`.
 
 ### widgets[]
 

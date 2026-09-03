@@ -90,7 +90,7 @@
     var sw = s.sceneWidgets();
     var h = {};
     for (var id in sw) {
-      if (sw[id] && sw[id].hidden && window.extensionsData && window.extensionsData[id]) h[id] = true;
+      if (sw[id] && sw[id].hidden) h[id] = true;
     }
     document.querySelectorAll('.widget-extension').forEach(function (w) {
       var extId = w.dataset.extId;
@@ -107,9 +107,20 @@
         }
       }
     }
+    // Include deferred hidden extensions that are not yet in extensionsData but are hidden in scene
+    for (var id in sw) {
+      if (sw[id] && sw[id].hidden && !h[id]) h[id] = true;
+    }
     return h;
   };
 
+  function isVisibleInAnyScene(extId){
+    for(var sid in s._scenes){
+      var sc = s._scenes[sid];
+      if(sc && sc.widgets && sc.widgets[extId] && !sc.widgets[extId].hidden) return true;
+    }
+    return false;
+  }
   s.hideWidget = function (widget) {
     const extId = widget.dataset.extId;
     if (!extId || !s.currentScene()) return;
@@ -119,6 +130,10 @@
     sw[extId].hidden = true;
     s.persistScenes();
     widget.style.display = 'none';
+    // Kill process only if hidden in ALL scenes (same ext_runner process shared)
+    if(!isVisibleInAnyScene(extId)){
+      apiFetch('/api/extensions/' + encodeURIComponent(extId) + '/unload', {method:'POST'}).catch(function(){});
+    }
   };
 
   s.showHiddenPanel = function () {
@@ -195,8 +210,56 @@
     overlay.classList.add('open');
   };
 
-  s.unhideWidget = function (extId) {
+  s.unhideWidget = async function (extId) {
     if (!s.currentScene()) return false;
+
+    // Lazy load: if extension was deferred (hidden at startup), load it now
+    if (!window.extensionsData || !window.extensionsData[extId]) {
+      try {
+        const loadRes = await apiFetch('/api/extensions/' + extId + '/load', { method: 'POST' });
+        if (loadRes && loadRes.loaded) {
+          // Refresh extensions data
+          const newData = await apiFetch('/api/extensions');
+          if (newData && !newData.error) {
+            window.extensionsData = newData;
+            if (typeof buildSidebar !== 'undefined') buildSidebar(newData);
+          }
+        }
+      } catch (e) {
+        console.warn('[WIDGET] Deferred load failed for ' + extId, e);
+      }
+    }
+
+    // Check consent status before showing
+    try {
+      const check = await apiFetch('/api/extensions/' + extId + '/permissions/check');
+      if (check && !check.has_consent) {
+        // Needs consent — show modal first
+        const level = check.level || 3;
+        const name = check.name || extId;
+        const granted = await window.__permissions.showConsentModal(extId, name, level, {});
+        if (granted) {
+          const res = await apiFetch('/api/extensions/' + extId + '/permissions/grant', {
+            method: 'POST',
+            body: JSON.stringify({ level: level, escalations: [] }),
+          });
+          if (!res || !res.loaded) {
+            s.showToast('Failed to load extension');
+            return false;
+          }
+          // Extension loaded — reload to get its widgets
+          location.reload();
+          return true;
+        } else {
+          // Denied — don't show widget
+          return false;
+        }
+      }
+    } catch (e) {
+      console.error('[WIDGET] Consent check failed:', e);
+    }
+
+    // Consent OK or not needed — proceed with unhiding
     var sw = s.currentScene().widgets;
     var gs = s.getExtGrid(extId);
     var w = gs.w || 2, h = gs.h || 2;
@@ -261,35 +324,29 @@
 
   s.saveAllLayouts = function () {
     if (!s.currentScene()) return;
-    var sw = {};
+    // Simple: only update positions for currently visible widgets in DOM, keep hidden as is
+    // Do NOT reconstruct hidden from DOM — widget_state.json is source of truth for hidden
     var maxCols = s.sceneCols();
     var sc = s.currentScene();
     var maxRows = (sc && sc.rows) || 6;
-    // First, preserve existing hidden widgets with their saved positions
-    var old = s.currentScene().widgets;
-    for (var hid in old) {
-      if (old[hid] && old[hid].hidden) {
-        sw[hid] = { col: old[hid].col, row: old[hid].row, w: old[hid].w, h: old[hid].h, hidden: true };
-      }
-    }
-    // Then add/update visible widgets from DOM
+    var cur = s.currentScene().widgets;
     document.querySelectorAll('.widget-extension').forEach(function (w) {
       if (w.style.display === 'none') return;
+      if (!w.dataset.extId || !cur[w.dataset.extId]) return;
       var gc = (w.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       var gr = (w.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
-      if (gc && gr && w.dataset.extId) {
+      if (gc && gr) {
         var col = Math.max(1, parseInt(gc[1],10));
         var row = Math.max(1, parseInt(gr[1],10));
         var wSpan = Math.max(1, Math.min(parseInt(gc[2],10), maxCols - col + 1));
         var hSpan = Math.max(1, Math.min(parseInt(gr[2],10), maxRows - row + 1));
-        sw[w.dataset.extId] = {
-          col: col, row: row,
-          w: wSpan, h: hSpan,
-          hidden: false
-        };
+        // Only update position/size, keep hidden as is (should be false for visible)
+        cur[w.dataset.extId].col = col;
+        cur[w.dataset.extId].row = row;
+        cur[w.dataset.extId].w = wSpan;
+        cur[w.dataset.extId].h = hSpan;
       }
     });
-    s.currentScene().widgets = sw;
     s.persistScenes();
   };
 

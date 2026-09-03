@@ -26,6 +26,32 @@
 .ctx-menu.visible {
   display: block;
 }
+.ctx-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+  gap: 8px;
+}
+.ctx-menu-header span:first-child {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctx-menu-level {
+  font-size: 9px;
+  padding: 1px 6px;
+  border: 1px solid var(--text-muted);
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .ctx-menu-item {
   display: flex;
   align-items: center;
@@ -251,6 +277,13 @@ body.edit-mode .widget.widget-resizing::after {
 }
 .ext-card-btn.ext-card-btn-danger:hover {
   background: rgba(255, 51, 85, 0.1);
+}
+.ext-card-btn.ext-card-btn-revoke {
+  border-color: var(--accent-yellow);
+  color: var(--accent-yellow);
+}
+.ext-card-btn.ext-card-btn-revoke:hover {
+  background: rgba(243, 156, 18, 0.1);
 }
 .ext-card-error {
   border-color: rgba(255, 51, 85, 0.3);

@@ -159,7 +159,9 @@ function _createExtensionCardInner(ext) {
 
   const header = document.createElement('div');
   header.className = 'widget-header';
-  header.textContent = name || extId;
+  const headerText = document.createElement('span');
+  headerText.textContent = name || extId;
+  header.appendChild(headerText);
   el.appendChild(header);
 
   const body = document.createElement('div');

@@ -27,6 +27,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   initResultPanel();
   initWebSocket();
 
+  // Initialize permission handlers after WebSocket is ready
+  if (window.__permissions) {
+    window.__permissions.initPermissionHandlers();
+    // Check for pending consents/migrations on startup
+    setTimeout(() => window.__permissions.checkPendingOnStartup(), 1500);
+  }
+
   const loadingEl = document.getElementById('main-content');
   loadingEl.innerHTML = '<div class="widget-grid"></div>';
 

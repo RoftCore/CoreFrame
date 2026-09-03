@@ -18,6 +18,7 @@
     m.id = 'ctx-menu';
     m.className = 'ctx-menu';
     m.innerHTML =
+      '<div class="ctx-menu-header" id="ctx-menu-header" style="display:none"><span id="ctx-menu-ext-name"></span><span class="ctx-menu-level" id="ctx-menu-ext-level"></span></div>' +
       '<div class="ctx-menu-item" data-action="hide"><i data-feather="trash-2" width="16" height="16"></i>  Hide widget</div>' +
       '<div class="ctx-menu-item" data-action="edit"><i data-feather="edit" width="16" height="16"></i>  Edit widget</div>' +
       '<div class="ctx-menu-item" data-action="style" id="ctx-style-btn" style="display:none"><i data-feather="layers" width="16" height="16"></i> Change Style</div>' +
@@ -60,6 +61,26 @@
     document.getElementById('ctx-show-btn').style.display = Object.keys(hidden).length > 0 ? 'flex' : 'none';
     document.getElementById('ctx-install-btn').style.display = 'none';
 
+    var extId = widget.dataset.extId;
+    var extData = window.extensionsData && window.extensionsData[extId];
+    var headerEl = document.getElementById('ctx-menu-header');
+    var nameEl = document.getElementById('ctx-menu-ext-name');
+    var levelEl = document.getElementById('ctx-menu-ext-level');
+    if (extData && headerEl && nameEl && levelEl) {
+      nameEl.textContent = extData.name || extId;
+      if (extData.permissions && extData.permissions.level >= 0 && window.__permissions) {
+        var lvl = extData.permissions.level;
+        var labels = window.__permissions.LEVEL_LABELS || {};
+        var colors = window.__permissions.LEVEL_COLORS || {};
+        levelEl.textContent = labels[lvl] || ('Nivel ' + lvl);
+        levelEl.style.color = colors[lvl] || 'var(--text-muted)';
+        levelEl.style.borderColor = colors[lvl] || 'var(--text-muted)';
+      } else {
+        levelEl.textContent = '';
+      }
+      headerEl.style.display = 'flex';
+    }
+
     var extData = window.extensionsData && window.extensionsData[widget.dataset.extId];
     var hasStyles = false;
     if (extData && extData.widgets) {
@@ -89,6 +110,8 @@
     menu.querySelector('.ctx-menu-separator').style.display = 'none';
     document.getElementById('ctx-show-btn').style.display = hasHidden ? 'flex' : 'none';
     document.getElementById('ctx-install-btn').style.display = hasHidden ? 'none' : 'flex';
+    var headerEl = document.getElementById('ctx-menu-header');
+    if (headerEl) headerEl.style.display = 'none';
     menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');
@@ -139,7 +162,12 @@
         } else {
           html += '<div class="ext-card-meta">v' + escapeHtml(ext.version || '?') + (ext.author ? ' &middot; ' + escapeHtml(ext.author) : '') + '</div>';
         }
-        html += '<div class="ext-card-actions"><button class="ext-card-btn ext-card-btn-danger ext-settings-del" data-ext="' + id + '">Delete</button></div>';
+        html += '<div class="ext-card-actions">';
+        if (ext.consent_granted) {
+          html += '<button class="ext-card-btn ext-card-btn-revoke ext-settings-revoke" data-ext="' + id + '">Revoke</button>';
+        }
+        html += '<button class="ext-card-btn ext-card-btn-danger ext-settings-del" data-ext="' + id + '">Delete</button>';
+        html += '</div>';
         html += '</div>';
       });
       html += '</div>';
@@ -153,6 +181,14 @@
           e.stopPropagation();
           var eid = btn.dataset.ext;
           s.showDeleteExtensionConfirm(eid);
+        });
+      });
+
+      list.querySelectorAll('.ext-settings-revoke').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var eid = btn.dataset.ext;
+          s.showRevokeConfirm(eid);
         });
       });
     }
@@ -216,6 +252,64 @@
       });
     };
     document.getElementById('confirm-ext-del-no').onclick = function () {
+      if (typeof onDone === 'function') {
+        s.closeResultPanel();
+        onDone();
+      } else {
+        s.openExtensionsSettings();
+      }
+    };
+  };
+
+  s.showRevokeConfirm = function (extId, onDone) {
+    var panel = document.getElementById('result-panel');
+    var overlay = document.getElementById('overlay');
+    var title = document.getElementById('result-panel-title');
+    var body = document.getElementById('result-panel-body');
+    var ext = (window.extensionsData || {})[extId] || {};
+    var name = ext.name || extId;
+    title.textContent = 'Revoke permissions';
+    body.innerHTML =
+      '<div style="font-family:var(--font-mono);padding:16px 0;text-align:center;font-size:13px;color:var(--text-primary)">' +
+      'Revoke permissions for <strong>' + escapeHtml(name) + '</strong>? It will no longer load until you grant consent again.' +
+      '<div style="margin-top:16px;display:flex;gap:8px;justify-content:center">' +
+      '<button id="confirm-ext-revoke-yes" class="pkg-btn" style="background:var(--accent-yellow,#f39c12);color:#fff">Revoke</button>' +
+      '<button id="confirm-ext-revoke-no" class="pkg-btn">Cancel</button>' +
+      '</div></div>';
+    panel.classList.add('open');
+    overlay.classList.add('open');
+    document.getElementById('confirm-ext-revoke-yes').onclick = function () {
+      apiFetch('/api/extensions/' + encodeURIComponent(extId) + '/permissions/revoke', { method: 'POST' }).then(function (data) {
+        if (data && data.error) {
+          s.showToast('Error: ' + data.error);
+          return;
+        }
+        // Only hide from viewport, keep as paperweight: use hideWidget to persist in picker
+        var widget = document.querySelector('.widget-extension.ext-' + extId);
+        if (widget) s.hideWidget(widget);
+        else {
+          var w2 = document.getElementById('main-content');
+          if (w2) w2.querySelector('.widget-extension.ext-' + extId)?.remove();
+        }
+        s.showToast('Permissions revoked: ' + name);
+        // Reload extensions data so revoked stays as pending paperweight in extensions list and show-widgets picker
+        apiFetch('/api/extensions').then(function (newData) {
+          if (newData && !newData.error) {
+            window.extensionsData = newData;
+            if (typeof buildSidebar !== 'undefined') buildSidebar(newData);
+            // Ensure revoked widget is marked hidden, not deleted
+            s.loadState().then(function(){
+              s.applyHiddenState();
+              if (window.__widgetControl && window.__widgetControl.autoAddExtensions) window.__widgetControl.autoAddExtensions();
+              s.openExtensionsSettings();
+            });
+          } else {
+            s.openExtensionsSettings();
+          }
+        }).catch(function(){ s.openExtensionsSettings(); });
+      });
+    };
+    document.getElementById('confirm-ext-revoke-no').onclick = function () {
       if (typeof onDone === 'function') {
         s.closeResultPanel();
         onDone();

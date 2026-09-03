@@ -101,15 +101,19 @@
 
   s.switchScene = function (sid) {
     if (sid === s._activeScene || !s._scenes[sid]) return;
-    s.saveAllLayouts();
+    // Save previous scene in background, don't block UI
+    try { s.saveAllLayouts(); } catch(_){}
     s._activeScene = sid;
     s.renderSceneBar();
-    s.applyHiddenState();
-    s.applySavedLayouts();
-    s.applyWidgetStyles();
-    s.persistScenes();
-    // ApplyWidgetState will trigger autoAddExtensions properly now
-    if (window.__widgetControl) window.__widgetControl.applyWidgetState();
+    // Defer heavy layout/style to next frame for instant switch
+    requestAnimationFrame(function(){
+      s.applyHiddenState();
+      s.applySavedLayouts();
+      s.applyWidgetStyles();
+      if (window.__widgetControl) window.__widgetControl.applyWidgetState();
+      // Persist in background
+      s.persistScenes();
+    });
   };
 
   s.createScene = function () {
