@@ -99,20 +99,61 @@
     if (typeof feather !== 'undefined') feather.replace();
   };
 
+  // Core immunity guarantee: switching scenes commits synchronously with
+  // zero network, zero awaits and zero extension invocation. All widget
+  // content (including a hanging or endlessly-loading extension) fills in
+  // afterwards at its own pace and can never hold the switch hostage.
+  // Rapid toggles coalesce: only the latest switch does apply work, so N
+  // fast toggles cost one apply pass + one persist POST, not N.
+  // The reveal itself is staged in small batches per frame: a heavy widget
+  // only ever delays its own paint, never the switch commit or other widgets.
+  s._switchGen = 0;
+  // Widgets revealed per animation frame during staged reveal.
+  s._revealPerFrame = 4;
   s.switchScene = function (sid) {
     if (sid === s._activeScene || !s._scenes[sid]) return;
-    // Save previous scene in background, don't block UI
-    try { s.saveAllLayouts(); } catch(_){}
+    // Save outgoing layout in memory (no POST here; the coalesced frame persists).
+    try { s.saveAllLayouts(true); } catch(_){}
     s._activeScene = sid;
     s.renderSceneBar();
+    var gen = ++s._switchGen;
     // Defer heavy layout/style to next frame for instant switch
     requestAnimationFrame(function(){
-      s.applyHiddenState();
+      if (gen !== s._switchGen) return; // superseded by a newer switch
+      var t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+      // 1. Hide everything outside this scene first (cheap: no content cost).
+      var sw = s.sceneWidgets();
+      document.querySelectorAll('.widget-extension').forEach(function (w) {
+        var pos = sw[w.dataset.extId];
+        if (!pos || pos.hidden) w.style.display = 'none';
+      });
       s.applySavedLayouts();
       s.applyWidgetStyles();
-      if (window.__widgetControl) window.__widgetControl.applyWidgetState();
-      // Persist in background
+      // State-only registration of newcomers (no DOM writes here).
+      if (window.__widgetControl && window.__widgetControl.autoAddExtensions) {
+        try { window.__widgetControl.autoAddExtensions(); } catch(_){}
+      }
+      var mainContent = document.getElementById('main-content');
+      if (mainContent) mainContent.style.visibility = '';
+      // Single persist for the winning switch (covers all scenes incl. skipped ones)
       s.persistScenes();
+      if (t0) {
+        var dt = performance.now() - t0;
+        if (dt > 50) console.warn('[CoreFrame] slow scene-switch commit: ' + Math.round(dt) + 'ms (budget 50ms)');
+      }
+      // 2. Reveal visible widgets in small batches so one heavy widget can
+      // never block the switch frame or starve input; each batch yields.
+      var ids = Object.keys(sw).filter(function (id) { return sw[id] && !sw[id].hidden; });
+      var i = 0;
+      (function revealBatch(){
+        if (gen !== s._switchGen) return; // a newer switch took over
+        var n = 0;
+        while (i < ids.length && n < s._revealPerFrame) {
+          var w = document.querySelector('.widget-extension.ext-' + ids[i++]);
+          if (w) { w.style.display = ''; n++; }
+        }
+        if (i < ids.length) requestAnimationFrame(revealBatch);
+      })();
     });
   };
 

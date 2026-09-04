@@ -565,9 +565,16 @@ def register_api_routes(app):
         if not os.path.isdir(static_dir):
             return Response('', 204)
         try:
-            return send_from_directory(static_dir, path)
+            resp = send_from_directory(static_dir, path)
         except FileNotFoundError:
             return Response('', 204)
+        # Long-cache immutable media: extension images/thumbs use content-stable
+        # filenames (timestamp/hash names, never edited in place), so repeat
+        # scene switches cost zero requests. JS/CSS/HTML keep default freshness.
+        lp = path.lower().replace('\\', '/')
+        if lp.startswith('thumbs/') or lp.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico')):
+            resp.headers['Cache-Control'] = 'public, max-age=86400'
+        return resp
 
     @app.route('/api/debug')
     def api_debug():

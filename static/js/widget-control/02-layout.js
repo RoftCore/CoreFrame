@@ -322,7 +322,10 @@
     s.persistScenes();
   };
 
-  s.saveAllLayouts = function () {
+  // Core immunity: scene switches must never wait on widgets. saveAllLayouts
+  // only touches in-memory positions; persistence is opt-out so rapid
+  // switches can coalesce into a single POST (see switchScene).
+  s.saveAllLayouts = function (skipPersist) {
     if (!s.currentScene()) return;
     // Simple: only update positions for currently visible widgets in DOM, keep hidden as is
     // Do NOT reconstruct hidden from DOM — widget_state.json is source of truth for hidden
@@ -347,7 +350,7 @@
         cur[w.dataset.extId].h = hSpan;
       }
     });
-    s.persistScenes();
+    if (!skipPersist) s.persistScenes();
   };
 
   s.applySavedLayouts = function () {

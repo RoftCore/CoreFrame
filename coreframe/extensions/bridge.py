@@ -456,7 +456,9 @@ class SubprocessBridge:
             self._proc.stdin.write(req)
             self._proc.stdin.flush()
 
-        is_data_fetch = method in ('get_config','get_entries','get_status','get_cpu','get_ram','get_gpu','get_disk','get_fortune','get_notes','get_ping')
+        # NOTE: get_entries (Autoruns full scan, ~4s) is NOT here on purpose —
+        # it is heavy legitimate work, not a lightweight poll.
+        is_data_fetch = method in ('get_config','get_status','get_cpu','get_ram','get_gpu','get_disk','get_fortune','get_notes','get_ping')
         timeout = 0.8 if is_data_fetch else 30
         deadline = time.time() + timeout
         while time.time() < deadline:

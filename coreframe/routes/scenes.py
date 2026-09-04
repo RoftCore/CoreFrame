@@ -162,4 +162,8 @@ def register_scene_routes(app):
 
     @app.route('/api/scenes/image/<filename>')
     def api_serve_scene_image(filename):
-        return send_from_directory(os.path.join(DATA_DIR, 'scenes'), filename)
+        # Scene backgrounds use timestamp names (scene_img_<ms>.<ext>), so they
+        # are content-stable: long-cache to make scene switches free.
+        resp = send_from_directory(os.path.join(DATA_DIR, 'scenes'), filename)
+        resp.headers['Cache-Control'] = 'public, max-age=86400'
+        return resp

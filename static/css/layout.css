@@ -264,6 +264,14 @@
   min-height: 0;
 }
 
+/* --- Widget render isolation: the browser skips layout/paint of
+   off-screen cards, so a heavy widget (gallery, charts) never taxes
+   scene switches or the initial paint of other widgets. */
+.widget-grid > .widget-extension {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+
 /* --- Result Panel (modal) --- */
 #result-panel {
   display: none;
