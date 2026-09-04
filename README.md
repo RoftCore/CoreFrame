@@ -3,7 +3,7 @@
 **Open-source modular dashboard.** Extensions in Python, Node.js and more. Grid widgets, scenes, customizable styles. A control center for systems, networks, development and daily tools.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python">
   <img src="https://img.shields.io/badge/HTML-5+-E34F26?logo=html5" alt="Html">
   <img src="https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black" alt="Javascript">
@@ -32,6 +32,10 @@
   - [Updating](#updating)
   - [Dependencies](#dependencies)
   - [Building from source](#building-from-source)
+- [How it works](#how-it-works)
+- [Permissions](#permissions)
+- [Using the API](#using-the-api)
+- [Installing libraries](#installing-libraries)
 - [Usage & options](#usage--options)
   - [Extensions](#extensions)
   - [Options](#options)
@@ -78,13 +82,26 @@ python app.py
 |------|------------|
 | `app.py` | Flask + SocketIO server |
 | `run_coreframe.pyw` | Native window launcher (pywebview) |
+| `coreframe/` | Backend package (routes, extensions, permissions, bridge) |
+| `coreframe_helper.py` / `coreframe_helper.exe` | UAC elevation helper (admin operations) |
 | `static/` | Frontend (HTML, CSS, JS) |
-| `extensions/` | Built-in extensions (network_monitor, system_monitor, vault_manager, ...) |
-| `data/` | Per-extension user data (notes, configs, downloads) — inside `~/Documents/CoreFrame/data/` |
 | `docs/` | Guides (EXTENSIONS.md, BRIDGE.md) |
 | `scaffolds/template-extension/` | Extension scaffold template |
 | `CoreFrame.spec` | PyInstaller config |
 | `requirements.txt` | Python dependencies |
+
+### Where your data lives
+
+Code and user data are strictly separated:
+
+| What | Windows | Linux |
+|------|---------|-------|
+| Your data | `~/Documents/CoreFrame/` | `~/.local/share/CoreFrame/` |
+| Extensions | `.../CoreFrame/extensions/<id>/` | same |
+| Per-extension data | `.../CoreFrame/data/<id>/` | same |
+| Shared libs | `.../CoreFrame/lib/` | same |
+| Widget layout | `.../CoreFrame/widget_state.json` | same |
+| Consents | `.../CoreFrame/permissions_consent.json`, `permissions_denied.json` | same |
 
 ### Updating
 
@@ -115,6 +132,157 @@ pyinstaller CoreFrame.spec
 
 ---
 
+## How it works
+
+```
+┌─────────────┐  JSON-RPC stdin/stdout  ┌──────────────────┐
+│  CoreFrame  │ ◄─────────────────────► │ ext #1 (process) │
+│  (Flask +   │                         ├──────────────────┤
+│   web UI)   │ ◄─────────────────────► │ ext #2 (process) │
+└─────────────┘                         └──────────────────┘
+       │ HTTP API (:8420)          each extension = own OS process
+       ▼
+  dashboard, scenes,
+  consent modals, UAC
+```
+
+- **Server:** Flask + Flask-SocketIO on `http://127.0.0.1:8420`. Serves the dashboard and a REST + WebSocket API.
+- **Isolation:** every Python extension runs in its **own OS process** (`CoreFrame.exe --ext-runner <config>`), talking JSON-RPC over stdin/stdout. A crashing or malicious extension cannot take down CoreFrame or read other extensions' memory.
+- **Enforcement:** the child process gets OS-level restrictions based on its permission level (file paths, network, subprocess). See [Permissions](#permissions).
+- **Frontend:** the dashboard calls the API; widgets poll or receive WebSocket pushes.
+
+Full protocol: [`docs/BRIDGE.md`](docs/BRIDGE.md). Full extension guide: [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md).
+
+---
+
+## Permissions
+
+Every extension declares a level in `extension.json`. CoreFrame enforces it in the child process — code running above its level gets `PermissionError`.
+
+| Level | Name | Can do | Consent modal? |
+|-------|------|--------|----------------|
+| 0 | `basic` | UI only. No files, no network | No |
+| 1 | `storage` | Read/write only its own `data/<id>/` folder | No |
+| 2 | `user_files` | Only files **you** pick (whitelist) | No |
+| 3 | `network` | Outbound HTTP/HTTPS + read its own data | **Yes** |
+| 4 | `system` | System info, processes, registry (read) **+ run subprocesses** (e.g. `ffmpeg`) | **Yes** |
+| 5 | `admin` | Full control: registry write, services, any file | **Yes** |
+
+```json
+{
+  "permissions": {
+    "level": "system",
+    "requires": ["subprocess"],
+    "mediated": false,
+    "escalation": {
+      "admin": {
+        "methods": ["registry_write", "service_control"],
+        "description": "Disable startup entries"
+      }
+    }
+  }
+}
+```
+
+- Levels 0–2 load silently. Levels 3–5 show a consent modal on first run.
+- **`escalation`**: individual methods that need an extra approval even inside the base level. The user picks **Once** (single use, then consumed) or **Always** (permanent). Denying keeps the widget in a 10-second waiting state, not an error.
+- **Admin operations** (`registry_write`, `service_control`, `delete_file`, …) never run CoreFrame as admin. They go through `coreframe_helper.exe`, which triggers a single Windows UAC prompt.
+
+Details: [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md) (permissions section).
+
+---
+
+## Using the API
+
+Base URL: `http://127.0.0.1:8420`
+
+**Auth:** a random token is generated on each launch. Get it without auth, then send it on every other call:
+
+```bash
+TOKEN=$(curl -s http://127.0.0.1:8420/api/token | jq -r .token)
+curl -H "X-CoreFrame-Token: $TOKEN" http://127.0.0.1:8420/api/extensions
+```
+
+(`GET /api/token`, `/api/health`, `/api/debug` need no token. Everything else under `/api/` returns `403 Unauthorized` without the `X-CoreFrame-Token` header.)
+
+**Main endpoints:**
+
+| Method | Endpoint | What it does |
+|--------|----------|--------------|
+| GET | `/api/extensions` | List extensions (config, widgets, permission info, consent state) |
+| GET/POST | `/api/extension/<id>/<action>` | Call an extension method. GET = no args, POST = JSON body as `data` |
+| GET | `/api/extensions/health` | Load status per extension |
+| GET | `/api/widget-state` / POST | Get/save scene + widget layout |
+| GET/POST | `/api/scenes`, `PUT/DELETE /api/scenes/<id>` | Manage scenes |
+| GET | `/api/extensions/<id>/permissions` | Granted level + escalations |
+| POST | `/api/extensions/<id>/permissions/grant` | Grant `{level, escalations[]}` |
+| POST | `/api/extensions/<id>/permissions/revoke` | Revoke all |
+| POST | `/api/extensions/<id>/permissions/escalation` | Grant/deny one method `{method, grant, once}` |
+| GET | `/api/extensions/pending_consent` | Extensions waiting for a decision |
+| POST | `/api/install_extension` | Install a `.zip` |
+| DELETE | `/api/extensions/<id>` | Uninstall |
+| GET | `/ext-static/<id>/<file>` | Extension frontend files (`static/`) |
+
+**Calling an extension method:**
+
+```bash
+# GET — calls def get_status(self)
+curl -H "X-CoreFrame-Token: $TOKEN" \
+  http://127.0.0.1:8420/api/extension/notes/get_notes
+
+# POST — calls def create(self, data) with the JSON body
+curl -X POST -H "X-CoreFrame-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"title":"Hi","body":"..."}' \
+  http://127.0.0.1:8420/api/extension/notes/create
+```
+
+Extension methods must return `{"value": ...}` or `{"error": ...}`.
+Data-fetch calls time out after **0.8s** (long operations: 30s); after 3 timeouts the widget is marked `degraded` instead of blocking CoreFrame.
+
+**From extension JavaScript**, always use the global helper (it handles token + JSON for you):
+
+```javascript
+// GET
+apiFetch('/api/extension/my_ext/get_status').then(function(data) {
+  console.log(data.value);
+});
+// POST
+apiFetch('/api/extension/my_ext/create', {
+  method: 'POST',
+  body: JSON.stringify({ title: 'Test' })
+});
+```
+
+> Note: `apiFetch` resolves to `{error: ...}` on HTTP errors (it does not throw), and strips extra fields — check `data.error` / the message string.
+
+---
+
+## Installing libraries
+
+Extensions often need PyPI packages (`trimesh`, `yt_dlp`, `psutil`…). Two ways, both land in the shared `.../CoreFrame/lib/` visible to every extension process:
+
+**Option A — `requirements.txt` (recommended).** Put it in the extension folder:
+
+```
+trimesh
+numpy
+scipy
+```
+
+CoreFrame installs it in the background on first load (`pip install --prefix <DATA_DIR>/lib ...`). No restart needed — but the first call needing the lib may fail until install finishes, so handle that gracefully.
+
+**Option B — ship a `lib/` folder** inside the extension. On load it is copied into the shared lib and removed from the extension. Useful for vendored or offline packages.
+
+**Using them:** just `import` normally. The child process `sys.path` already includes the extension folder, the shared lib, and its `Lib/site-packages` (Windows) / `lib/python3.11/site-packages` (Linux):
+
+```python
+import yt_dlp  # works if installed via A or B
+```
+
+> Sandboxing note: libraries that **subclass `subprocess.Popen`** (like `yt_dlp`) import fine at levels < 4 — CoreFrame replaces `Popen` with a raisable *class*, not a function. Actually *spawning* processes still requires level ≥ 4 and raises `PermissionError` otherwise.
+
+---
+
 ## Usage & options
 
 ### Dev mode
@@ -135,7 +303,7 @@ python run_coreframe.pyw
 
 Extensions are loaded automatically from `~/Documents/CoreFrame/extensions/`. They can be:
 
-- **Python**: loaded via `importlib`. Just need an `extension.json` and `main.py` with an `Extension` class.
+- **Python**: an `extension.json` plus `main.py` with an `Extension` class. Runs isolated in its own subprocess — no `importlib` in the main process.
 - **Multi-language** (Node.js, Go, etc.): use the JSON-RPC bridge over stdin/stdout. The `extension.json` must set `"language"` and `"main"`.
 
 Each extension exposes widgets that appear in the grid. Widgets update:
@@ -165,7 +333,9 @@ Full guide at [`docs/EXTENSIONS.md`](docs/EXTENSIONS.md).
 extensions/my_extension/
 ├── extension.json
 ├── main.py
-└── static/          (optional)
+├── requirements.txt   (optional — auto-installed to shared lib)
+├── lib/               (optional — vendored packages, synced to shared lib)
+└── static/            (optional — served at /ext-static/my_extension/...)
     ├── script.js
     └── style.css
 ```
@@ -179,6 +349,7 @@ extensions/my_extension/
   "version": "1.0",
   "author": "Your name",
   "category": "general",
+  "permissions": { "level": "basic" },
   "widgets": [
     { "id": "greeting", "type": "text", "label": "Greeting", "action": "get_greeting" }
   ]
@@ -190,6 +361,7 @@ extensions/my_extension/
 class Extension:
     def __init__(self, config):
         self.config = config
+        # config['data_dir'] -> your writable folder (create on demand)
 
     def get_greeting(self):
         return {"value": "Hello from my extension!"}
@@ -202,6 +374,7 @@ class Extension:
   "id": "my_api",
   "language": "node",
   "main": "server.js",
+  "permissions": { "level": "basic" },
   "widgets": [
     { "id": "status", "type": "text", "label": "Status", "action": "get_status" }
   ]
