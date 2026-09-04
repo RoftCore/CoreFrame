@@ -154,16 +154,20 @@ func main() {
 
 ## Considerations
 
-- **Timeout**: the bridge waits 30s for a response. After that time, it returns an error to the widget.
-- **Lifecycle**: the child process is launched when the extension loads. If it dies, the extension becomes unusable. When CoreFrame closes, it sends `SIGTERM` (and `SIGKILL` if it doesn't respond within 5s).
-- **stderr**: it is captured and logged, but does not affect the protocol.
+- **Timeout / circuit breaker**: data-fetch methods (`get_config`, `get_entries`, `get_status`, `get_cpu`, `get_ram`, `get_gpu`, `get_disk`, `get_fortune`, `get_notes`, `get_ping`) time out after **0.8s**; any other method after **30s**. After 3 timeouts the widget is marked `degraded` instead of blocking CoreFrame — a slow extension can never freeze the dashboard.
+- **Ready handshake**: after spawn, the child must print `{"result": "ready", "id": 0}` within 15s or the bridge reports `Runner startup failed`.
+- **Heartbeat**: parent and child exchange `{"method": "heartbeat"}` every 10s. No heartbeat for 60s → extension marked `degraded` → auto-restart (up to 3 attempts).
+- **Lifecycle**: the child process is launched when the extension loads. When CoreFrame closes, the bridge calls `terminate()` (then `kill()` after 2s) and deletes the temp config file.
+- **stderr**: captured and logged (`[Bridge] <id> stderr: ...`), but does not affect the protocol.
 - **Buffer**: use `flush=True` in Python or equivalent to avoid buffering.
 - **Multiple requests**: the bridge is synchronous (waits for a response before sending the next one). The arrival order determines the response order.
 - **Idempotency**: each request has a unique `id`. If the child process receives a repeated `id` (extremely rare), it must respond to both.
+- **Blocked `Popen` is a class**: under permission levels < 4, `subprocess.Popen` is replaced with a raisable `BlockedPopen` *class* (not a function) precisely so libraries that do `class Popen(subprocess.Popen)` at import time (e.g. `yt_dlp`) still import. Only *spawning* raises `PermissionError`.
+- **Frozen mode**: there is no `ext_runner.py` file on disk. The `.exe` re-executes itself as `CoreFrame.exe --ext-runner <config.json>` and `exec()`s the embedded runner source — no `MEIPASS` file reads, no package imports.
 
 ## Adding a new language
 
-Edit `_LANG_MAP` in the `SubprocessBridge` class inside `app.py`:
+Edit `_LANG_MAP` in the `SubprocessBridge` class inside `coreframe/extensions/bridge.py`:
 
 ```python
 _LANG_MAP = {
