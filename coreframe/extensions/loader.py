@@ -77,9 +77,21 @@ def _check_permissions(ext_id: str, config: dict, ext_path: str) -> tuple:
         if granted >= level:
             return True, 'ok', {}
         else:
-            log.warning("Extension %s: consent level %d < required %d", ext_id, granted, level)
-            return False, 'denied', {
-                'reason': f'Consent level {granted} insufficient, need {level}',
+            # Insufficient level (e.g. extension bumped 3 -> 4): re-ask
+            # consent at the new level instead of hard-denying, otherwise
+            # the modal never appears and the user can't grant it.
+            log.warning("Extension %s: consent level %d < required %d, re-asking",
+                        ext_id, granted, level)
+            pending_consent[ext_id] = {
+                'name': config.get('name', ext_id),
+                'config': config,
+                'path': ext_path,
+                'level': level,
+                'previous_level': granted,
+            }
+            return False, 'needs_consent', {
+                'name': config.get('name', ext_id),
+                'level': level,
             }
 
     # Check if previously denied
