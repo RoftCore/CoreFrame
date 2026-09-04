@@ -316,21 +316,25 @@ class ExtensionSecurity:
                     break
             return _orig_run(*args, **kwargs)
 
-        def restricted_popen_init(*args, **kwargs):
-            for depth in range(1, 8):
-                try:
-                    frame = sys._getframe(depth)
-                    caller = frame.f_globals.get('__name__', '')
-                    if caller.startswith('extensions.') and caller != 'extensions':
-                        raise PermissionError(
-                            f"Security: level {security.level} cannot spawn subprocess"
-                        )
-                except ValueError:
-                    break
-            return _orig_popen(*args, **kwargs)
+        class RestrictedPopen(_orig_popen):
+            """Popen subclass that checks caller level on instantiation. Must
+            remain a real class so libraries that subclass subprocess.Popen
+            at import time (e.g. yt_dlp) still import cleanly."""
+            def __init__(self, *args, **kwargs):
+                for depth in range(1, 8):
+                    try:
+                        frame = sys._getframe(depth)
+                        caller = frame.f_globals.get('__name__', '')
+                        if caller.startswith('extensions.') and caller != 'extensions':
+                            raise PermissionError(
+                                f"Security: level {security.level} cannot spawn subprocess"
+                            )
+                    except ValueError:
+                        break
+                super().__init__(*args, **kwargs)
 
         _subprocess.run = restricted_run
-        _subprocess.Popen = restricted_popen_init
+        _subprocess.Popen = RestrictedPopen
 
 
 # ── Module-Level Functions ─────────────────────────────────────────

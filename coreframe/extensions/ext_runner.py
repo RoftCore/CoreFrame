@@ -166,12 +166,16 @@ def _apply_restrictions(restrictions):
             raise PermissionError(
                 f"Security: level {level} cannot run subprocess"
             )
-        def blocked_popen_init(*args, **kwargs):
-            raise PermissionError(
-                f"Security: level {level} cannot spawn subprocess"
-            )
+        class BlockedPopen:
+            """Popen replacement that blocks spawning. Must be a class (not a
+            function) so libraries that subclass subprocess.Popen at import
+            time (e.g. yt_dlp) still import cleanly; instantiation raises."""
+            def __init__(self, *args, **kwargs):
+                raise PermissionError(
+                    f"Security: level {level} cannot spawn subprocess"
+                )
         _subprocess.run = blocked_run
-        _subprocess.Popen = blocked_popen_init
+        _subprocess.Popen = BlockedPopen
     else:
         # Allowed but hide console windows on Windows
         if sys.platform.startswith('win'):

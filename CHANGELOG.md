@@ -137,6 +137,9 @@
 ### Bug Fixes — CoreFrame (subprocess isolation)
 
 - `ext_runner.py:355` / `run_coreframe.pyw:344` missing `Lib/site-packages` on Windows: `pip --prefix` installs to `lib/Lib/site-packages` but isolated child only added `lib` to `sys.path` → `ModuleNotFoundError: trimesh` even after successful `pip install` (seen in `glb_convex_hull` with `trimesh 4.12.2` in `lib`). Fixed by adding `Lib/site-packages` and `lib/python3.11/site-packages` to child's `sys.path` before `import`. **Error de CoreFrame, no de la extensión.**
+- `subprocess.Popen` replaced with a plain function broke `class Popen(subprocess.Popen)` subclassing at import time (`yt_dlp/utils/_utils.py:842` → `TypeError: function() argument 'code' must be code, not str`), masking the real state as `yt-dlp not installed` in `spotify_downloader`. Fixed with `BlockedPopen`/`RestrictedPopen` raisable classes in `ext_runner.py`, embedded `_EXT_RUNNER_SOURCE` in `run_coreframe.pyw`, and `security.py` — subclassing works, instantiation still raises `PermissionError`. Verified: subclass OK, `yt_dlp 2026.08.19` imports, spawn still blocked at level 3. **Error de CoreFrame, no de la extensión.**
+- `spotify_downloader` bumped `network` → `system` (shells out to `ffmpeg`, needs `subprocess_allowed`); triggers re-consent at level 4.
+- Insufficient granted level (e.g. `3 < required 4` after a bump) returned hard `denied` so the consent modal never appeared (`tiene nivel 3 pero requiere 4` with no way to grant). `loader.py:_check_permissions` now routes it through `needs_consent` + `pending_consent`, so the modal re-asks at the new level.
 
 ### Other
 
