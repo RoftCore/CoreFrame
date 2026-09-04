@@ -6,9 +6,24 @@ import faulthandler
 import threading
 import time
 import queue as _queue
-import urllib.request
 import ctypes
 from ctypes import wintypes
+import tempfile
+# Earliest possible boot marker (logging not set up yet) — splits
+# bootloader/MEIPASS extraction time from Python import time.
+try:
+    with open(os.path.join(tempfile.gettempdir(), 'cf_boot_mark.txt'), 'w') as _bf:
+        _bf.write('py %.3f\n' % time.time())
+except Exception:
+    pass
+# Child extension runners must not flash the bootloader splash: kill it
+# immediately (pyi_splash exists only in frozen builds).
+if '--ext-runner' in sys.argv:
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except Exception:
+        pass
 
 # ── Embedded ext_runner source (compiled into exe, no MEIPASS files) ───
 _EXT_RUNNER_SOURCE = r'''
@@ -416,17 +431,6 @@ if '--ext-runner' in sys.argv:
             pass
     sys.exit(0)
 
-# WinForms / System imports (via pythonnet)
-try:
-    import clr
-    clr.AddReference('System.Drawing')
-    clr.AddReference('System.Windows.Forms')
-    from System.Drawing import Point
-    from System.Windows.Forms import Timer as WinFormsTimer
-except Exception:
-    Point = None
-    WinFormsTimer = None
-
 # DPI Awareness - must be set BEFORE any WinForms/WebView2 initialization
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
@@ -484,6 +488,7 @@ if _SINGLE_INSTANCE_MUTEX and kernel32.GetLastError() == 183:  # ERROR_ALREADY_E
     kernel32.CloseHandle(_SINGLE_INSTANCE_MUTEX)
     time.sleep(0.5)
     try:
+        import urllib.request
         req = urllib.request.Request('http://127.0.0.1:8420/api/window/focus', method='POST')
         urllib.request.urlopen(req, timeout=2)
     except Exception:
@@ -812,6 +817,7 @@ def _create_splash():
         if not hwnd:
             return
         _splash_hwnd = hwnd
+        _trace('splash visible')
         user32.SetTimer(hwnd, 1, 33, None)  # ~30 fps spinner
 
         m = wintypes.MSG()
@@ -821,6 +827,14 @@ def _create_splash():
     except Exception:
         pass
 
+# Hand off bootloader splash (shown during MEIPASS extraction) to the
+# animated GDI splash. Close unconditionally — autostart/minimized boot
+# has no GDI splash but must not leave the static image on screen.
+try:
+    import pyi_splash
+    pyi_splash.close()
+except Exception:
+    pass
 if not AUTOSTART_FLAG and not MINIMIZED_FLAG:
     threading.Thread(target=_create_splash, daemon=True, name='splash').start()
 _trace('splash thread started')
@@ -837,8 +851,41 @@ def _destroy_splash():
         _splash_hwnd = None
 # ═══════════════ end native splash ═══════════════
 
+# WinForms / System imports (via pythonnet) — deferred here (after splash
+# is already painting) because initializing .NET costs ~1s of black screen.
+# Nothing above uses clr/Point/WinFormsTimer; first use is post-webview.
+try:
+    import clr
+    clr.AddReference('System.Drawing')
+    clr.AddReference('System.Windows.Forms')
+    from System.Drawing import Point
+    from System.Windows.Forms import Timer as WinFormsTimer
+except Exception:
+    Point = None
+    WinFormsTimer = None
+_trace('clr imported')
+
 from app import start_server  # patches subprocess to hide consoles
 _trace('app imported')
+
+HOST = '127.0.0.1'
+PORT = 8420
+DATA_DIR = DATA_DIR_EARLY
+CONFIG_PATH = os.path.join(DATA_DIR, 'coreframe.json')
+
+if getattr(sys, 'frozen', False):
+    STATIC_DIR = os.path.join(sys._MEIPASS, 'static')
+else:
+    STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+
+# Boot Flask in parallel with the heavy webview imports below —
+# _wait_for_server() blocks later until it answers.
+debug_mode = not getattr(sys, 'frozen', False)
+threading.Thread(target=start_server,
+                 kwargs={'host': HOST, 'port': PORT, 'debug': debug_mode},
+                 daemon=True, name='flask').start()
+_trace('server thread started')
+
 import webview.util
 import webview
 _trace('webview imported')
@@ -902,16 +949,6 @@ def _patched_bv_move(self, x, y):
                       x, y, getattr(self, '_scale', 'N/A'))
 _wf.BrowserView.BrowserForm.move = _patched_bv_move
 
-HOST = '127.0.0.1'
-PORT = 8420
-DATA_DIR = DATA_DIR_EARLY
-CONFIG_PATH = os.path.join(DATA_DIR, 'coreframe.json')
-
-if getattr(sys, 'frozen', False):
-    STATIC_DIR = os.path.join(sys._MEIPASS, 'static')
-else:
-    STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-
 def load_config():
     try:
         with open(CONFIG_PATH, encoding='utf-8') as f:
@@ -941,11 +978,6 @@ def _show_error(title, msg):
         ctypes.windll.user32.MessageBoxW(0, msg, title, 0x10)
     except Exception:
         pass
-
-debug_mode = not getattr(sys, 'frozen', False)
-threading.Thread(target=start_server,
-                 kwargs={'host': HOST, 'port': PORT, 'debug': debug_mode},
-                 daemon=True).start()
 
 if not _wait_for_server():
     _trace('server FAILED to start')

@@ -100,11 +100,25 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# Bootloader splash: static image shown DURING MEIPASS extraction, before
+# any Python runs. Closed via pyi_splash.close() in run_coreframe.pyw
+# (immediately for --ext-runner children, at GDI splash handoff for main).
+splash = Splash(
+    'splash.png',
+    binaries=a.binaries,
+    datas=a.datas,
+    text_pos=None,
+    text_size=12,
+    minify_script=True,
+)
+
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
+    splash,
+    splash.binaries,
     name='CoreFrame',
     icon='CoreFrame.ico',
     version='version_info.txt',
