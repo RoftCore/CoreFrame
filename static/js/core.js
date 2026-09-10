@@ -40,6 +40,43 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadExtensionsAsync();
   setInterval(pollExtensionUpdates, 1000);
   applyStartupMode();
+
+  // ── Freeze attribution: any main-thread block (>200ms) is reported
+  // with the culprit script URL to the backend log. Proves whether a
+  // freeze comes from core files or an extension script.
+  try {
+    if (typeof PerformanceObserver !== 'undefined') {
+      var _ltBuf = [];
+      var _ltTimer = null;
+      var _ltFlush = function () {
+        if (!_ltBuf.length) return;
+        var batch = _ltBuf.splice(0, _ltBuf.length);
+        try {
+          if (typeof apiFetch !== 'undefined') {
+            apiFetch('/api/debug/longtask', { method: 'POST',
+              body: JSON.stringify({ tasks: batch }) }).catch(function(){});
+          }
+        } catch (e) {}
+      };
+      new PerformanceObserver(function (list) {
+        var es = list.getEntries();
+        for (var i = 0; i < es.length; i++) {
+          var e = es[i];
+          if (e.duration < 200) continue;
+          var src = '';
+          try {
+            var at = e.attribution && e.attribution[0];
+            src = (at && (at.containerSrc || at.containerName)) || e.name || '';
+          } catch (_) {}
+          _ltBuf.push({ d: Math.round(e.duration), src: String(src).slice(-120) });
+        }
+        if (_ltBuf.length) {
+          try { clearTimeout(_ltTimer); } catch (_) {}
+          _ltTimer = setTimeout(_ltFlush, 2000);
+        }
+      }).observe({ entryTypes: ['longtask'] });
+    }
+  } catch (e) {}
 });
 
 // ── Result panel ──────────────────────────────────────────────────
@@ -78,7 +115,7 @@ function initWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}`;
   const socket = io(wsUrl, {
-    transports: ['polling'],
+    transports: ['websocket'],
     reconnection: true,
     reconnectionAttempts: 30,
     reconnectionDelay: 1000,
@@ -99,10 +136,53 @@ function initWebSocket() {
   socket.on('realtime_update', (data) => {
     if (!data.ext || !data.values) return;
     if (!window.extensionsData) return;
+    // Host immunity: no DOM writes mid-drag. Queue latest values only;
+    // they flush on 'coreframe-dragend'. A heavy widget updating at 2s
+    // can never jank a drag this way.
+    if (window.__coreframeDragging) {
+      window.__pendingWidgetUpdates = window.__pendingWidgetUpdates || {};
+      Object.keys(data.values).forEach(id => {
+        window.__pendingWidgetUpdates[data.ext + '|' + id] = { ext: data.ext, id: id, value: data.values[id] };
+      });
+      return;
+    }
     Object.keys(data.values).forEach(id => {
       const el = document.querySelector(`[data-widget-id="${id}"][data-ext-id="${data.ext}"]`);
-      if (el) updateWidgetValue(el, { value: data.values[id] });
+      if (!el) return;
+      // Skip hidden widgets: no backend-independent work for unseen content.
+      if (el.style.display === 'none') return;
+      updateWidgetValue(el, { value: data.values[id] });
     });
+  });
+
+  // Flush queued realtime values once the gesture ends, time-sliced
+  // (8ms budget per frame): applying every heavy redraw in a single
+  // frame would be its own drop jolt.
+  window.addEventListener('coreframe-dragend', () => {
+    const pending = window.__pendingWidgetUpdates;
+    window.__pendingWidgetUpdates = {};
+    if (!pending) return;
+    const entries = Object.keys(pending).map(k => pending[k]);
+    if (!entries.length) return;
+    let i = 0;
+    const applyOne = (p) => {
+      try {
+        const el = document.querySelector(`[data-widget-id="${p.id}"][data-ext-id="${p.ext}"]`);
+        if (!el) return;
+        if (el.style.display === 'none') return;
+        updateWidgetValue(el, { value: p.value });
+      } catch (e) {}
+    };
+    const step = () => {
+      const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      while (i < entries.length) {
+        applyOne(entries[i++]);
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        if (now - t0 > 8 && i < entries.length) break;
+      }
+      if (i < entries.length) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   });
 
   socket.on('focus_window', () => {

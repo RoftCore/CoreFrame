@@ -570,11 +570,43 @@ def register_api_routes(app):
             return Response('', 204)
         # Long-cache immutable media: extension images/thumbs use content-stable
         # filenames (timestamp/hash names, never edited in place), so repeat
-        # scene switches cost zero requests. JS/CSS/HTML keep default freshness.
+        # scene switches cost zero requests. JS/CSS/HTML must NEVER cache:
+        # extensions iterate in place and a stale bundle looks exactly like
+        # "the fix didn't work" (12h ghost otherwise).
         lp = path.lower().replace('\\', '/')
         if lp.startswith('thumbs/') or lp.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico')):
             resp.headers['Cache-Control'] = 'public, max-age=86400'
+        else:
+            resp.headers['Cache-Control'] = 'no-store, must-revalidate'
         return resp
+
+    @app.route('/api/debug/switch', methods=['POST'])
+    def api_debug_switch():
+        """Receives scene-switch timing telemetry from the frontend.
+        Lets us attribute slow switches (commit vs paint) without DevTools."""
+        try:
+            from coreframe.config import log as _log
+            data = request.get_json(silent=True) or {}
+            _log.info("[SwitchTelemetry] scene=%s commit_ms=%s paint_ms=%s phases=%s",
+                      data.get('scene'), data.get('commit_ms'),
+                      data.get('paint_ms'), data.get('phases'))
+        except Exception:
+            pass
+        return jsonify({'ok': True})
+
+    @app.route('/api/debug/longtask', methods=['POST'])
+    def api_debug_longtask():
+        """Receives main-thread freeze attribution from the frontend
+        longtask observer (script URL + duration)."""
+        try:
+            from coreframe.config import log as _log
+            data = request.get_json(silent=True) or {}
+            for t in (data.get('tasks') or [])[:10]:
+                _log.warning("[Freeze] main-thread blocked %sms by %s",
+                             t.get('d'), t.get('src') or '?')
+        except Exception:
+            pass
+        return jsonify({'ok': True})
 
     @app.route('/api/debug')
     def api_debug():

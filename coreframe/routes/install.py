@@ -4,6 +4,7 @@ import sys
 import json
 import time
 import shutil
+import tempfile
 import zipfile
 import threading
 from flask import request, jsonify
@@ -13,9 +14,60 @@ from coreframe.extensions import (
     extensions, failed_extensions, _ext_isolation,
     _load_single_extension, _sync_extension_lib, _start_polling,
 )
-from coreframe.extensions.deps import _ensure_extension_deps, _ensure_extension_deps_async
+from coreframe.extensions.deps import _ensure_extension_deps_sync
 from coreframe.extensions.loader import _load_extension_core, pending_consent, pending_migration
 from coreframe.extensions.permissions import get_permission_manager, PERMISSION_LEVELS
+
+
+def _install_dbg(ext_id, msg):
+    """Direct-file marker bypassing the logging module.
+
+    If a background install thread dies silently (BaseException, native
+    crash in frozen pip, AV thread-kill), the logging pipeline may never
+    flush — this file always shows exactly how far the flow got.
+    """
+    try:
+        with open(os.path.join(tempfile.gettempdir(), 'cf_install_dbg.log'),
+                  'a', encoding='utf-8') as f:
+            f.write(f'{time.time():.0f} {ext_id} {msg}\n')
+    except Exception:
+        pass
+
+
+def _rollback_install(ext_id, ext_path):
+    """Remove extracted files + registry entry after a failed install.
+
+    Returns True if nothing remains (no ghost). Best-effort on Windows
+    file locks: verify removal instead of trusting ignore_errors.
+    """
+    log.info("Rollback starting for %s (%s)", ext_id, ext_path)
+    clean = True
+    try:
+        if os.path.isdir(ext_path):
+            shutil.rmtree(ext_path, ignore_errors=True)
+            if os.path.exists(ext_path):
+                log.error("Rollback incomplete, files remain: %s", ext_path)
+                clean = False
+            else:
+                log.info("Rollback removed dir for %s", ext_id)
+        else:
+            log.info("Rollback: dir already gone for %s", ext_id)
+    except Exception as e:
+        log.error("Rollback rmtree failed for %s: %s", ext_id, e)
+        clean = False
+    try:
+        with open(REGISTRY_PATH, encoding='utf-8') as rf:
+            registry = json.load(rf)
+        if ext_id in registry:
+            del registry[ext_id]
+            with open(REGISTRY_PATH, 'w', encoding='utf-8') as rf:
+                json.dump(registry, rf, indent=2)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log.error("Rollback registry cleanup failed for %s: %s", ext_id, e)
+        clean = False
+    return clean
 
 
 def register_install_routes(app, socketio):
@@ -107,11 +159,30 @@ def register_install_routes(app, socketio):
             is_legacy = required_level == -1
 
             def _bg_install(ext_id, ext_path):
+                _install_dbg(ext_id, 'thread-start')
+                def _fail(msg):
+                    # Roll back files + registry so a failed install never
+                    # leaves a ghost that is "installed" but invisible.
+                    # If rollback itself fails, record a visible failed entry
+                    # (with Delete button) as a last resort.
+                    rolled_back = _rollback_install(ext_id, ext_path)
+                    if not rolled_back:
+                        from coreframe.extensions import failed_extensions as _failed
+                        _failed[ext_id] = {'name': ext_name, 'loadError': msg}
+                    detail = msg if rolled_back else (msg + ' (rollback incomplete, see Extensions panel)')
+                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': detail})
+
                 try:
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'syncing'})
                     _sync_extension_lib(ext_path)
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'deps'})
-                    _ensure_extension_deps(ext_path)
+                    _install_dbg(ext_id, 'pre-pip')
+                    deps_ok, deps_err = _ensure_extension_deps_sync(ext_path, ext_id)
+                    _install_dbg(ext_id, f'post-pip ok={deps_ok} err={deps_err[:120]}')
+                    if not deps_ok:
+                        log.error("Install deps failed for %s: %s", ext_id, deps_err)
+                        _fail(f"Failed to install dependencies: {deps_err}")
+                        return
 
                     if is_legacy:
                         socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'needs_migration'})
@@ -132,7 +203,22 @@ def register_install_routes(app, socketio):
                         socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': err_msg})
                 except Exception as e:
                     log.error("Background install failed for %s: %s", ext_id, e)
-                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': str(e)})
+                    _install_dbg(ext_id, f'except-Exception {type(e).__name__}: {e}'[:200])
+                    _fail(f"Install failed: {e}")
+                except BaseException as e:
+                    # SystemExit/KeyboardInterrupt and friends bypass
+                    # `except Exception` and kill threads SILENTLY (no log,
+                    # no traceback in frozen GUI apps). Loud rollback instead.
+                    try:
+                        log.error("Background install aborted for %s: %s %s", ext_id, type(e).__name__, e)
+                    except Exception:
+                        pass
+                    _install_dbg(ext_id, f'except-BaseException {type(e).__name__}: {e}'[:200])
+                    try:
+                        _fail(f"Install aborted: {type(e).__name__}: {e}")
+                    except Exception:
+                        pass
+                    return
 
             t = threading.Thread(target=_bg_install, args=(ext_id, target), daemon=True)
             t.start()

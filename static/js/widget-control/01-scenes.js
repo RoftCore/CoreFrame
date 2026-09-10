@@ -120,27 +120,32 @@
     // Defer heavy layout/style to next frame for instant switch
     requestAnimationFrame(function(){
       if (gen !== s._switchGen) return; // superseded by a newer switch
-      var t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+      var now = (typeof performance !== 'undefined') ? performance.now.bind(performance) : Date.now;
+      var phases = {};
+      function mark(name, t) { phases[name] = Math.round((now() - t) * 10) / 10; }
+      var t0 = now();
       // 1. Hide everything outside this scene first (cheap: no content cost).
       var sw = s.sceneWidgets();
       document.querySelectorAll('.widget-extension').forEach(function (w) {
         var pos = sw[w.dataset.extId];
         if (!pos || pos.hidden) w.style.display = 'none';
       });
+      mark('hide', t0);
       s.applySavedLayouts();
+      mark('layouts', t0);
       s.applyWidgetStyles();
+      mark('styles', t0);
       // State-only registration of newcomers (no DOM writes here).
       if (window.__widgetControl && window.__widgetControl.autoAddExtensions) {
         try { window.__widgetControl.autoAddExtensions(); } catch(_){}
       }
+      mark('autoadd', t0);
       var mainContent = document.getElementById('main-content');
       if (mainContent) mainContent.style.visibility = '';
       // Single persist for the winning switch (covers all scenes incl. skipped ones)
       s.persistScenes();
-      if (t0) {
-        var dt = performance.now() - t0;
-        if (dt > 50) console.warn('[CoreFrame] slow scene-switch commit: ' + Math.round(dt) + 'ms (budget 50ms)');
-      }
+      var commitMs = Math.round((now() - t0) * 10) / 10;
+      if (t0 && commitMs > 50) console.warn('[CoreFrame] slow scene-switch commit: ' + commitMs + 'ms (budget 50ms)');
       // 2. Reveal visible widgets in small batches so one heavy widget can
       // never block the switch frame or starve input; each batch yields.
       var ids = Object.keys(sw).filter(function (id) { return sw[id] && !sw[id].hidden; });
@@ -152,7 +157,30 @@
           var w = document.querySelector('.widget-extension.ext-' + ids[i++]);
           if (w) { w.style.display = ''; n++; }
         }
-        if (i < ids.length) requestAnimationFrame(revealBatch);
+        if (i < ids.length) { requestAnimationFrame(revealBatch); return; }
+        // Reveal complete: one fresh refresh for newly-visible core-driven
+        // widgets (intervals skip hidden ones, so values may be stale).
+        try {
+          ids.forEach(function (eid) {
+            var ext = window.extensionsData && window.extensionsData[eid];
+            if (!ext || (ext.js_modules && ext.js_modules.length)) return;
+            if (typeof refreshWidget !== 'function') return;
+            (ext.widgets || []).forEach(function (wDef) { refreshWidget(eid, wDef); });
+          });
+        } catch (_e) {}
+        // All revealed: measure first paint and report telemetry (fire-and-forget).
+        try {
+          requestAnimationFrame(function(){
+            requestAnimationFrame(function(){
+              var paintMs = Math.round((now() - t0) * 10) / 10;
+              if (typeof apiFetch !== 'undefined') {
+                apiFetch('/api/debug/switch', { method: 'POST',
+                  body: JSON.stringify({ scene: sid, commit_ms: commitMs, paint_ms: paintMs, phases: phases }) }
+                ).catch(function(){});
+              }
+            });
+          });
+        } catch(_){}
       })();
     });
   };
@@ -505,11 +533,19 @@
     var item = document.getElementById('autostart-item');
     if (!item) return;
     if (res.available === false) {
-      item.innerHTML = '<i data-feather="clock" width="16" height="16"></i>  Start on boot (not available)';
+      item.innerHTML = '<i data-feather="clock" width="16" height="16"></i>  Start on boot';
       item.style.opacity = '0.4';
-      return;
+    } else if (res.enabled) {
+      item.innerHTML = '<i data-feather="check-circle" width="16" height="16"></i>  Start on boot <span class="autostart-state on">ON</span>';
+      item.style.opacity = '1';
+    } else {
+      item.innerHTML = '<i data-feather="square" width="16" height="16"></i>  Start on boot <span class="autostart-state">OFF</span>';
+      item.style.opacity = '1';
     }
-    item.innerHTML = res.enabled ? '<i data-feather="check" width="16" height="16"></i>  Start on boot' : '<i data-feather="square" width="16" height="16"></i>  Start on boot';
+    // Re-render icons: this runs after the async /api/autostart fetch,
+    // long after the initial feather.replace() — without this the <i>
+    // tags stay raw and the indicator is invisible.
+    if (typeof feather !== 'undefined') feather.replace();
   };
 
   s.closeSettingsDropdown = function () {

@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import sys
@@ -6,6 +7,34 @@ import importlib.util
 import importlib.metadata
 
 from coreframe.config import log, SHARED_LIB_DIR
+
+
+def _restore_coreframe_logging():
+    """Re-attach our log file handler if pip disturbed global logging state.
+
+    Measured: after an in-process `_pip_main()` call, ZERO logging-framework
+    lines are ever written again (faulthandler direct-writes continue), so
+    every subsequent log.error/log.info is silently lost for the rest of the
+    process. Re-add our FileHandler to the CoreFrame logger when missing and
+    make sure its effective level still allows INFO.
+    """
+    try:
+        from coreframe.config import LOG_PATH
+        core = logging.getLogger('CoreFrame')
+        has_file = any(
+            isinstance(h, logging.FileHandler)
+            and getattr(h, 'baseFilename', '') == LOG_PATH
+            for h in list(core.handlers)
+        )
+        if not has_file:
+            fh = logging.FileHandler(LOG_PATH, encoding='utf-8')
+            fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+            core.addHandler(fh)
+            log.info("CoreFrame file logging restored after pip run")
+        if core.getEffectiveLevel() > logging.INFO:
+            core.setLevel(logging.INFO)
+    except Exception:
+        pass
 
 
 def _patch_pip_for_frozen():
@@ -76,11 +105,14 @@ def _version_satisfies(spec_str, version, name):
     return SpecifierSet(spec_str).contains(version, prereleases=True)
 
 
-def _ensure_extension_deps_async(ext_path, ext_id):
-    """Start dependency installation in background, return immediately."""
+def _compute_missing_deps(ext_path):
+    """Parse requirements.txt and return requirement lines not yet satisfied.
+
+    Raises on unreadable requirements.txt (caller decides how to surface it).
+    """
     req_path = os.path.join(ext_path, 'requirements.txt')
     if not os.path.exists(req_path):
-        return
+        return []
     missing = []
     with open(req_path, encoding='utf-8') as f:
         for line in f:
@@ -104,24 +136,101 @@ def _ensure_extension_deps_async(ext_path, ext_id):
             if installed_ok:
                 continue
             missing.append(line)
+    return missing
+
+
+def _pip_install_missing(missing):
+    """Run pip install --prefix SHARED_LIB_DIR in the calling thread.
+
+    Returns (ok, error): ok is True only if pip exits 0/None. Unlike the
+    old fire-and-forget behavior, failures are reported, never swallowed.
+    """
+    _patch_pip_for_frozen()
+    try:
+        from pip._internal.cli.main import main as _pip_main
+        ret = _pip_main([
+            'install', '--prefix', SHARED_LIB_DIR,
+            '--no-input', '--quiet',
+            '--only-binary', ':all:',
+        ] + missing)
+    except SystemExit as e:
+        ret = e.code
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+    finally:
+        _restore_coreframe_logging()
+    if ret not in (0, None):
+        return False, f"pip install exited with code {ret} for: {', '.join(missing)}"
+    log.info("pip install ok for: %s", ', '.join(missing))
+    return True, ""
+
+
+def _ensure_extension_deps_async(ext_path, ext_id):
+    """Start dependency installation in background, return immediately."""
+    try:
+        missing = _compute_missing_deps(ext_path)
+    except Exception as e:
+        log.warning("Cannot read requirements for %s: %s", ext_id, e)
+        return
     if not missing:
         return
 
     def _install_deps():
         log.info("Installing missing deps for %s: %s", ext_id, missing)
-        _patch_pip_for_frozen()
-        try:
-            from pip._internal.cli.main import main as _pip_main
-            _pip_main([
-                'install', '--prefix', SHARED_LIB_DIR,
-                '--no-input', '--quiet',
-                '--only-binary', ':all:',
-            ] + missing)
+        ok, err = _pip_install_missing(missing)
+        if ok:
             log.info("Deps installed for %s", ext_id)
-        except Exception as e:
-            log.warning("Failed to install deps for %s: %s", ext_id, e)
+        else:
+            log.warning("Failed to install deps for %s: %s", ext_id, err)
 
     threading.Thread(target=_install_deps, daemon=True, name=f'pip-{ext_id}').start()
+
+
+def _pip_install_supervised(missing, timeout=120):
+    """Run pip in a worker and abandon it after `timeout` seconds.
+
+    Frozen pip can hang silently (TLS stalls, AV interception) with no
+    exception and no return — which used to leave the install flow stuck
+    forever with zero logs. A supervised timeout converts every failure
+    mode (hang, crash, exception) into a loud (False, error) that the
+    caller turns into rollback + visible error. Never hangs the caller
+    beyond `timeout` seconds.
+    """
+    result = {}
+
+    def _target():
+        try:
+            result['out'] = _pip_install_missing(missing)
+        except BaseException as e:
+            result['out'] = (False, f"{type(e).__name__}: {e}")
+
+    t = threading.Thread(target=_target, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        log.warning("pip install abandoned after %ds timeout for: %s", timeout, ', '.join(missing))
+        return False, (
+            f"pip install timed out after {timeout}s (network or antivirus "
+            f"may be blocking PyPI) for: {', '.join(missing)}"
+        )
+    return result.get('out', (False, "pip worker ended without result"))
+
+
+def _ensure_extension_deps_sync(ext_path, ext_id, timeout=120):
+    """Blocking dependency installation for the install flow.
+
+    Returns (ok, error). The caller (_bg_install) rolls back the extracted
+    files + registry entry on failure so a broken dep never leaves a ghost
+    install behind.
+    """
+    try:
+        missing = _compute_missing_deps(ext_path)
+    except Exception as e:
+        return False, f"Cannot read requirements.txt: {e}"
+    if not missing:
+        return True, ""
+    log.info("Installing missing deps for %s: %s", ext_id, missing)
+    return _pip_install_supervised(missing, timeout=timeout)
 
 
 def _ensure_extension_deps(ext_path):

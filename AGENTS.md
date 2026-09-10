@@ -44,6 +44,7 @@ CoreFrame/
 │       └── utils.js           # apiFetch, formatBytes, getProcessIcon, escapeHtml, etc.
 ├── extensions/
 │   ├── network_monitor/       # IP, VPN, DNS, ports, connections (incoming/outgoing tabs, sorting by process, 200-pagination, "See more")
+│   ├── msd_deck/              # Mars Gaming MSD-ONE driver (VID 0x0B00 PID 0x1000, AKP153 proto v1): 18 LCD slots, side-strip widgets, profiles, macros, hotkeys
 │   ├── system_monitor/        # CPU, RAM, GPU, disk (WebSocket realtime)
 │   ├── vault_manager/         # Notes with persistence
 │   └── process_manager/       # Process management (with its own static/script.js + style.css)
@@ -102,6 +103,8 @@ Extensions with `"realtime": true` in `extension.json` make the core skip HTTP p
 SocketIO is configured with `transports: ['websocket']` on the client to avoid HTTP polling and eliminate accumulated TIME_WAIT.
 
 ## Extension System
+
+> Runtime loads extensions ONLY from DATA_DIR (`Documents/CoreFrame/extensions/`, see `coreframe/config.py`), never from the repo `extensions/` dir (dev source). Deploy = copy dir + restart exe (no rebuild unless core/requirements/spec/`static/` changed). Beware `Copy-Item -Recurse` nesting when the target exists.
 
 ### Minimum structure
 
@@ -173,6 +176,15 @@ Widgets of type `badge`, `text` and `list` can include `"click_action"` in `exte
 
 The core exposes `window.extensionsData` globally (`core.js`) so the click handler can resolve the panel.
 
+### Host immunity contract (extensions MUST obey)
+
+CoreFrame is a host: one heavy/failing extension must never degrade the core or other extensions. The core enforces this for its own updates (drag flag + queued realtime values, see pitfall #19), but extension-owned scripts (`js_modules` with their own `setInterval` renders) run on the same main thread, so they must cooperate:
+
+- **Pause heavy renders while dragging:** check `window.__coreframeDragging === true` at the top of any interval/refresh callback that rewrites large DOM (tables, lists, canvases) and return early. Missed ticks are harmless — the next tick after drop catches up.
+- **Flush cue:** listen for `window.addEventListener('coreframe-dragend', refreshFn)` to repaint immediately after a gesture instead of waiting for the next tick.
+- **Never throw across the core:** wrap extension render callbacks in try/catch. Core loops (`renderWidgets`, `refreshAllWidgets`, realtime flush) already isolate per-extension errors, but an uncaught exception inside an extension's own timer kills that extension's future ticks silently.
+- **Keep per-tick DOM writes proportional to visible change:** reuse the `_widgetHash` pattern (skip DOM writes when the value hash is unchanged) instead of rebuilding `innerHTML` every tick.
+
 ### Widget types (generic core sub-widgets)
 
 | type | Description | Expected Data |
@@ -209,6 +221,26 @@ Updated data arrives via `updateWidgetValue(el, response)` which parses `respons
   setTimeout(waitForInit, 200);
 })();
 ```
+
+### MSD Deck specifics (Mars Gaming MSD-ONE hardware driver)
+
+- **Device:** VID `0x0B00` PID `0x1000`, HID usage page 65440 usage 1 (Ajazz AKP153 family, protocol v1, 512-byte packets). Hardcoded serial `355499441494`. Close the official Mars app first (exclusive open).
+- **Protocol** (`msd_protocol.py`, pure/testable, ported from mirajazz + opendeck-akp153 + Uriziel01 notes): commands are `00 CRT 00 00 + ASCII` (`DIS`/`LIG` init, `LIG..<pct>` brightness, `BAT..<len><key+1>` + JPEG chunks + `STP` commit, `CLE...<key+1|0xFF>` clear, `HAN` sleep, `CONNECT` keep-alive). Key index on wire is device+1. Input reports start with `ACK`, key at byte 9 (1-based, 0 = idle); v1 emits press-only (Down+Up together).
+- **Key maps:** 18 positions (3 rows × 6 cols, OpenDeck parity). `OPENDECK_TO_DEVICE` / `DEVICE_TO_OPENDECK` tables in `msd_protocol.py`. Positions 5/11/17 (1-based 6/12/18) are the LATERAL strip: 3 separate LCD cells filling the side screen (NOT missing keys).
+- **Side-strip widgets** (`msd_widgets.py`): clock / weather (Open-Meteo, no key, geo in profiles file) / system (psutil CPU+RAM). Backend thread repaints every 10s, pushes only on byte-change (no LCD flicker); immediate repaint on profile switch AND on connect. Panel cells get a Contenido picker (Botón/Reloj/Tiempo/Sistema); city search via Open-Meteo geocoding (`geo_search`, Spanish labels), no coordinates typing. HTTP goes through `requests`+certifi (stdlib urllib has no CA bundle in the frozen exe); UI thumbs never block on network (`fetch=False` + background warm on assign).
+- **Empty cells stay dark:** `_is_slot_empty` (no label/icon/builtin/widget) → `CLE` single-key clear instead of pushing a dark image; `_paint_slot` centralizes push-or-clear (used by set_key/set_key_image/set_key_builtin/clear_icon/swap/set_widget-off). `get_config` exposes `widget_state` {tick, pushed, error} diagnostics.
+- **Widget backgrounds:** transparent by default (RGBA, checkerboard in UI, black on-device); the key's Color fondo applies only when set (contrast ink auto). City search via Open-Meteo geocoding (`geo_search`, Spanish labels), no coordinates typing.
+- **Layout:** `main.py` (device thread + auto-reconnect + executor) + `msd_protocol.py` + `msd_hotkey.py` (SendInput ctypes, no deps; INPUT struct must be 40 bytes or error 87; media/nav keys need EXTENDEDKEY). Profiles in `data_dir/msd_profiles.json`. Slot actions: launch/hotkey/text/command/multi/delay/profile/brightness (brightness `fixed` + `delta` +/-).
+- **Widget = mini deck:** single undriven widget (`refresh_interval: 0`); `script.js` renders the 3×6 mirror in the card body (carousel pattern + MutationObserver), click opens the panel with that key preselected. Status dot + 15s self-refresh (pauses on `__coreframeDragging`).
+- **Editor autosave (no save button):** every change persists via `set_key` immediately (field edits debounced 600ms) + `preview_key` thumb refresh; `✓ HH:MM:SS` indicator. Structural ops work on freshly collected state.
+- **Enum dropdowns with pinned search** (`openEnumPopup`): hotkey keys multi-select grouped enum (`list_hotkeys`); command preset select + free-text custom.
+- **Rigid panel (viewport-only sizing):** core `.result-panel-body` is `flex:1`, so bare `height` AND lone `flex-basis` are ignored — `.ext-msd_deck-panel` locks all four (`flex:none` + `height`/`min-height`/`max-height: 70vh`) + fixed `width:640px` (core modal is shrink-to-fit 480-900px). Grid `minmax(0,1fr)` + ellipsis, status/tabs nowrap, editor `flex:1` scroll. Cropper modal: fixed stage, square selection, geometry per-gesture.
+- **swap_keys:** mouse drag-swap panel keys (plain mouse events, no HTML5 DnD) exchanges config + icon files + LCDs. Panel polls `get_config` every 2s to sync brightness slider with device-side changes.
+- **Compose pipeline:** bg color always behind; glyph PNG recolored white→ink + label bottom, photo cover-bleed + label with shadow; then rotate90 CW + flip H+V + JPEG q90. `icons/` ships a 31-glyph 512px flat pack (drawn, no OS assets): gallery with crop fractions (`fractional_crop`, server-side hi-res compose). Uploads NEVER recolored (flattened onto key bg, black if transparent). `get_key_images` serves UPRIGHT display images (PNG if transparent).
+- **Transparent bg:** slot color `"transparent"` stays RGBA in UI (checkerboard CSS) and flattens to black on-device.
+- **Deps:** `hidapi==0.15.0` in requirements + `'hid'` in CoreFrame.spec hiddenimports (dynamic extension imports aren't collected otherwise). Pillow already bundled.
+- **Permissions:** `"level": "system"` (USB/HID + process launch + input injection) → first start needs user consent in the UI.
+- **Deploy:** copy `extensions/msd_deck/` to `Documents/CoreFrame/extensions/` (DATA_DIR, not the repo dir) + rebuild exe only when core/requirements/spec change.
 
 ### Network Monitor specifics
 
@@ -250,7 +282,7 @@ All `/api/*` routes require `X-CoreFrame-Token` (obtained from `/api/token`).
 ## Security
 
 - Bind to `127.0.0.1` (no external access)
-- CORS restricted
+- Single instance: `run_coreframe.pyw` probes `/api/token` at startup; if a server is alive it brings its window front (FindWindowW + EnumWindows fallback, ctypes only) and exits 0. No splash, no duplicate server. Skipped for `--ext-runner` children.- CORS restricted
 - SHA-256 token generated at startup, required on all API calls
 - `Connection: keep-alive` on HTTP responses (asset serving)
 - SocketIO with `transports=['websocket']` on server and client — zero HTTP polling
@@ -260,7 +292,7 @@ All `/api/*` routes require `X-CoreFrame-Token` (obtained from `/api/token`).
 1. **Restart loop with `debug=True`:** writing `extensions.json` triggers Flask reloader to restart. Fixed: only write if content changed (`app.py:182-193`).
 2. **Missing Pillow in venv:** `process_manager` fails silently without `PIL`. Listed in `requirements.txt`, `run.bat` installs it automatically.
 3. **Outdated server:** old server doesn't reflect file changes. Kill process and restart.
-4. **Browser cache:** after changes, Ctrl+F5.
+4. **Browser cache:** after changes, Ctrl+F5. Extension JS/CSS additionally serve `no-store` + `?v=<boot-timestamp>` (`loadExtensionAssets` in `app.js`): a stale bundle looks exactly like "the fix didn't work".
 5. **Duplicated CSS Modules:** if an extension is disabled, its `css_modules` is not loaded (the core iterates active extensions). No automatic cleanup of orphaned styles in the DOM.
 6. **`psutil.Process(pid).name()` fails with access-denied on Windows for some system processes.** Solution: use `tasklist /NH /FO CSV` and parse CSV, don't call `psutil` per PID.
 7. **VPN status slow (>30s) if external providers are called without cache.** Solution: `_vpnCache` with pre-fetched promises when script loads; panel reuses already resolved promises.
@@ -274,5 +306,8 @@ All `/api/*` routes require `X-CoreFrame-Token` (obtained from `/api/token`).
 15. **Child rows not expandable:** `renderPanelGroupRows`/`renderWidgetGroupRows` only rendered children when `isExpanded` was true. On click, no DOM existed to show. Solution: always render children with `style="display:none"` when collapsed, toggle via inline style.
 16. **Frameless window flicker on startup:** `webview.create_window(framless=False)` + subsequent `WindowState='maximized'` triggers a visible frame → unframe → re-maximize cycle (~1s flash). Solution: `_frameless_ok` guard flag in `run_coreframe.pyw` — timer callbacks only apply frameless if the first `_apply_initial_frameless()` succeeded.
 17. **Native drag in frameless mode:** pywebview's `easy_drag=True` (default) allows dragging the entire window from any area without `-webkit-app-region: drag`. Solution: `easy_drag=False` in `webview.create_window()`.
-18. **Widget drag causes lag in other widgets:** `mouseenter`/`dragover`/`dragenter` events fire on widgets under the cursor during move-drag, causing expensive DOM re-renders. Solution: blanket protection via `body.widget-drag-active .widget-extension:not(.widget-dragging) { pointer-events: none !important; }` in `widget-control.css`. The body class is toggled in `02-layout.js` on drag start/end.
-19. **pywebview SetWindowPos ctypes crash:** `winforms.py:635` passes `None` for cx/cy to `windll.user32.SetWindowPos()` (args 5-6). ctypes rejects `None` as non-integer → `ctypes.ArgumentError` flood (39K+ in log) → WinForms thread congestion → `Timeout (0:00:15)!` from faulthandler → extension heartbeat failures → process death. Solution: monkey-patch in `run_coreframe.pyw:462-497` replaces `BrowserForm.move` with safe version using `0, 0` for cx/cy. Secondary defense: patched `site-packages/webview/platforms/winforms.py:640-641` directly. The exe MUST be rebuilt after any change to `run_coreframe.pyw` for the patch to take effect.
+18. **Widget drag jank (superseded blanket rule):** the old `body.widget-drag-active .widget-extension:not(.widget-dragging) { pointer-events: none }` fix is REMOVED — the coordinate-based engine never hit-tests, so the rule was pure full-document recalc cost at grab+drop. Only the dragged element keeps `pointer-events: none`.
+19. **Drag/drop lag with heavy widgets (all core-side):** (a) `onMove` ran on EVERY mousemove with zero throttling, calling `getComputedStyle(grid)` twice + `querySelectorAll('.widget-extension')` per test, and the single-overlap displace scan called `getOverlappingWidgets` per candidate cell (up to ~72 DOM queries per mousemove). (b) Live updates rewrote widget DOM mid-drag. (c) SocketIO client used `transports: ['polling']` (fixed back to `['websocket']`). (d) Grab deep-cloned heavy subtrees; drop ran full-grid scans + synchronous flush. Solution: host-immunity protocol — `window.__coreframeDragging` + `coreframe-dragstart/dragend`, rAF-throttled `onMoveFrame`, per-gesture geometry cache + cross-gesture pitch cache (`_pitchCache` keyed by height+rows), single per-frame occupancy map, realtime queue with time-sliced (8ms/frame) flush, refresh/applyWidgetState skipped mid-drag, live-widget drag via transform (compositor-only, no clone), `content-visibility: auto` on cards, map-based drop (`findFreeSpotOnMap`), reads-before-writes grab order.
+20. **pywebview SetWindowPos ctypes crash:** `winforms.py:635` passes `None` for cx/cy to `windll.user32.SetWindowPos()` (args 5-6). ctypes rejects `None` as non-integer → `ctypes.ArgumentError` flood (39K+ in log) → WinForms thread congestion → `Timeout (0:00:15)!` from faulthandler → extension heartbeat failures → process death. Solution: monkey-patch in `run_coreframe.pyw:462-497` replaces `BrowserForm.move` with safe version using `0, 0` for cx/cy. Secondary defense: patched `site-packages/webview/platforms/winforms.py:640-641` directly. The exe MUST be rebuilt after any change to `run_coreframe.pyw` for the patch to take effect.
+21. **Extension runner segfault on shutdown (hid.dll_unloaded):** isolated runners died inside C calls (e.g. blocking `hid.read`) during interpreter teardown because `on_stop` was never invoked on stdin-EOF. Fix: `ext_runner` (BOTH `coreframe/extensions/ext_runner.py` AND the embedded copy in `run_coreframe.pyw`) calls `instance.on_stop()` + 0.6s grace in a `finally`. Extensions must join threads and close handles there (see msd_deck `on_stop`). Daemon threads alone do NOT save you.
+22. **`/api/restart` NameError:** `coreframe/app.py` used `jsonify` without importing it — restart always 500'd (a failed restart + stacked manual relaunches caused several "won't open" pileups). Fixed import.

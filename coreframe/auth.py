@@ -33,7 +33,15 @@ def _get_autostart_enabled():
             try:
                 val, _ = winreg.QueryValueEx(key, AUTOSTART_KEY)
                 winreg.CloseKey(key)
-                return os.path.isfile(val)
+                # Value looks like: '"C:\...\CoreFrame.exe" --autostart'.
+                # isfile() on the whole string (quotes + args) is always
+                # False — extract just the exe path first.
+                p = (val or '').strip()
+                if p.startswith('"'):
+                    p = p[1:].split('"', 1)[0]
+                else:
+                    p = p.split()[0] if p.split() else ''
+                return bool(p) and os.path.isfile(p)
             except FileNotFoundError:
                 winreg.CloseKey(key)
                 return False
