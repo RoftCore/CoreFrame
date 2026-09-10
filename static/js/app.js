@@ -53,7 +53,7 @@ async function pollExtensionUpdates() {
         }
       }
     }
-    if (hasChanges && window.__widgetControl) {
+    if (hasChanges && window.__widgetControl && !window.__coreframeDragging) {
       window.__widgetControl.applyWidgetState();
     }
   } catch (e) {}
@@ -86,7 +86,11 @@ function addExtensionToUI(extId, ext) {
           });
         }
       }
-      ext.widgets.forEach(wDef => refreshWidget(extId, wDef));
+      // Mirror refreshAllWidgets: extension-driven widgets (js_modules) own
+      // their content; core must not double-drive them.
+      if (!ext.js_modules || !ext.js_modules.length) {
+        ext.widgets.forEach(wDef => refreshWidget(extId, wDef));
+      }
     }
   }
   if (window.__widgetControl) {
@@ -152,10 +156,15 @@ function loadExtensionAssets(data) {
     if (isHeavy) heavy.push([extId, ext]);
     else light.push([extId, ext]);
   }
+  // Cache-buster: one stamp per page load so extension JS/CSS can never
+  // go stale in the webview disk cache (a stale bundle looks exactly like
+  // "the fix didn't work"). Localhost: zero real cost.
+  var assetV = (typeof window.__cfAssetV !== 'undefined' && window.__cfAssetV) ||
+    (window.__cfAssetV = Date.now());
   function loadExtAssets(extId, ext) {
     for (var i = 0; i < (ext.js_modules || []).length; i++) {
       (function (mod) {
-        var src = '/ext-static/' + extId + '/' + mod;
+        var src = '/ext-static/' + extId + '/' + mod + '?v=' + assetV;
         if (document.querySelector('script[src="' + src + '"]')) return;
         var script = document.createElement('script');
         script.src = src;
@@ -165,7 +174,7 @@ function loadExtensionAssets(data) {
     }
     for (var j = 0; j < (ext.css_modules || []).length; j++) {
       (function (cssMod) {
-        var href = '/ext-static/' + extId + '/' + cssMod;
+        var href = '/ext-static/' + extId + '/' + cssMod + '?v=' + assetV;
         if (document.querySelector('link[href="' + href + '"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
@@ -219,15 +228,51 @@ function refreshAllWidgets(data) {
   }
 }
 
+// Core immunity: hidden widgets cost zero backend calls and zero DOM work.
+// A slow/hanging widget that nobody sees can never slow the UI.
+const widgetInflight = {};
+
+function isWidgetActive(extId, widgetId) {
+  try {
+    if (typeof window.__wc !== 'undefined' && window.__wc && typeof window.__wc.currentScene === 'function') {
+      const sc = window.__wc.currentScene();
+      // No scene state yet (boot): allow, preserves current behavior.
+      if (!sc || !sc.widgets) return true;
+      const pos = sc.widgets[extId];
+      // Unknown to the scene: allow (autoAdd handles placement).
+      if (!pos) return true;
+      if (pos.hidden) {
+        // State says hidden: still allow if actually on screen (state race).
+        const el = document.querySelector(`[data-widget-id="${widgetId}"][data-ext-id="${extId}"]`);
+        if (!el || el.style.display === 'none') return false;
+        return true;
+      }
+      return true;
+    }
+  } catch (e) {}
+  return true;
+}
+
 async function refreshWidget(extId, wDef) {
+  const key = `${extId}-${wDef.id}`;
+  // Host immunity: no backend calls and no DOM writes mid-drag. The
+  // interval fires again after drop and catches up by itself.
+  if (window.__coreframeDragging) return;
+  // Anti pile-up: a previous call still running (e.g. 3s backend on a 3s
+  // interval) skips instead of stacking overlapping requests.
+  if (widgetInflight[key]) return;
+  if (!isWidgetActive(extId, wDef.id)) return;
   const el = document.querySelector(`[data-widget-id="${wDef.id}"][data-ext-id="${extId}"]`);
   if (!el) return;
   if (wDef.action) {
+    widgetInflight[key] = true;
     try {
       const response = await apiFetch(`/api/extension/${extId}/${wDef.action}`);
       updateWidgetValue(el, response);
     } catch (e) {
       try { updateWidgetValue(el, { error: 'Connection error' }); } catch (e2) {}
+    } finally {
+      delete widgetInflight[key];
     }
   }
 }

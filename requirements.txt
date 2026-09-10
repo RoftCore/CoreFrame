@@ -5,4 +5,5 @@ psutil==7.2.0
 gputil==1.4.0
 requests==2.32.3
 Pillow==12.1.0
+hidapi==0.15.0
 pywebview==6.2.1

@@ -251,8 +251,13 @@ class SubprocessBridge:
             self._hb_thread = threading.Thread(target=self._heartbeat_sender, daemon=True, name=f'bridge-hb-{self.ext_id}')
             self._hb_thread.start()
 
-    def _wait_for_ready(self, timeout=15):
-        """Wait for the runner's 'ready' signal after startup."""
+    def _wait_for_ready(self, timeout=30):
+        """Wait for the runner's 'ready' signal after startup.
+
+        30s (not 15s): on spinning disks under login-storm load, spawning
+        + importing a child can take a while. Still well under the 60s
+        health-monitor cap. A truly dead runner fails fast via poll().
+        """
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self._proc.poll() is not None:

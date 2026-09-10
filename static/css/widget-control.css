@@ -74,6 +74,21 @@
 .ctx-menu-item:active {
   background: rgba(0, 212, 255, 0.15);
 }
+/* Autostart ON/OFF badge next to the menu item */
+.autostart-state {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--text-muted);
+  color: var(--text-muted);
+}
+.autostart-state.on {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+}
 
 /* --- Mode Indicator --- */
 .mode-indicator {
@@ -178,6 +193,11 @@ body.edit-mode .widget.widget-resizing::after {
 .widget-extension {
   transition: grid-column 0.15s ease, grid-row 0.15s ease;
   z-index: 11;
+  /* Rendering isolation: style/layout/paint of one heavy card never leaks
+     into grab/drop recalcs of the rest. Grid cells are fixed-size, so the
+     intrinsic placeholder can't shift layout. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
 }
 
 /* --- Extension Card Grid (shared for hidden panel, settings, marketplace) --- */
@@ -421,11 +441,6 @@ body.edit-mode .widget-overlayable {
   border-color: var(--accent-cyan) !important;
   transform: scale(1.02);
   transition: none !important;
-}
-
-/* --- Blanket protection: disable ALL pointer events on widgets during drag --- */
-body.widget-drag-active .widget-extension:not(.widget-dragging) {
-  pointer-events: none !important;
 }
 
 /* --- Drag placeholder (target indicator during drag) --- */

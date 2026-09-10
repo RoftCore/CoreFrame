@@ -323,6 +323,21 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
     except (OSError, IOError):
         # Parent process exited, pipes closed
         pass
+    finally:
+        # Graceful extension shutdown BEFORE interpreter teardown: lets
+        # backends stop threads and close handles (e.g. HID) while every
+        # module is still alive. Skipping this segfaults C extensions
+        # (hid.dll_unloaded) when a daemon thread is inside a C call.
+        try:
+            stop = getattr(instance, 'on_stop', None)
+            if callable(stop):
+                stop()
+        except Exception:
+            pass
+        try:
+            time.sleep(0.6)
+        except Exception:
+            pass
 
 
 # ── Main ───────────────────────────────────────────────────────────

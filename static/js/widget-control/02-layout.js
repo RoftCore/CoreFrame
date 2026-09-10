@@ -281,6 +281,15 @@
       wEl.style.gridRow = spot.row + ' / span ' + spot.h;
       s.applyStyleToWidget(extId);
     }
+    // Fresh values on show (intervals skip hidden widgets, so content may
+    // be stale). Mirrors refreshAllWidgets: skips extension-driven widgets.
+    try {
+      var extData = window.extensionsData && window.extensionsData[extId];
+      if (extData && !(extData.js_modules && extData.js_modules.length) &&
+          typeof refreshWidget === 'function' && extData.widgets) {
+        extData.widgets.forEach(function (wDef) { refreshWidget(extId, wDef); });
+      }
+    } catch (_e) {}
     if (spot.w !== w || spot.h !== h) {
       s.showToast('Resized to fit: ' + spot.w + 'x' + spot.h);
     }
@@ -597,9 +606,11 @@
 
     // --- move state ---
     let dragEl = null, startCol = 1, startRow = 1, wSpan = 2, hSpan = 2;
+    let dragGhost = null; // frozen snapshot clone that follows the mouse
     let overlayable = false;
     let _wasDragged = false;
     let grabDX = 0, grabDY = 0, ghostW = 0, ghostH = 0;
+    let grabLeft = 0, grabTop = 0, ghostX = 0, ghostY = 0;
     let placeholder = null;
     let swapTarget = null;
     let _mode = null; // 'move' or 'resize' — set on mousedown
@@ -609,6 +620,110 @@
     let dragStartCol, dragStartRow, dragStartW, dragStartH;
 
     const BORDER = 12;
+
+    // Host immunity: while a drag/resize gesture runs, the core freezes
+    // every live widget DOM write (see core.js/app.js). Extensions must
+    // also pause heavy renders via window.__coreframeDragging.
+    function setDragActive(on) {
+      try {
+        window.__coreframeDragging = !!on;
+        window.dispatchEvent(new CustomEvent(on ? 'coreframe-dragstart' : 'coreframe-dragend'));
+      } catch (e) {}
+    }
+
+    // Pitch/gap survive across gestures (grid CSS is static); keyed by
+    // grid height + row count so scene/window changes invalidate. Kills
+    // the per-grab getComputedStyle (full-document recalc) in the common
+    // case: only a height/rows change pays for a fresh style read.
+    let _pitchCache = null;
+    let _dragCache = null;
+
+    function buildDragCache() {
+      var g = document.querySelector('.widget-grid');
+      if (!g) return null;
+      var r = g.getBoundingClientRect();
+      var sc = s.currentScene();
+      var rows = (sc && sc.rows) || 6;
+      if (!_pitchCache || _pitchCache.h !== r.height || _pitchCache.rows !== rows) {
+        var cs = window.getComputedStyle(g);
+        var gap = parseFloat(cs.rowGap || cs.gap) || 8;
+        var tracks = (cs.gridTemplateRows || '').split(' ').filter(Boolean).map(function (v) { return parseFloat(v); }).filter(function (v) { return isFinite(v); });
+        _pitchCache = {
+          h: r.height, rows: rows, gap: gap, tracks: tracks,
+          autoRows: parseFloat(cs.gridAutoRows) || 0
+        };
+      }
+      var pc = _pitchCache;
+      var pitch = pc.tracks.length > 0 ? pc.tracks[0] + pc.gap : (pc.autoRows + pc.gap || 93);
+      _dragCache = {
+        grid: g, rect: r,
+        colW: r.width / s.sceneCols(),
+        maxCol: (sc && sc.cols) || 12,
+        maxRow: rows,
+        rowPitch: pitch, rowGap: pc.gap
+      };
+      return _dragCache;
+    }
+
+    // Track-walking row lookup over the cached tracks: same result as
+    // pixelToRow, zero style reads.
+    function pixelToRowFromCache(y) {
+      var pc = _pitchCache;
+      if (!pc || !pc.tracks.length) return Math.max(1, Math.round(y / 100));
+      var pos = 0;
+      for (var r = 0; r < pc.tracks.length; r++) {
+        var h = pc.tracks[r];
+        if (y < pos + h) return r + 1;
+        pos += h + pc.gap;
+      }
+      return pc.tracks.length + 1;
+    }
+
+    function refreshDragRect() {
+      if (!_dragCache || !_dragCache.grid) return null;
+      _dragCache.rect = _dragCache.grid.getBoundingClientRect();
+      return _dragCache;
+    }
+
+    // Single-pass occupancy snapshot: cell key -> widget element. One DOM
+    // query per frame no matter how many overlap tests that frame needs.
+    // Same exclusion semantics as getOverlappingWidgets (hidden and
+    // overlayable widgets never block; the drag ghost is not a widget).
+    function buildOccupancy() {
+      var occ = {};
+      document.querySelectorAll('.widget-extension').forEach(function (el) {
+        if (el.style.display === 'none' || el.dataset.overlayable === 'true') return;
+        if (el.dataset.dragGhost === 'true') return;
+        var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+        var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+        if (!gc || !gr) return;
+        var eCol = parseInt(gc[1], 10), eSpan = parseInt(gc[2], 10);
+        var eRow = parseInt(gr[1], 10), eSpanH = parseInt(gr[2], 10);
+        for (var ec = eCol; ec < eCol + eSpan; ec++)
+          for (var er = eRow; er < eRow + eSpanH; er++)
+            occ[ec + ',' + er] = el;
+      });
+      return occ;
+    }
+
+    function mapOverlappingEls(occ, col, row, w, h, excludeEl) {
+      var seen = [];
+      for (var c = col; c < col + w; c++)
+        for (var r = row; r < row + h; r++) {
+          var el = occ[c + ',' + r];
+          if (el && el !== excludeEl && seen.indexOf(el) === -1) seen.push(el);
+        }
+      return seen;
+    }
+
+    function mapFreeExcept(occ, col, row, w, h, elA, elB) {
+      for (var c = col; c < col + w; c++)
+        for (var r = row; r < row + h; r++) {
+          var el = occ[c + ',' + r];
+          if (el && el !== elA && el !== elB) return false;
+        }
+      return true;
+    }
 
     function getGridMetrics() {
       var g = document.querySelector('.widget-grid');
@@ -645,6 +760,27 @@
       var ghostBottom = py + ghostH / 2;
       var rowPitch = getGridRowPitch(metrics.grid);
       var gap = parseFloat(getComputedStyle(metrics.grid).rowGap || getComputedStyle(metrics.grid).gap) || 8;
+      var bestRow = 1;
+      var bestOverlap = -1;
+      for (var r = 1; r <= metrics.maxRow - hSpan + 1; r++) {
+        var cellTop = (r - 1) * rowPitch;
+        var cellBottom = (r + hSpan - 1) * rowPitch - gap;
+        var overlap = Math.min(ghostBottom, cellBottom) - Math.max(ghostTop, cellTop);
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          bestRow = r;
+        }
+      }
+      return bestRow;
+    }
+
+    // Cached twin of pixelToRowClamped: same math, zero style recalc.
+    // Uses the per-gesture snapshot instead of getComputedStyle.
+    function pixelToRowCached(metrics, py) {
+      var ghostTop = py - ghostH / 2;
+      var ghostBottom = py + ghostH / 2;
+      var rowPitch = metrics.rowPitch;
+      var gap = metrics.rowGap;
       var bestRow = 1;
       var bestOverlap = -1;
       for (var r = 1; r <= metrics.maxRow - hSpan + 1; r++) {
@@ -699,6 +835,48 @@
       return result;
     }
 
+    // Map-based twin of findFreeSpot: identical placement result, zero
+    // DOM queries. `occ` is a single buildOccupancy() snapshot; bounds
+    // come from the per-gesture cache (grid size can't change mid-gesture).
+    function findFreeSpotOnMap(el, avoidEl, targetCol, targetRow, targetW, targetH, occ) {
+      var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      if (!gc || !gr || !_dragCache) return null;
+      var sw = parseInt(gc[2], 10), sh = parseInt(gr[2], 10);
+      var curCol = parseInt(gc[1], 10), curRow = parseInt(gr[1], 10);
+      var maxCol = _dragCache.maxCol, maxRow = _dragCache.maxRow;
+      var blockedCells = {};
+      for (var tc = targetCol; tc < targetCol + targetW; tc++)
+        for (var tr = targetRow; tr < targetRow + targetH; tr++)
+          blockedCells[tc + ',' + tr] = true;
+      var best = null, bestDist = Infinity;
+      for (var r = 1; r <= maxRow - sh + 1; r++) {
+        for (var c = 1; c <= maxCol - sw + 1; c++) {
+          var dist = Math.abs(c - curCol) + Math.abs(r - curRow);
+          if (dist === 0 || dist >= bestDist) continue;
+          var hitsBlocked = false;
+          for (var sc = c; sc < c + sw && !hitsBlocked; sc++)
+            for (var sr = r; sr < r + sh; sr++)
+              if (blockedCells[sc + ',' + sr]) { hitsBlocked = true; break; }
+          if (hitsBlocked) continue;
+          if (mapFreeExcept(occ, c, r, sw, sh, el, avoidEl)) {
+            bestDist = dist;
+            best = { col: c, row: r };
+          }
+        }
+      }
+      return best;
+    }
+
+    function canWidgetFitOnMap(el, col, row, occ) {
+      var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      if (!gc || !gr || !_dragCache) return false;
+      var w = parseInt(gc[2], 10), h = parseInt(gr[2], 10);
+      if (col + w - 1 > _dragCache.maxCol || row + h - 1 > _dragCache.maxRow) return false;
+      return mapOverlappingEls(occ, col, row, w, h, el).length === 0;
+    }
+
     function canWidgetFit(el, col, row) {
       var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
@@ -745,6 +923,26 @@
       if (placeholder) { placeholder.remove(); placeholder = null; }
     }
 
+    function nowMs() {
+      return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    }
+
+    // Perf badge in the EDIT bar: shows last grab/drop phase timings so drag
+    // jank can be diagnosed without devtools (user reads numbers, we attack
+    // the biggest phase).
+    function dragTimingReport(text) {
+      var bar = document.getElementById('mode-indicator-bar');
+      if (!bar) return;
+      var badge = document.getElementById('drag-perf-badge');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.id = 'drag-perf-badge';
+        badge.style.cssText = 'margin-left:12px;opacity:0.75;font-size:12px;';
+        bar.appendChild(badge);
+      }
+      badge.textContent = text;
+    }
+
     function updateTargetIndicator(metrics, col, row, state) {
       if (!placeholder) return;
       placeholder.style.gridColumn = col + ' / span ' + wSpan;
@@ -765,9 +963,13 @@
       el.style.width = '';
       el.style.height = '';
       el.style.zIndex = '';
+      el.style.transform = '';
+      el.style.pointerEvents = '';
       el.classList.remove('widget-dragging');
       var metrics = getGridMetrics();
-      if (metrics && metrics.grid) metrics.grid.appendChild(el);
+      // Skip the DOM move when already inside the grid: re-inserting the
+      // same child forces a gratuitous grid re-layout on drop.
+      if (metrics && metrics.grid && el.parentNode !== metrics.grid) metrics.grid.appendChild(el);
       el.style.gridColumn = col + ' / span ' + w;
       el.style.gridRow = row + ' / span ' + h;
     }
@@ -864,66 +1066,125 @@
         dragEl.classList.add('widget-resizing');
         document.addEventListener('mousemove', onResizeDrag, true);
         document.addEventListener('mouseup', onResizeUp, true);
+        setDragActive(true);
       } else {
         // --- MOVE ---
         _wasDragged = false;
         dragEl = widget;
         overlayable = dragEl.dataset.overlayable === 'true';
 
+        var _dt0 = nowMs();
         var metrics = getGridMetrics();
         if (!metrics) { dragEl = null; return; }
+        // Reads first: snapshot geometry BEFORE any write below dirties
+        // layout, so the grab pays at most one clean layout + (rarely) one
+        // style recalc instead of a dirty one per step.
+        buildDragCache();
 
         var wr = dragEl.getBoundingClientRect();
+
+        // Inline styles are always frozen ("N / span M") after enterEditMode,
+        // so parse them first: zero style reads at grab time.
+        var gc = dragEl.style.gridColumn || '';
+        var gr = dragEl.style.gridRow || '';
+        var gcm = gc.match(/span\s+(\d+)/), grm = gr.match(/span\s+(\d+)/);
+        if (!gcm || !grm) {
+          var cs = getComputedStyle(dragEl);
+          gc = cs.gridColumn || gc;
+          gr = cs.gridRow || gr;
+          gcm = gc.match(/span\s+(\d+)/);
+          grm = gr.match(/span\s+(\d+)/);
+        }
+        wSpan = parseInt(((gcm) || [,'2'])[1], 10);
+        hSpan = parseInt(((grm) || [,'2'])[1], 10);
+
         startCol = Math.max(1, Math.round((wr.left - metrics.rect.left) / metrics.colW) + 1);
         var sc = s.currentScene();
         var maxRow = (sc && sc.rows) || 6;
-        startRow = Math.max(1, Math.min(maxRow - hSpan + 1, pixelToRow(metrics.grid, wr.top - metrics.rect.top)));
+        startRow = Math.max(1, Math.min(maxRow - hSpan + 1, pixelToRowFromCache(wr.top - metrics.rect.top)));
 
-        var cs = getComputedStyle(dragEl);
-        var gc = cs.gridColumn || dragEl.style.gridColumn || 'auto / span 2';
-        var gr = cs.gridRow || dragEl.style.gridRow || 'auto / span 2';
-        wSpan = parseInt((gc.match(/span\s+(\d+)/) || [,'2'])[1], 10);
-        hSpan = parseInt((gr.match(/span\s+(\d+)/) || [,'2'])[1], 10);
+        var _dtRead = nowMs();
 
         grabDX = e.clientX - wr.left;
         grabDY = e.clientY - wr.top;
         ghostW = wr.width;
         ghostH = wr.height;
 
+        // Live drag: the widget itself follows the mouse (full visuals,
+        // zero clone cost). A placeholder holds its source cell so no
+        // sibling reflows. Moved via transform = compositor only, no
+        // layout per frame no matter how heavy the widget content is.
+        // Core live updates stay paused during the gesture (see core.js),
+        // so the widget also looks frozen while dragged.
+        if (!placeholder) {
+          placeholder = document.createElement('div');
+          placeholder.className = 'widget-drag-placeholder';
+        }
+        placeholder.style.gridColumn = startCol + ' / span ' + wSpan;
+        placeholder.style.gridRow = startRow + ' / span ' + hSpan;
+        metrics.grid.appendChild(placeholder);
+        grabLeft = wr.left; grabTop = wr.top;
+        ghostX = e.clientX - grabDX; ghostY = e.clientY - grabDY;
+        dragEl.style.gridColumn = '';
+        dragEl.style.gridRow = '';
         dragEl.style.position = 'fixed';
-        dragEl.style.left = (e.clientX - grabDX) + 'px';
-        dragEl.style.top = (e.clientY - grabDY) + 'px';
+        dragEl.style.left = grabLeft + 'px';
+        dragEl.style.top = grabTop + 'px';
         dragEl.style.width = ghostW + 'px';
         dragEl.style.height = ghostH + 'px';
         dragEl.style.zIndex = '9999';
         dragEl.style.margin = '0';
+        dragEl.style.transform = '';
+        dragEl.style.pointerEvents = 'none';
         dragEl.classList.add('widget-dragging');
-        document.body.appendChild(dragEl);
-        document.body.classList.add('widget-drag-active');
+        dragEl.classList.remove('widget-collision');
+        dragGhost = dragEl; // live element doubles as the floater
+        setDragActive(true);
+        dragTimingReport('grab ' + Math.round(nowMs() - _dt0) + 'ms [read ' +
+          Math.round(_dtRead - _dt0) + ' lift ' + Math.round(nowMs() - _dtRead) + ']');
 
         document.addEventListener('mousemove', onMove, true);
         document.addEventListener('mouseup', onMoveUp, true);
       }
     }
 
-    // --- MOVE ---
+    // --- MOVE (rAF-throttled: at most one collision pass per frame,
+    // no matter how fast mousemove fires or how heavy widgets are) ---
+
+    let _moveRaf = 0, _pendingMoveEvent = null;
 
     function onMove(e) {
-      if (!dragEl || !_wasDragged && (Math.abs(e.clientX - (parseFloat(dragEl.style.left) + grabDX)) > 3 || Math.abs(e.clientY - (parseFloat(dragEl.style.top) + grabDY)) > 3)) {
+      if (!dragEl || !dragGhost) return;
+      _pendingMoveEvent = e;
+      if (_moveRaf) return;
+      _moveRaf = requestAnimationFrame(function () {
+        _moveRaf = 0;
+        var ev = _pendingMoveEvent;
+        _pendingMoveEvent = null;
+        if (ev) onMoveFrame(ev);
+      });
+    }
+
+    function onMoveFrame(e) {
+      if (!dragEl || !dragGhost) return;
+      if (!_wasDragged && (Math.abs(e.clientX - (ghostX + grabDX)) > 3 || Math.abs(e.clientY - (ghostY + grabDY)) > 3)) {
         _wasDragged = true;
       }
-      if (!dragEl) return;
 
-      var metrics = getGridMetrics();
+      // One layout read per frame; pitch/gap come from the grab snapshot.
+      var metrics = refreshDragRect() || _dragCache;
       if (!metrics) return;
 
       var newLeft = Math.max(metrics.rect.left, Math.min(metrics.rect.right - ghostW, e.clientX - grabDX));
       var newTop = Math.max(metrics.rect.top, Math.min(metrics.rect.bottom - ghostH, e.clientY - grabDY));
-      dragEl.style.left = newLeft + 'px';
-      dragEl.style.top = newTop + 'px';
+      ghostX = newLeft; ghostY = newTop;
+      // Transform = compositor-only move. left/top would force a full
+      // layout of the heavy subtree every frame. scale() preserves the
+      // .widget-dragging look (inline style beats the class rule).
+      dragEl.style.transform = 'translate(' + (newLeft - grabLeft) + 'px,' + (newTop - grabTop) + 'px) scale(1.02)';
 
       var tCol = pixelToCol(metrics, newLeft + ghostW / 2);
-      var tRow = pixelToRowClamped(metrics, newTop + ghostH / 2);
+      var tRow = pixelToRowCached(metrics, newTop + ghostH / 2);
 
       if (!placeholder) {
         placeholder = document.createElement('div');
@@ -931,11 +1192,13 @@
         metrics.grid.appendChild(placeholder);
       }
 
-      var overlapping = getOverlappingWidgets(tCol, tRow, wSpan, hSpan, dragEl);
+      // Single DOM query per frame; every overlap test below is a map lookup.
+      var occ = buildOccupancy();
+      var overlapping = mapOverlappingEls(occ, tCol, tRow, wSpan, hSpan, dragEl);
       clearSwapTarget();
 
       if (overlapping.length === 0) {
-        dragEl.classList.remove('widget-collision');
+        dragGhost.classList.remove('widget-collision');
         updateTargetIndicator(metrics, tCol, tRow, 'free');
       } else if (overlapping.length === 1 && !overlayable) {
         var candidate = overlapping[0];
@@ -950,7 +1213,7 @@
           for (var tc = tCol; tc < tCol + wSpan; tc++)
             for (var tr = tRow; tr < tRow + hSpan; tr++)
               blockedCells[tc + ',' + tr] = true;
-          for (var r = 1; r <= metrics.maxRow - cH + 1; r++) {
+          for (var r = 1; r <= metrics.maxRow - cH + 1 && !canDisplace; r++) {
             for (var c = 1; c <= metrics.maxCol - cW + 1; c++) {
               if (Math.abs(c - curCol) + Math.abs(r - curRow) === 0) continue;
               var hitsBlocked = false;
@@ -958,26 +1221,24 @@
                 for (var sr = r; sr < r + cH; sr++)
                   if (blockedCells[sc + ',' + sr]) { hitsBlocked = true; break; }
               if (hitsBlocked) continue;
-              var others = getOverlappingWidgets(c, r, cW, cH, candidate);
-              if (others.length === 0) { canDisplace = true; break; }
+              if (mapOverlappingEls(occ, c, r, cW, cH, candidate).length === 0) { canDisplace = true; break; }
             }
-            if (canDisplace) break;
           }
         }
         if (canSwap) {
           swapTarget = candidate;
           candidate.classList.add('widget-swap-target');
           updateTargetIndicator(metrics, tCol, tRow, 'free');
-          dragEl.classList.remove('widget-collision');
+          dragGhost.classList.remove('widget-collision');
         } else if (canDisplace) {
           updateTargetIndicator(metrics, tCol, tRow, 'displace');
-          dragEl.classList.remove('widget-collision');
+          dragGhost.classList.remove('widget-collision');
         } else {
-          dragEl.classList.add('widget-collision');
+          dragGhost.classList.add('widget-collision');
           updateTargetIndicator(metrics, tCol, tRow, 'occupied');
         }
       } else {
-        dragEl.classList.add('widget-collision');
+        dragGhost.classList.add('widget-collision');
         updateTargetIndicator(metrics, tCol, tRow, 'occupied');
       }
     }
@@ -985,21 +1246,29 @@
     function onMoveUp() {
       document.removeEventListener('mousemove', onMove, true);
       document.removeEventListener('mouseup', onMoveUp, true);
+      if (_moveRaf) { cancelAnimationFrame(_moveRaf); _moveRaf = 0; _pendingMoveEvent = null; }
+      // Live drag: no snapshot to discard, position already in ghostX/Y.
+      dragGhost = null;
       if (!dragEl) return;
+      var _et0 = nowMs();
 
-      var metrics = getGridMetrics();
+      var metrics = refreshDragRect() || _dragCache || getGridMetrics();
       var extId = dragEl.dataset.extId;
 
       clearSwapTarget();
       removePlaceholder();
+      // One DOM query for the whole drop; every placement test below
+      // is a map lookup, no matter how heavy the widgets are.
+      var occ = buildOccupancy();
+      var _etCleanup = nowMs();
 
       if (metrics) {
-        var newLeft = parseFloat(dragEl.style.left);
-        var newTop = parseFloat(dragEl.style.top);
+        var newLeft = ghostX;
+        var newTop = ghostY;
         var tCol = pixelToCol(metrics, newLeft + ghostW / 2);
-        var tRow = pixelToRowClamped(metrics, newTop + ghostH / 2);
+        var tRow = pixelToRowCached(metrics, newTop + ghostH / 2);
 
-        var overlapping = getOverlappingWidgets(tCol, tRow, wSpan, hSpan, dragEl);
+        var overlapping = mapOverlappingEls(occ, tCol, tRow, wSpan, hSpan, dragEl);
         if (overlapping.length === 0 && !overlayable) {
           placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
           if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
@@ -1013,21 +1282,21 @@
             var otherId = other.dataset.extId;
 
             if (oW === wSpan && oH === hSpan) {
-              var swapFree = canWidgetFit(other, startCol, startRow);
+              var swapFree = canWidgetFitOnMap(other, startCol, startRow, occ);
               if (swapFree) {
                 placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
                 if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
                 placeWidget(other, startCol, startRow, oW, oH);
                 if (otherId) s.saveWidgetLayout(otherId, startCol, startRow, oW, oH);
               } else {
-                var altSpot = findFreeSpot(other, dragEl, tCol, tRow, wSpan, hSpan, metrics);
+                var altSpot = findFreeSpotOnMap(other, dragEl, tCol, tRow, wSpan, hSpan, occ);
                 if (altSpot) {
                   placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
                   if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
                   placeWidget(other, altSpot.col, altSpot.row, oW, oH);
                   if (otherId) s.saveWidgetLayout(otherId, altSpot.col, altSpot.row, oW, oH);
                 } else {
-                  var selfSpot = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+                  var selfSpot = findFreeSpotOnMap(dragEl, null, tCol, tRow, wSpan, hSpan, occ);
                   if (selfSpot) {
                     placeWidget(dragEl, selfSpot.col, selfSpot.row, wSpan, hSpan);
                     if (extId) s.saveWidgetLayout(extId, selfSpot.col, selfSpot.row, wSpan, hSpan);
@@ -1038,14 +1307,14 @@
                 }
               }
             } else {
-              var spot = findFreeSpot(other, dragEl, tCol, tRow, wSpan, hSpan, metrics);
+              var spot = findFreeSpotOnMap(other, dragEl, tCol, tRow, wSpan, hSpan, occ);
               if (spot) {
                 placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
                 if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
                 placeWidget(other, spot.col, spot.row, oW, oH);
                 if (otherId) s.saveWidgetLayout(otherId, spot.col, spot.row, oW, oH);
               } else {
-                var selfSpot2 = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+                var selfSpot2 = findFreeSpotOnMap(dragEl, null, tCol, tRow, wSpan, hSpan, occ);
                 if (selfSpot2) {
                   placeWidget(dragEl, selfSpot2.col, selfSpot2.row, wSpan, hSpan);
                   if (extId) s.saveWidgetLayout(extId, selfSpot2.col, selfSpot2.row, wSpan, hSpan);
@@ -1056,7 +1325,7 @@
               }
             }
           } else {
-            var safeSpot = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+            var safeSpot = findFreeSpotOnMap(dragEl, null, tCol, tRow, wSpan, hSpan, occ);
             if (safeSpot) {
               placeWidget(dragEl, safeSpot.col, safeSpot.row, wSpan, hSpan);
               if (extId) s.saveWidgetLayout(extId, safeSpot.col, safeSpot.row, wSpan, hSpan);
@@ -1080,7 +1349,7 @@
             var cand = candidates[i];
             if (cand.col < 1 || cand.row < 1) continue;
             if (cand.col + wSpan - 1 > metrics.maxCol || cand.row + hSpan - 1 > metrics.maxRow) continue;
-            var cOver = getOverlappingWidgets(cand.col, cand.row, wSpan, hSpan, dragEl);
+            var cOver = mapOverlappingEls(occ, cand.col, cand.row, wSpan, hSpan, dragEl);
             if (cOver.length === 0) {
               placeWidget(dragEl, cand.col, cand.row, wSpan, hSpan);
               if (extId) s.saveWidgetLayout(extId, cand.col, cand.row, wSpan, hSpan);
@@ -1089,7 +1358,7 @@
             }
           }
           if (!placed) {
-            var lastResort = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+            var lastResort = findFreeSpotOnMap(dragEl, null, tCol, tRow, wSpan, hSpan, occ);
             if (lastResort) {
               placeWidget(dragEl, lastResort.col, lastResort.row, wSpan, hSpan);
               if (extId) s.saveWidgetLayout(extId, lastResort.col, lastResort.row, wSpan, hSpan);
@@ -1111,9 +1380,9 @@
       if (finalGc && finalGr) {
         var fCol = parseInt(finalGc[1], 10), fW = parseInt(finalGc[2], 10);
         var fRow = parseInt(finalGr[1], 10), fH = parseInt(finalGr[2], 10);
-        var finalOverlap = getOverlappingWidgets(fCol, fRow, fW, fH, dragEl);
+        var finalOverlap = mapOverlappingEls(buildOccupancy(), fCol, fRow, fW, fH, dragEl);
         if (finalOverlap.length > 0) {
-          var rescue = findFreeSpot(dragEl, null, fCol, fRow, fW, fH, getGridMetrics());
+          var rescue = findFreeSpotOnMap(dragEl, null, fCol, fRow, fW, fH, buildOccupancy());
           if (rescue) {
             placeWidget(dragEl, rescue.col, rescue.row, fW, fH);
             if (extId) s.saveWidgetLayout(extId, rescue.col, rescue.row, fW, fH);
@@ -1121,11 +1390,16 @@
         }
       }
 
+      dragGhost = null;
       dragEl.classList.remove('widget-dragging', 'widget-collision');
-      document.body.classList.remove('widget-drag-active');
+      var _etEnd = nowMs();
+      dragTimingReport('drop ' + Math.round(_etEnd - _et0) + 'ms [cleanup ' +
+        Math.round(_etCleanup - _et0) + ' place+save ' + Math.round(_etEnd - _etCleanup) + ']');
       dragEl = null;
       _wasDragged = false;
       _mode = null;
+      _dragCache = null;
+      setDragActive(false);
     }
 
     // --- RESIZE ---
@@ -1189,6 +1463,7 @@
       dragEl = null;
       resizeEdges = {};
       _mode = null;
+      setDragActive(false);
     }
 
     function onClickSuppress(e) {
@@ -1199,6 +1474,9 @@
     document.addEventListener('mousemove', onHover);
     document.addEventListener('click', onClickSuppress, true);
     document._editCleanup = function () {
+      if (_moveRaf) { try { cancelAnimationFrame(_moveRaf); } catch (e) {} _moveRaf = 0; _pendingMoveEvent = null; }
+      _dragCache = null;
+      try { setDragActive(false); } catch (e) {}
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('mousemove', onHover);
       document.removeEventListener('mousemove', onMove, true);
@@ -1217,11 +1495,15 @@
     if (grid) { grid.style.minHeight = ''; grid.style.position = ''; removeGridOverlay(grid); }
     window.removeEventListener('resize', redrawOverlay);
     document.body.classList.remove('edit-mode');
-    document.body.classList.remove('widget-drag-active');
     if (document._editCleanup) { document._editCleanup(); document._editCleanup = null; }
     const bar = document.getElementById('mode-indicator-bar');
     if (bar) bar.remove();
-    // Restore orphaned dragged widgets back to grid
+    // Restore orphaned dragged widgets back to grid (covers Exit pressed
+    // mid-drag: the live floater goes back to its gesture-start cell).
+    document.querySelectorAll('[data-drag-ghost]').forEach(function (el) { el.remove(); });
+    document.querySelectorAll('.widget-extension').forEach(function (el) {
+      if (!el.dataset.dragGhost && el.style.visibility === 'hidden') el.style.visibility = '';
+    });
     document.querySelectorAll('.widget-dragging').forEach(function (el) {
       el.classList.remove('widget-dragging');
       el.style.position = '';
@@ -1236,6 +1518,11 @@
       el.style.boxShadow = '';
       el.style.borderColor = '';
       el.style.pointerEvents = '';
+      // Live drag clears grid pos at grab; restore gesture start on abort.
+      if (!el.style.gridColumn || !el.style.gridRow) {
+        el.style.gridColumn = startCol + ' / span ' + wSpan;
+        el.style.gridRow = startRow + ' / span ' + hSpan;
+      }
       // Force reflow to clear visual state immediately
       void el.offsetHeight;
       // If widget is not inside the grid, restore it

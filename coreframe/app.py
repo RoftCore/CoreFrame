@@ -4,7 +4,7 @@ import hashlib
 import signal
 import threading
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_socketio import SocketIO
 
 from coreframe.config import log, STATIC_DIR, EXTENSIONS_DIR, REGISTRY_PATH
@@ -59,7 +59,18 @@ from coreframe.extensions import extensions
 
 
 def _save_registry():
-    registry = {}
+    # Merge, never overwrite blindly: this runs at boot/restart while
+    # extensions still load async, so rebuilding from in-memory state alone
+    # used to wipe extensions.json to {} on every start. Entries are only
+    # ever removed by api_delete_extension.
+    import json
+    try:
+        with open(REGISTRY_PATH, encoding='utf-8') as f:
+            registry = json.load(f)
+        if not isinstance(registry, dict):
+            registry = {}
+    except (FileNotFoundError, OSError, ValueError):
+        registry = {}
     for ext_id, ext_data in extensions.items():
         cfg = ext_data['config']
         registry[ext_id] = {
@@ -68,7 +79,27 @@ def _save_registry():
             'author': cfg.get('author', ''),
             'category': cfg.get('category', 'general')
         }
-    import json
+    # Heal: adopt extension dirs present on disk but missing from registry.
+    try:
+        for name in os.listdir(EXTENSIONS_DIR):
+            if name in registry:
+                continue
+            cfg_path = os.path.join(EXTENSIONS_DIR, name, 'extension.json')
+            try:
+                with open(cfg_path, encoding='utf-8-sig') as f:
+                    cfg = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if not isinstance(cfg, dict):
+                continue
+            registry[cfg.get('id', name)] = {
+                'name': cfg.get('name', name),
+                'version': cfg.get('version', '1.0'),
+                'author': cfg.get('author', ''),
+                'category': cfg.get('category', 'general')
+            }
+    except OSError:
+        pass
     new_content = json.dumps(registry, indent=2)
     try:
         with open(REGISTRY_PATH, encoding='utf-8') as f:

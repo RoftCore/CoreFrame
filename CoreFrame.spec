@@ -75,6 +75,7 @@ a = Analysis(
         'webview.platforms.edgechromium',
         'clr',
         'coreframe.extensions.ext_runner',
+        'hid',
         # Full stdlib so runtime-loaded widget deps always import cleanly,
         # with no system Python dependency. See _collect_full_stdlib() above.
         *_stdlib_all,
@@ -107,9 +108,17 @@ splash = Splash(
     'splash.png',
     binaries=a.binaries,
     datas=a.datas,
-    text_pos=None,
-    text_size=12,
+    # Single small centered loading screen (440x330). Status lines are
+    # pushed at runtime via pyi_splash.update_text(); closed via
+    # pyi_splash.close() once the main window reveals.
+    text_pos=(24, 288),
+    text_size=11,
+    text_color='#A0A0B0',
+    text_default='Iniciando...',
+    max_img_size=(440, 330),
     minify_script=True,
+    # Never cover other windows (login screen, etc.): plain centered dialog.
+    always_on_top=False,
 )
 
 exe = EXE(
