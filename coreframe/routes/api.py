@@ -10,7 +10,7 @@ from coreframe.extensions.permissions import (
 )
 
 
-def register_api_routes(app):
+def register_api_routes(app, socketio):
 
     @app.route('/api/extensions')
     def api_extensions():
@@ -158,8 +158,12 @@ def register_api_routes(app):
 
     @app.route('/api/window/focus', methods=['POST'])
     def api_window_focus():
-        from flask_socketio import emit
-        emit('focus_window')
+        # Server-level emit (works from plain HTTP context — the bare
+        # flask_socketio.emit() shortcut only works inside socket handlers
+        # and 500s here). No room => delivered to all clients.
+        # Frontend core.js relays it to pywebview focus.
+        # NOTE: no broadcast= kwarg — this python-socketio version rejects it.
+        socketio.emit('focus_window')
         return jsonify({'ok': True})
 
     @app.route('/api/extension/<ext_id>/<action>', methods=['GET', 'POST'])
