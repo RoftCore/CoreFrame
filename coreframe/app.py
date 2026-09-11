@@ -45,7 +45,7 @@ _LOCAL_TOKEN = init_auth(app)
 # ── Register routes ────────────────────────────────────────────────
 
 register_auth_routes(app)
-register_api_routes(app)
+register_api_routes(app, socketio)
 register_install_routes(app, socketio)
 register_marketplace_routes(app, socketio)
 register_scene_routes(app)

@@ -109,7 +109,6 @@ if '--ext-runner' not in sys.argv:
             except Exception:
                 pass
             sys.exit(0)
-            sys.exit(0)
     except SystemExit:
         raise
     except Exception:
@@ -835,8 +834,9 @@ if not _server_ok:
     sys.exit(1)
 _trace('server ready')
 print('[BOOT] Flask ready', flush=True)
-if AUTOSTART_FLAG or MINIMIZED_FLAG:
+if MINIMIZED_FLAG:
     # Window stays hidden (tray) — nothing else will close the splash.
+    # NOTE: --autostart boots VISIBLE (only --minimized hides).
     _close_boot_splash()
 else:
     _splash_text('Abriendo ventana...')
@@ -845,6 +845,9 @@ config = load_config()
 mode = config.get('window_mode', SAVED_MODE)
 initial_fullscreen = (mode == 'fullscreen')
 initial_frameless = (mode == 'frameless')
+# Live window mode: init from saved config, updated by set_window_mode.
+# _focus_impl uses it to re-assert Maximized after minimize/restore.
+_current_mode = mode
 
 COREFRAME_BG = '#0d0d1a'
 
@@ -966,6 +969,11 @@ _setup_tray()
 
 _shown = threading.Event()
 _frameless_ok = False
+# Set once the saved window-mode geometry has been applied at boot
+# (reveal path) or the user took manual control (set_window_mode).
+# focus_window checks it so the first reveal from hidden/autostart mode
+# also maximizes instead of showing a bare 1280x800 frameless window.
+_boot_mode_applied = False
 
 def _ui(i, WinForms, fn):
     """Run fn on the UI thread WITHOUT risking Invoke-deadlock:
@@ -1039,8 +1047,9 @@ def _apply_initial_frameless():
             i.WindowState = getattr(WinForms.FormWindowState, 'Maximized')
             i.TopMost = False
             _start_frameless_taskbar_watcher(i, screen)
-            global _frameless_ok
+            global _frameless_ok, _boot_mode_applied
             _frameless_ok = True
+            _boot_mode_applied = True
             _trace('initial frameless applied successfully')
         except Exception as e:
             _trace(f'initial frameless _mutate error: {e}')
@@ -1053,7 +1062,7 @@ def _do_reveal():
     try:
         print('[BOOT] App rendered — revealing', flush=True)
 
-        if AUTOSTART_FLAG or MINIMIZED_FLAG:
+        if MINIMIZED_FLAG:
             return  # stay hidden; focus_window will reveal later
 
         # Show window, then close the single boot splash.
@@ -1089,9 +1098,9 @@ def _watchdog():
         return
     _shown.set()
     _trace('WATCHDOG: loaded did not fire in 4s — forcing reveal')
-    # Never pop a visible window in autostart/minimized (hidden) mode.
+    # Never pop a visible window in minimized (hidden) mode.
     # _destroy_splash is idempotent, safe to call again here.
-    if AUTOSTART_FLAG or MINIMIZED_FLAG:
+    if MINIMIZED_FLAG:
         _trace('WATCHDOG: hidden mode, keeping window hidden')
         _destroy_splash()
         return
@@ -1147,6 +1156,9 @@ def _set_window_mode_impl(new_mode):
     cfg = load_config()
     cfg['window_mode'] = new_mode
     save_config(cfg)
+    global _boot_mode_applied, _current_mode
+    _boot_mode_applied = True  # manual control wins over any later boot apply
+    _current_mode = new_mode
     i, WinForms = _get_winform()
     if not i:
         # No winforms (non-fallback envs): approximate with pywebview window API
@@ -1272,12 +1284,45 @@ def _focus_impl():
             return
         def _do():
             try:
+                # _do runs on the real UI thread (Invoke'd if required).
+                # Hidden/autostart windows MUST be shown explicitly:
+                # BringToFront/Focus alone never unhide a Visible=False form.
+                try:
+                    i.Show()
+                except Exception:
+                    pass
                 if i.WindowState == getattr(WinForms.FormWindowState, 'Minimized'):
                     i.WindowState = getattr(WinForms.FormWindowState, 'Normal')
                 i.Opacity = 1.0
                 i.BringToFront()
                 i.TopMost = True; i.TopMost = False
                 i.Focus()
+                # First reveal from hidden/autostart never ran the boot
+                # geometry step: apply the saved mode now (once only;
+                # manual set_window_mode sets the flag and wins).
+                global _boot_mode_applied
+                if not _boot_mode_applied and (initial_frameless or initial_fullscreen):
+                    _boot_mode_applied = True
+                    if initial_frameless:
+                        _apply_initial_frameless()
+                    else:
+                        try:
+                            _ui_set_mode(i, WinForms, 'fullscreen')
+                        except Exception as _e:
+                            _trace(f'focus initial fullscreen error: {_e}')
+                # Minimize/restore resets WindowState to Normal: re-assert
+                # Maximized whenever the live mode is frameless/fullscreen.
+                # Lightweight on purpose (no re-center flicker) and runs on
+                # the UI thread. Windowed mode is left untouched.
+                try:
+                    _cm = globals().get('_current_mode', '')
+                    if _cm == 'fullscreen':
+                        i.TopMost = True
+                    if _cm in ('frameless', 'fullscreen'):
+                        if i.WindowState != getattr(WinForms.FormWindowState, 'Maximized'):
+                            i.WindowState = getattr(WinForms.FormWindowState, 'Maximized')
+                except Exception as _e2:
+                    _trace(f'focus ensure-maximized error: {_e2}')
             except Exception as e:
                 _trace(f'focus _do error: {e}')
         # We're already on the serialized UI worker → direct call, no Invoke
