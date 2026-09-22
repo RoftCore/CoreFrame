@@ -852,12 +852,18 @@ _current_mode = mode
 COREFRAME_BG = '#0d0d1a'
 
 _trace(f'creating window url=.../?mode={mode} hidden=True')
+# NOTE: NEVER create the window with frameless=True. On some PCs the native
+# frameless+hidden creation wedges WebView2: `loaded` never fires, the
+# watchdog force-reveal dies silently and the app hangs on boot (manual
+# switch to frameless later works fine). Always create windowed and let
+# _apply_initial_frameless() (reveal/watchdog/focus-restore paths below) do
+# the frameless switch post-show — that path is proven (same as F11 switch).
 window = webview.create_window(
     'CoreFrame',
     url=f'http://{HOST}:{PORT}/?mode={mode}',
     width=1280, height=800,
     fullscreen=initial_fullscreen,
-    frameless=initial_frameless,
+    frameless=False,
     easy_drag=False,
     hidden=True,
     background_color=COREFRAME_BG,
@@ -1111,11 +1117,22 @@ def _watchdog():
     def _force():
         i, WinForms = _get_winform()
         if i:
+            # NEVER touch the WebView2/STA thread synchronously here: when
+            # `loaded` never fires the STA is usually wedged, and any sync
+            # COM/Invoke call blocks forever, killing the whole force-reveal
+            # (no Opacity restore, no splash kill, no frameless) — the app
+            # then sits dead with the splash stuck ("no responde").
+            # BeginInvoke is fire-and-forget: the reveal always proceeds.
             try:
-                _try_dark_webview_background(i)
+                i.BeginInvoke(WinForms.MethodInvoker(
+                    lambda: _try_dark_webview_background(i)))
             except Exception:
                 pass
-            _ui(i, WinForms, lambda: setattr(i, 'Opacity', 1.0))
+            try:
+                i.BeginInvoke(WinForms.MethodInvoker(
+                    lambda: setattr(i, 'Opacity', 1.0)))
+            except Exception:
+                pass
         _destroy_splash()
         # Apply frameless if the app started in frameless mode
         if initial_frameless:

@@ -60,6 +60,15 @@ CoreFrame/
 
 3. **The core provides generic mechanisms:** 12-column grid, extension card (`createExtensionCard`), sub-widgets (text, badge, list, chart, terminal, button), polling via `startWidgetIntervals`, generic WebSocket (no hardcoding), hook system for menus (`registerMenuHook`).
 
+## Code style
+
+- **Split code into multiple files.** Structured, ordered code; use folders when needed.
+- **Minimal comments:** max one line, at the start of functions or only where essential. Compact, in English, one sentence, whenever possible.
+- **English everywhere:** every text in code goes in English — comments, error messages, UI strings, labels, toasts, logs. This guide applies to all extensions with no per-extension exceptions.
+- **Python must stay compact:** past ~300 lines, evaluate splitting. Keep it whole only if it is truly one cohesive concern; if it keeps growing, split it into parts.
+- **HTML may stay in a single file.**
+- **JavaScript must also be structured:** it may run longer, but if it grows too much, split by logic into cohesive files, ordered, in folders if needed.
+
 ## Menu system (hooks)
 
 Extensions register handlers for menu actions via `registerMenuHook(extId, action, async function)`:
@@ -105,6 +114,11 @@ SocketIO is configured with `transports: ['websocket']` on the client to avoid H
 ## Extension System
 
 > Runtime loads extensions ONLY from DATA_DIR (`Documents/CoreFrame/extensions/`, see `coreframe/config.py`), never from the repo `extensions/` dir (dev source). Deploy = copy dir + restart exe (no rebuild unless core/requirements/spec/`static/` changed). Beware `Copy-Item -Recurse` nesting when the target exists.
+
+### Versioning
+
+- The `version` in `extension.json` moves ONLY on upload, never per change.
+- If `1.0` is uploaded, the working copy becomes `1.1` at the first change after that — and stays `1.1` through every further change until `1.1` itself is uploaded. Only then does it move to `1.2`.
 
 ### Minimum structure
 
@@ -311,3 +325,8 @@ All `/api/*` routes require `X-CoreFrame-Token` (obtained from `/api/token`).
 20. **pywebview SetWindowPos ctypes crash:** `winforms.py:635` passes `None` for cx/cy to `windll.user32.SetWindowPos()` (args 5-6). ctypes rejects `None` as non-integer → `ctypes.ArgumentError` flood (39K+ in log) → WinForms thread congestion → `Timeout (0:00:15)!` from faulthandler → extension heartbeat failures → process death. Solution: monkey-patch in `run_coreframe.pyw:462-497` replaces `BrowserForm.move` with safe version using `0, 0` for cx/cy. Secondary defense: patched `site-packages/webview/platforms/winforms.py:640-641` directly. The exe MUST be rebuilt after any change to `run_coreframe.pyw` for the patch to take effect.
 21. **Extension runner segfault on shutdown (hid.dll_unloaded):** isolated runners died inside C calls (e.g. blocking `hid.read`) during interpreter teardown because `on_stop` was never invoked on stdin-EOF. Fix: `ext_runner` (BOTH `coreframe/extensions/ext_runner.py` AND the embedded copy in `run_coreframe.pyw`) calls `instance.on_stop()` + 0.6s grace in a `finally`. Extensions must join threads and close handles there (see msd_deck `on_stop`). Daemon threads alone do NOT save you.
 22. **`/api/restart` NameError:** `coreframe/app.py` used `jsonify` without importing it — restart always 500'd (a failed restart + stacked manual relaunches caused several "won't open" pileups). Fixed import.
+23. **NEVER create the window with frameless=True (boot hang on some PCs):** with `coreframe.json = {"window_mode":"frameless"}`, `webview.create_window(frameless=True, hidden=True)` wedges WebView2 on some machines (works on others): Flask serves, extensions load, frontend JS even connects WS — but pywebview `loaded` NEVER fires → watchdog force-reveal posts `window.show()`+splash-kill+`_apply_initial_frameless()` and dies silently (zero log lines after `WATCHDOG`), window never reveals → user must kill the process. Manual switch to frameless AFTER boot (F11/mode selector → same `_apply_initial_frameless()` code) works fine, which is why it looked like "only boot fails". The JSON itself is valid — the VALUE is the trigger; deleting the file (→ windowed default) "fixes" it until frameless is re-saved. Solution (run_coreframe.pyw): ALWAYS `create_window(frameless=False)`; the existing `_apply_initial_frameless()` calls in `_do_reveal`/watchdog/focus-restore (BeginInvoke center-then-maximize, proven path) do the switch post-show when `initial_frameless`. NOTE: a `git pull` (v1.1.0, 14/09/2026) wiped this fix once (uncommitted) — commit it or it will be lost again.
+
+24. **Build ONLY with Python 3.13 (py -3.13) — NEVER 3.14:** the pre-release interpreter (python314.dll 3.14.150.1013) segfaults natively (0xc0000005, a different offset every time) under the boot storm. Precedent 29/08 (segfault → rebuilt 3.13 → stable) repeated 15–17/09 (v1.1.0 rebuilt 3.14 on 14/09 → 4 segfaults in 3 days → rebuilt 3.13 on 17/09, 34MB, python313.dll verified, zero python314 refs). Rule: stormy-but-3.13 is stable, stormy-3.14 dies. Deps for 3.13 per requirements.txt (psutil/requests/GPUtil/hidapi/eventlet installed 17/09 via pip; only npm is banned, never pip).
+
+25. **Watchdog force-reveal must NEVER touch STA synchronously:** _force() called _try_dark_webview_background(i) (sync COM property-set on the WebView2 control) + _ui Opacity (sync Invoke). When loaded never fires the STA is usually wedged, so the watchdog blocked forever at DefaultBackgroundColor: no Opacity restore, no splash kill, no frameless. App sat half-born (window exists, splash stuck, server unanswered, Responding: False). Fix: both via BeginInvoke fire-and-forget (18/09). Doctrine: on the watchdog path nothing may block; cosmetic losses are acceptable, a dead reveal is not.

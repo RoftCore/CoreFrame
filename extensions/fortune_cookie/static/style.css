@@ -19,6 +19,9 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 212, 255, 0.3) transparent;
   word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .fortune-text::-webkit-scrollbar {
@@ -58,12 +61,51 @@
   transform: scale(0.95);
 }
 
-.fortune-btn-new {
-  color: var(--accent-green, #00e676);
-  border-color: rgba(0, 230, 118, 0.25);
+.fortune-gear {
+  padding: 2px 8px;
+  line-height: 1;
 }
 
-.fortune-btn-new:hover {
-  background: rgba(0, 230, 118, 0.1);
-  border-color: var(--accent-green, #00e676);
+.fortune-gear svg {
+  width: 12px;
+  height: 12px;
+  vertical-align: middle;
+}
+
+.fortune-menu {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 4px;
+  flex-direction: column;
+  background: #0e0e1a;
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: 4px;
+  overflow: hidden;
+  z-index: 20;
+}
+
+.fortune-menu.open {
+  display: flex;
+}
+
+.fortune-menu-item {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #aaa);
+  font-size: 11px;
+  padding: 4px 16px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.fortune-menu-item:hover {
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--accent-cyan, #00d4ff);
+}
+
+.fortune-menu-item.active {
+  color: var(--accent-cyan, #00d4ff);
 }

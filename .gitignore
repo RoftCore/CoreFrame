@@ -13,6 +13,8 @@ extensions/spotify_downloader/config.json
 
 # PyInstaller
 dist/
+dist-runner/
+runner.zip
 build/
 build-tmp/
 dist-tmp/
