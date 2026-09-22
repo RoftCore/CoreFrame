@@ -4,12 +4,18 @@ function initFortune() {
 
   widget.innerHTML =
     '<div class="fortune-container">' +
-      '<div class="fortune-text" id="fortune-text">Click the cookie for wisdom...</div>' +
-      '<div style="display:flex;gap:6px;margin-top:8px">' +
-        '<button class="fortune-btn" id="fortune-crack">\uD83E\uDD6A Crack</button>' +
-        '<button class="fortune-btn fortune-btn-new" id="fortune-new">\u21BB New</button>' +
+      '<div class="fortune-text" id="fortune-text">Click Crack for wisdom...</div>' +
+      '<div class="fortune-menu-row" style="display:flex;gap:6px;margin-top:8px;flex-shrink:0;justify-content:center;position:relative">' +
+        '<button class="fortune-btn" id="fortune-crack">Crack</button>' +
+        '<button class="fortune-btn fortune-gear" id="fortune-gear" title="Language"><i data-feather="settings"></i></button>' +
+        '<div class="fortune-menu" id="fortune-menu">' +
+          '<button class="fortune-menu-item" id="fortune-lang-en">EN</button>' +
+          '<button class="fortune-menu-item" id="fortune-lang-es">ES</button>' +
+        '</div>' +
       '</div>' +
     '</div>';
+
+  try { if (window.feather) feather.replace(); } catch (e) {}
 
   function fetchFortune() {
     var textEl = document.getElementById('fortune-text');
@@ -30,14 +36,55 @@ function initFortune() {
     });
   }
 
+  function markLang(lang) {
+    var en = document.getElementById('fortune-lang-en');
+    var es = document.getElementById('fortune-lang-es');
+    if (en) en.classList.toggle('active', lang === 'en');
+    if (es) es.classList.toggle('active', lang === 'es');
+  }
+
+  function setLang(lang) {
+    var textEl = document.getElementById('fortune-text');
+    apiFetch('/api/extension/fortune_cookie/set_language', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ language: lang, current: textEl ? textEl.textContent : '' })
+    }).then(function (data) {
+      if (data && data.value) {
+        markLang(data.value.language);
+        menu.classList.remove('open');
+        if (data.value.text && textEl) {
+          textEl.textContent = data.value.text;
+        } else {
+          fetchFortune();
+        }
+      } else if (data && data.error && typeof showToast === 'function') {
+        showToast(data.error);
+      }
+    });
+  }
+
   document.getElementById('fortune-crack').addEventListener('click', function () {
-    this.textContent = '\uD83E\uDD6A *crack*';
+    this.textContent = '*crack*';
     var self = this;
-    setTimeout(function () { self.textContent = '\uD83E\uDD6A Crack'; }, 800);
+    setTimeout(function () { self.textContent = 'Crack'; }, 800);
     fetchFortune();
   });
 
-  document.getElementById('fortune-new').addEventListener('click', fetchFortune);
+  var menu = document.getElementById('fortune-menu');
+  document.getElementById('fortune-gear').addEventListener('click', function (e) {
+    e.stopPropagation();
+    menu.classList.toggle('open');
+  });
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.fortune-menu-row')) menu.classList.remove('open');
+  });
+  document.getElementById('fortune-lang-en').addEventListener('click', function () { setLang('en'); });
+  document.getElementById('fortune-lang-es').addEventListener('click', function () { setLang('es'); });
+
+  apiFetch('/api/extension/fortune_cookie/get_config').then(function (data) {
+    if (data && data.value) markLang(data.value.language);
+  });
 
   fetchFortune();
 }

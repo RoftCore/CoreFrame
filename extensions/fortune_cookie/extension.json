@@ -1,11 +1,11 @@
 {
-  "permissions": { "level": "basic" },
+  "permissions": { "level": "storage" },
   "id": "fortune_cookie",
   "name": "Fortune Cookie",
   "icon": "circle",
   "description": "Random fortunes and witty quotes at a click",
   "platforms": ["windows", "linux"],
-  "version": "1.0",
+  "version": "1.1",
   "author": "SentinelGD",
   "category": "fun",
   "overlayable": false,
