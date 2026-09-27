@@ -181,6 +181,12 @@ _BRIDGE_ESCALATION_METHODS = {
 class SubprocessBridge:
     """JSON-RPC bridge for multi-language extensions (node, python subprocess)."""
 
+    # Every spawned child registers here so the restart drain can reap even
+    # orphans whose bridge object never made it into the extensions dict
+    # (e.g. constructor raising after spawn on slow ready-handshake).
+    _live_children = set()
+    _live_lock = threading.Lock()
+
     _LANG_MAP = {
         'node': 'node',
         'nodejs': 'node',
@@ -201,9 +207,17 @@ class SubprocessBridge:
         self._running = True
         self._started = False
         self._start_time = 0.0
+        self._last_call = 0.0
         self._ext_isolation = ext_isolation
         self._config_file = None  # Temp config file for isolated mode
-        self._start(ext_path)
+        try:
+            self._start(ext_path)
+        except Exception:
+            try:
+                self.on_stop()
+            except Exception:
+                pass
+            raise
 
     def _start(self, ext_path):
         main_path = os.path.join(ext_path, self.main)
@@ -236,6 +250,8 @@ class SubprocessBridge:
             bufsize=1,
             startupinfo=startupinfo,
         )
+        with SubprocessBridge._live_lock:
+            SubprocessBridge._live_children.add(self._proc)
         self._started = True
         self._start_time = time.monotonic()
         log.info("[Bridge] Started %s process for %s (pid=%d)", self.language, self.ext_id, self._proc.pid)
@@ -312,6 +328,13 @@ class SubprocessBridge:
         log.info("[Bridge] Isolated mode for %s (restrictions: level=%s, network=%s)",
                  self.ext_id, restrictions.get('level'), restrictions.get('network_allowed'))
         if getattr(sys, 'frozen', False):
+            try:
+                from coreframe.config import DATA_DIR as _dd
+                _persist = os.path.join(_dd, 'bin', 'runner', 'ext_runner.exe')
+                if os.path.isfile(_persist):
+                    return [_persist, self._config_file]
+            except Exception:
+                pass
             return [sys.executable, '--ext-runner', self._config_file]
         return [interpreter, runner_path, self._config_file]
 
@@ -403,6 +426,15 @@ class SubprocessBridge:
                 # Proactive heartbeat from runner (no id field) — update health
                 if data.get('method') == 'heartbeat' and 'id' not in data:
                     self._ext_isolation.heartbeat(self.ext_id)
+                    continue
+                # Activity lease from runner: {"method":"set_busy","busy":true}
+                # Extensions print this line to hold off hibernation while
+                # playing/downloading/working. Leases expire (see isolation).
+                if data.get('method') == 'set_busy' and 'id' not in data:
+                    try:
+                        self._ext_isolation.set_busy(self.ext_id, bool(data.get('busy', True)))
+                    except Exception:
+                        pass
                     continue
                 rid = data.get('id')
                 if rid is not None:
@@ -507,12 +539,45 @@ class SubprocessBridge:
                     self._proc.kill()
                 except Exception:
                     pass
+        try:
+            with SubprocessBridge._live_lock:
+                SubprocessBridge._live_children.discard(self._proc)
+        except Exception:
+            pass
         # Clean up temp config file
         if self._config_file and os.path.exists(self._config_file):
             try:
                 os.remove(self._config_file)
             except OSError:
                 pass
+
+    @staticmethod
+    def reap_all_children(timeout=8.0):
+        """Terminate every tracked child, including orphans. Returns survivors."""
+        import time as _t
+        with SubprocessBridge._live_lock:
+            procs = list(SubprocessBridge._live_children)
+        for p in procs:
+            try:
+                if p.poll() is None:
+                    p.terminate()
+            except Exception:
+                pass
+        deadline = _t.monotonic() + timeout
+        for p in procs:
+            try:
+                remaining = deadline - _t.monotonic()
+                if remaining <= 0:
+                    break
+                p.wait(timeout=remaining)
+            except Exception:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+        with SubprocessBridge._live_lock:
+            SubprocessBridge._live_children = {p for p in SubprocessBridge._live_children if p.poll() is None}
+            return len(SubprocessBridge._live_children)
 
     def heartbeat(self):
         try:

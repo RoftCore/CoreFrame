@@ -204,6 +204,18 @@ def _load_extension_core(ext_id: str, ext_path: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+def stop_all_polls(timeout=3.0):
+    """Signal every realtime poll thread to exit and wait briefly.
+    Must be called before any full reload so orphan pollers cannot pile up."""
+    evs = list(_poll_stop_events.items())
+    for _, ev in evs:
+        try:
+            ev.set()
+        except Exception:
+            pass
+    _poll_stop_events.clear()
+
+
 def load_extensions():
     """NON-BLOCKING: Starts async loading of all extensions."""
     log.info("load_extensions: Starting async load (EXTENSIONS_DIR=%s)", EXTENSIONS_DIR)

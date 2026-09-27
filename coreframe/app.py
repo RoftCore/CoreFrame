@@ -3,6 +3,7 @@ import sys
 import hashlib
 import signal
 import threading
+import time
 
 from flask import Flask, jsonify
 from flask_socketio import SocketIO
@@ -116,24 +117,67 @@ def _save_registry():
 
 # ── Restart / Quit ─────────────────────────────────────────────────
 
+_restart_lock = threading.Lock()
+
+
 @app.route('/api/restart', methods=['POST'])
 def api_restart():
+    if not _restart_lock.acquire(blocking=False):
+        return jsonify({'ok': False, 'error': 'restart already in progress'}), 409
+    try:
+        return _do_restart()
+    finally:
+        try:
+            _restart_lock.release()
+        except Exception:
+            pass
+
+
+def _do_restart():
+    import time as _time
     log.info("Restart: instant reload triggered")
 
     _ext_isolation.stop_monitor()
 
-    def _cleanup_async():
-        for ext_id, ext_data in list(extensions.items()):
-            inst = ext_data.get('instance')
-            if hasattr(inst, 'on_stop'):
-                try:
-                    inst.on_stop()
-                except Exception:
-                    pass
-        for ext_id in list(extensions.keys()):
-            _ext_isolation.mark_dead(ext_id, 'Restart')
+    # 1. Stop realtime pollers first so no orphan thread survives the reload.
+    try:
+        from coreframe.extensions.loader import stop_all_polls
+        stop_all_polls()
+    except Exception:
+        pass
 
-    threading.Thread(target=_cleanup_async, daemon=True, name='restart-cleanup').start()
+    # 2. Drain old children synchronously (parallel, bounded) — no overlap storm.
+    # Includes orphans whose bridge never registered (slow ready-handshake).
+    def _stop_one(ext_data):
+        inst = ext_data.get('instance')
+        if hasattr(inst, 'on_stop'):
+            try:
+                inst.on_stop()
+            except Exception:
+                pass
+    stops = []
+    for ext_data in list(extensions.values()):
+        t = threading.Thread(target=_stop_one, args=(ext_data,), daemon=True)
+        t.start()
+        stops.append(t)
+    deadline = _time.monotonic() + 10.0
+    for t in stops:
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0:
+            break
+        t.join(timeout=remaining)
+    # Grace so dying threads unwind past their frames before sys.modules
+    # surgery below: printing a torn-down frame segfaults in PyTraceBack_Print.
+    _time.sleep(2.0)
+    try:
+        from coreframe.extensions.bridge import SubprocessBridge
+        left = SubprocessBridge.reap_all_children(timeout=5.0)
+        if left:
+            log.warning("Restart: %d orphan children survived drain", left)
+    except Exception:
+        pass
+    for ext_id in list(extensions.keys()):
+        _ext_isolation.mark_dead(ext_id, 'Restart')
 
     extensions.clear()
     from coreframe.extensions import failed_extensions

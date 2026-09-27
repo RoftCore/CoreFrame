@@ -146,6 +146,27 @@ function initWebSocket() {
       });
       return;
     }
+    // Host immunity: coalesce chatty pollers (min 250ms per ext, latest wins).
+    var nowMs = Date.now();
+    window.__rtLast = window.__rtLast || {};
+    if (nowMs - (window.__rtLast[data.ext] || 0) < 250) {
+      window.__rtPending = window.__rtPending || {};
+      window.__rtPending[data.ext] = data;
+      if (!window.__rtTimer) {
+        window.__rtTimer = setTimeout(function () {
+          window.__rtTimer = null;
+          var pending = window.__rtPending;
+          window.__rtPending = {};
+          Object.keys(pending || {}).forEach(function (k) { handleRealtimeUpdate(pending[k]); });
+        }, 250);
+      }
+      return;
+    }
+    window.__rtLast[data.ext] = nowMs;
+    handleRealtimeUpdate(data);
+  });
+
+  function handleRealtimeUpdate(data) {
     Object.keys(data.values).forEach(id => {
       const el = document.querySelector(`[data-widget-id="${id}"][data-ext-id="${data.ext}"]`);
       if (!el) return;
@@ -153,7 +174,7 @@ function initWebSocket() {
       if (el.style.display === 'none') return;
       updateWidgetValue(el, { value: data.values[id] });
     });
-  });
+  }
 
   // Flush queued realtime values once the gesture ends, time-sliced
   // (8ms budget per frame): applying every heavy redraw in a single

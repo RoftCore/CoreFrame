@@ -54,6 +54,16 @@ def _poll_extension(ext_id, ext_data, interval_ms):
 
     from coreframe.extensions.loader import _poll_stop_events
     stop_event = _poll_stop_events.get(ext_id)
+    _err_last_log = 0.0
+    _err_count = 0
+    def _note_error(action, e):
+        nonlocal _err_last_log, _err_count
+        _err_count += 1
+        now = time.monotonic()
+        if now - _err_last_log >= 60.0:
+            log.error("%s/%s: %s (repeated %dx, throttled)", ext_id, action, e, _err_count)
+            _err_last_log = now
+            _err_count = 0
     def _is_visible():
         try:
             from coreframe.config import WIDGET_STATE_PATH
@@ -70,7 +80,13 @@ def _poll_extension(ext_id, ext_data, interval_ms):
         except Exception:
             return True
     while True:
+        from coreframe.extensions.loader import _poll_stop_events as _evs, extensions as _exts
+        cur = _evs.get(ext_id)
+        if cur is not stop_event:
+            break
         if stop_event and stop_event.is_set():
+            break
+        if ext_id not in _exts:
             break
         if not _is_visible():
             # Hidden in all scenes -> suspend polling to save CPU/RAM, will be resumed on unhideWidget -> _start_polling
@@ -89,7 +105,7 @@ def _poll_extension(ext_id, ext_data, interval_ms):
                     val = result.get('value') if isinstance(result, dict) else result
                     values[wDef['id']] = val
             except Exception as e:
-                log.error("%s/%s: %s", ext_id, action, e)
+                _note_error(action, e)
         if values:
             update = {'ext': ext_id, 'values': values}
             if ext_id == 'system_monitor':
