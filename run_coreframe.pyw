@@ -548,6 +548,38 @@ except Exception:
 # When the app hangs, the last dump shows exactly where each thread is stuck.
 _boot_log_file = None
 
+# Post-mortem snapshots: full thread stacks to a rotating pair of files
+# every 5 min (overwrite). A segfault kills logging mid-dump, but the
+# previous snapshot always survives and shows what threads did last.
+_snap_files = []
+_snap_idx = [0]
+
+def _start_snapshotter():
+    try:
+        d = os.path.join(_real_docs_dir(), 'CoreFrame')
+        for i in (1, 2):
+            _snap_files.append(open(os.path.join(d, 'stacksnap%d.log' % i), 'w', encoding='utf-8'))
+        def _snap():
+            while True:
+                time.sleep(300)
+                try:
+                    f = _snap_files[_snap_idx[0] % 2]
+                    f.seek(0)
+                    f.truncate()
+                    f.write('===== %s =====\n' % time.strftime('%Y-%m-%d %H:%M:%S'))
+                    faulthandler.dump_traceback(file=f)
+                    f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except Exception:
+                        pass
+                    _snap_idx[0] += 1
+                except Exception:
+                    pass
+        threading.Thread(target=_snap, daemon=True, name='stacksnap').start()
+    except Exception:
+        pass
+
 def _start_stack_dumper():
     global _boot_log_file
     try:
@@ -556,7 +588,12 @@ def _start_stack_dumper():
         _boot_log_file = open(os.path.join(d, 'coreframe.log'), 'a', encoding='utf-8')
         _boot_log_file.write('\n===== %s launch =====\n' % time.strftime('%H:%M:%S'))
         _boot_log_file.flush()
-        faulthandler.dump_traceback_later(15, repeat=True, file=_boot_log_file)
+        # Single-shot boot net only. NEVER repeat=True: every dump walks all
+        # threads through traceback printing, and our segfault site IS the
+        # traceback printer (python313.dll PyTraceBack_Print, same offset in
+        # every crash). Repeating dumps = rolling those dice every 15s.
+        # Ongoing forensics live in _start_snapshotter (5-min cadence).
+        faulthandler.dump_traceback_later(15, file=_boot_log_file)
     except Exception:
         pass
 
@@ -617,6 +654,52 @@ def _real_docs_dir():
 DATA_DIR_EARLY = os.path.join(_real_docs_dir(), 'CoreFrame')
 os.makedirs(DATA_DIR_EARLY, exist_ok=True)
 _start_stack_dumper()
+_start_snapshotter()
+
+
+def _ensure_persistent_runner():
+    """Extract the lightweight ext_runner once (stamp-guarded).
+    Skipped for --ext-runner children and dev mode. Old children keep
+    running from the previous dir until the next boot; extraction only
+    ever happens here, before any child spawns."""
+    try:
+        if '--ext-runner' in sys.argv or not getattr(sys, 'frozen', False):
+            return
+        meipass = getattr(sys, '_MEIPASS', None)
+        if not meipass:
+            return
+        zpath = os.path.join(meipass, 'runner.zip')
+        if not os.path.isfile(zpath):
+            return
+        dest = os.path.join(DATA_DIR_EARLY, 'bin', 'runner')
+        stamp = os.path.join(dest, 'runner.stamp')
+        sig = '%d-%d' % (os.path.getsize(zpath), int(os.path.getmtime(zpath)))
+        try:
+            if os.path.isfile(stamp) and open(stamp, encoding='utf-8').read().strip() == sig \
+                    and os.path.isfile(os.path.join(dest, 'ext_runner.exe')):
+                return
+        except Exception:
+            pass
+        import shutil
+        import zipfile
+        tmp = dest + '.new'
+        shutil.rmtree(tmp, ignore_errors=True)
+        os.makedirs(tmp, exist_ok=True)
+        with zipfile.ZipFile(zpath) as z:
+            z.extractall(tmp)
+        cur = dest + '.old'
+        shutil.rmtree(cur, ignore_errors=True)
+        if os.path.isdir(dest):
+            os.rename(dest, cur)
+        os.rename(tmp, dest)
+        shutil.rmtree(cur, ignore_errors=True)
+        with open(stamp, 'w', encoding='utf-8') as f:
+            f.write(sig)
+    except Exception:
+        pass
+
+
+_ensure_persistent_runner()
 
 import logging
 LOG_PATH_EARLY = os.path.join(DATA_DIR_EARLY, 'coreframe.log')

@@ -52,6 +52,7 @@ a = Analysis(
     datas=[
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
+        ('runner.zip', '.'),
         (_WEBVIEW_LIB, 'webview\\lib'),
     ] + _pip_datas + _st_datas + _w_datas + _tk_datas,
     hiddenimports=[

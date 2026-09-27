@@ -18,6 +18,8 @@ class ExtensionHealth:
     restart_count: int = 0
     load_thread: Optional[threading.Thread] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    quarantined: bool = False
+    last_restart_attempt: float = 0.0
 
 
 class ExtensionIsolation:
@@ -27,6 +29,7 @@ class ExtensionIsolation:
     MAX_HEARTBEAT_AGE = 60.0
     MAX_RESTARTS = 3
     RESTART_COOLDOWN = 10.0
+    RESTART_BACKOFF = (10.0, 30.0, 120.0)
 
     def __init__(self):
         self.health: Dict[str, ExtensionHealth] = {}
@@ -66,11 +69,19 @@ class ExtensionIsolation:
                     if now - health.last_heartbeat > self.MAX_HEARTBEAT_AGE:
                         log.warning("Extension %s heartbeat timeout, marking degraded", ext_id)
                         health.status = 'degraded'
-                if health.status == 'degraded' and health.restart_count < self.MAX_RESTARTS:
-                    if now - health.last_heartbeat > self.RESTART_COOLDOWN:
-                        log.info("Auto-restarting degraded extension %s (attempt %d/%d)",
-                                 ext_id, health.restart_count + 1, self.MAX_RESTARTS)
-                        self._schedule_restart(ext_id)
+                if health.status == 'degraded' and not health.quarantined:
+                    if health.restart_count >= self.MAX_RESTARTS:
+                        health.quarantined = True
+                        health.status = 'dead'
+                        log.warning("Extension %s quarantined for session after %d failed restarts",
+                                    ext_id, health.restart_count)
+                    else:
+                        delay = self.RESTART_BACKOFF[min(health.restart_count, len(self.RESTART_BACKOFF) - 1)]
+                        if now - health.last_restart_attempt >= delay:
+                            log.info("Auto-restarting degraded extension %s (attempt %d/%d)",
+                                     ext_id, health.restart_count + 1, self.MAX_RESTARTS)
+                            health.last_restart_attempt = now
+                            self._schedule_restart(ext_id)
 
     def _schedule_restart(self, ext_id: str):
         health = self.health.get(ext_id)
@@ -149,6 +160,7 @@ class ExtensionIsolation:
                 'error_count': health.error_count,
                 'last_error': health.last_error,
                 'restart_count': health.restart_count,
+                'quarantined': health.quarantined,
             }
 
     def get_all_status(self) -> dict:

@@ -516,6 +516,20 @@ function updateWidgetValue(widgetEl, response) {
   }
 }
 
+function _cheapHash(val) {
+  if (val === null || val === undefined) return 'null';
+  if (typeof val !== 'object') return String(val);
+  try {
+    const s = JSON.stringify(val);
+    if (s.length <= 200000) return s;
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return 'big:' + s.length + ':' + h.toString(16);
+  } catch (e) {
+    return 'err:' + String(val).slice(0, 200);
+  }
+}
+
 function _updateWidgetValueInner(widgetEl, response) {
 
   const extId = widgetEl.dataset.extId;
@@ -535,7 +549,7 @@ function _updateWidgetValueInner(widgetEl, response) {
     : 'unknown';
 
   const hashKey = `${extId}-${id}`;
-  const newHash = val !== null && val !== undefined ? (typeof val === 'object' ? JSON.stringify(val) : String(val)) : 'null';
+  const newHash = _cheapHash(val);
 
   switch (type) {
     case 'text':
@@ -560,10 +574,11 @@ function _updateWidgetValueInner(widgetEl, response) {
         const container = widgetEl.querySelector('.widget-list-items');
         if (container) {
           const items = Array.isArray(val) ? val : [];
-          container.innerHTML = items.map(item => {
-            if (typeof item === 'string') return '<div class="list-item"><span class="list-item-value">' + escapeHtml(item) + '</span></div>';
-            return '<div class="list-item"><span class="list-item-key">' + escapeHtml(item.label || item.key || '') + '</span><span class="list-item-value">' + escapeHtml(item.value || '') + '</span></div>';
-          }).join('');
+          const shown = items.slice(0, 300);
+          container.innerHTML = shown.map(item => {
+            if (typeof item === 'string') return '<div class="list-item"><span class="list-item-value">' + escapeHtml(item.slice(0, 500)) + '</span></div>';
+            return '<div class="list-item"><span class="list-item-key">' + escapeHtml(item.label || item.key || '') + '</span><span class="list-item-value">' + escapeHtml(String(item.value || '').slice(0, 500)) + '</span></div>';
+          }).join('') + (items.length > shown.length ? '<div class="list-item list-item-more">+' + (items.length - shown.length) + ' more</div>' : '');
         }
       }
       break;
@@ -595,7 +610,7 @@ function _updateWidgetValueInner(widgetEl, response) {
       const out = widgetEl.querySelector('.widget-terminal-output');
       if (out) {
         const text = typeof val === 'string' ? val : JSON.stringify(val, null, 2);
-        out.textContent = text;
+        out.textContent = text.length > 100000 ? text.slice(-100000) : text;
       }
       break;
     }
