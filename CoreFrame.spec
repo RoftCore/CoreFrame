@@ -45,6 +45,12 @@ def _collect_full_stdlib():
 
 _stdlib_all = _collect_full_stdlib()
 
+# The light ext_runner is optional: built by tools/build_runner.py and skipped
+# when absent (CI without the runner step, Linux). The app boots fine without it
+# (run_coreframe._ensure_persistent_runner returns early) and just falls back to
+# the main exe per extension child.
+_runner_datas = [('runner.zip', '.')] if os.path.isfile('runner.zip') else []
+
 a = Analysis(
     ['run_coreframe.pyw'],
     pathex=[],
@@ -52,9 +58,8 @@ a = Analysis(
     datas=[
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
-        ('runner.zip', '.'),
         (_WEBVIEW_LIB, 'webview\\lib'),
-    ] + _pip_datas + _st_datas + _w_datas + _tk_datas,
+    ] + _runner_datas + _pip_datas + _st_datas + _w_datas + _tk_datas,
     hiddenimports=[
         'ssl',
         '_ssl',
