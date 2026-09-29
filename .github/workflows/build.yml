@@ -33,11 +33,15 @@ jobs:
         run: |
           pip install -r requirements.txt pyinstaller==6.17.0
 
+      - name: Build runner.zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python tools/build_runner.py
+
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          pyinstaller --noconfirm CoreFrame.spec
+        run: pyinstaller --noconfirm --clean CoreFrame.spec
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
