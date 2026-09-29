@@ -584,6 +584,35 @@ def register_api_routes(app, socketio):
             resp.headers['Cache-Control'] = 'no-store, must-revalidate'
         return resp
 
+    def _ext_serves_data(ext_id):
+        """An extension opts into having its data dir served by reading its own manifest."""
+        import json
+        cfg_path = os.path.join(EXTENSIONS_DIR, ext_id, 'extension.json')
+        try:
+            with open(cfg_path, encoding='utf-8-sig') as f:
+                return bool(json.load(f).get('serve_data'))
+        except Exception:
+            return False
+
+    @app.route('/ext-data/<ext_id>/<path:path>')
+    def ext_data(ext_id, path):
+        """Serve an extension's own data dir (libraries, downloads).
+        Requires "serve_data": true in the extension's own manifest, and
+        conditional=True keeps HTTP Range (206) so <audio>/<video> can seek."""
+        from flask import Response, send_from_directory
+        from coreframe.config import DATA_DATA_DIR
+        if '..' in ext_id or '/' in ext_id or '\\' in ext_id:
+            return Response('Invalid extension id', 400)
+        if not _ext_serves_data(ext_id):
+            return Response('', 404)
+        data_dir = os.path.join(DATA_DATA_DIR, ext_id)
+        if not os.path.isdir(data_dir):
+            return Response('', 204)
+        try:
+            return send_from_directory(data_dir, path, conditional=True)
+        except FileNotFoundError:
+            return Response('', 204)
+
     @app.route('/api/debug/switch', methods=['POST'])
     def api_debug_switch():
         """Receives scene-switch timing telemetry from the frontend.

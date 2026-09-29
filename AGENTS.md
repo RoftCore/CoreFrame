@@ -156,6 +156,7 @@ extensions/my_extension/
 ```
 
 - `realtime` (bool): if `true`, the core skips HTTP polling for this extension (handled by WebSocket).
+- `serve_data` (bool): if `true`, the core serves this extension's own data dir over `/ext-data/{id}/` (Range/206 included, so `<audio>`/`<video>` can seek). This is how an extension publishes local media (libraries, downloads) without putting it in its own folder. Data dirs can hold sessions, tokens and history, so it is opt-in and read from the manifest — the core never lists extension ids itself.
 - `js_modules`: array. The core loads each module via dynamic `<script>` from `/ext-static/{id}/{mod}`.
 - `css_modules`: array. Each extension MUST use its own CSS for specific styles. Do not inject into core files.
 - `menu_items`: sidebar entries. `action` maps to an `Extension` class method or a hook registered via `registerMenuHook`.
