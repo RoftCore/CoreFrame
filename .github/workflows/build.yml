@@ -16,10 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       - name: Install Linux system deps
         if: runner.os == 'Linux'
@@ -32,6 +32,12 @@ jobs:
       - name: Install Python deps
         run: |
           pip install -r requirements.txt pyinstaller==6.17.0
+
+      # The --ext-runner child source is mirrored into run_coreframe.pyw because
+      # it must run before coreframe/__init__.py pulls in Flask. Drift means the
+      # fallback child silently diverges from the shipped runner.
+      - name: Verify ext_runner mirror
+        run: python tools/sync_ext_runner_source.py --check
 
       - name: Build runner.zip (Windows)
         if: runner.os == 'Windows'

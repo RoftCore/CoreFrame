@@ -59,6 +59,8 @@ extensions/mi_extension/
 | `css_modules` | string[] | `[]` | ❌ | CSS files in `static/` |
 | `widgets` | array | `[]` | ✅ | Array of widget definitions |
 | `permissions` | object | — | ❌ | Permission declaration (see [Permissions](#permissions)) |
+| `serve_data` | bool | `false` | — | Publishes the extension's **data dir** over `/ext-data/<id>/` (with Range/206, so `<audio>`/`<video>` can seek). Use it to serve local media, sessions or exports without putting them in the extension folder, which gets packaged and copied on install |
+| `keep_alive` | bool | `true` | — | Keeps off-scene widgets alive (decoded images and layout preserved) by moving them off-viewport instead of `display:none`. Set `false` only if the widget must be genuinely torn down while its scene is inactive |
 
 ### permissions
 
@@ -686,16 +688,17 @@ Base URL `http://127.0.0.1:8420`. Auth: `GET /api/token` (no auth) → send `X-C
 | POST | `/api/extensions/<id>/permissions/revoke` | Revoke all (widget becomes paperweight, stays in picker) |
 | POST | `/api/extensions/<id>/permissions/escalation` | Body `{method, grant, once}` |
 | GET | `/api/extensions/pending_consent` | Extensions waiting for a user decision (startup polling) |
-| POST | `/api/extensions/<id>/load`, `/unload` | Load/unload a deferred extension on demand |
+| POST | `/api/extensions/<id>/load`, `/unload` | Re-check a loaded extension (reports the load error when it failed) / free its process |
 | POST | `/api/install_extension` | Install a `.zip` |
 | DELETE | `/api/extensions/<id>` | Uninstall |
 | GET | `/ext-static/<id>/<file>` | Frontend files from the extension's `static/` folder |
+| GET | `/ext-data/<id>/<path>` | Files from the extension's data dir. Only served when the manifest sets `serve_data: true`; Range requests get `206` so `<audio>`/`<video>` can seek |
 
 ```bash
 TOKEN=$(curl -s http://127.0.0.1:8420/api/token | jq -r .token)
 curl -H "X-CoreFrame-Token: $TOKEN" http://127.0.0.1:8420/api/extensions
 curl -X POST -H "X-CoreFrame-Token: $TOKEN" -H "Content-Type: application/json" \
-  -d '{"title":"Hi"}' http://127.0.0.1:8420/api/extension/notes/create
+  -d '{"title":"Hi"}' http://127.0.0.1:8420/api/extension/<ext_id>/create
 ```
 
 ---

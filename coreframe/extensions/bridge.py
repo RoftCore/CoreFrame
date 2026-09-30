@@ -338,25 +338,6 @@ class SubprocessBridge:
             return [sys.executable, '--ext-runner', self._config_file]
         return [interpreter, runner_path, self._config_file]
 
-    @staticmethod
-    def _find_system_python():
-        """Find a usable system Python with pip-installed packages."""
-        import shutil
-        # Try PATH first
-        found = shutil.which('python')
-        if found:
-            return found
-        # Common Windows install paths
-        for candidate in [
-            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Python', 'Python311', 'python.exe'),
-            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Python', 'Python312', 'python.exe'),
-            r'C:\Python311\python.exe',
-            r'C:\Python312\python.exe',
-        ]:
-            if candidate and os.path.isfile(candidate):
-                return candidate
-        return None
-
     def _build_restrictions(self):
         """Build restrictions dict from extension config."""
         from coreframe.config import DATA_DIR, SHARED_LIB_DIR
@@ -426,15 +407,6 @@ class SubprocessBridge:
                 # Proactive heartbeat from runner (no id field) — update health
                 if data.get('method') == 'heartbeat' and 'id' not in data:
                     self._ext_isolation.heartbeat(self.ext_id)
-                    continue
-                # Activity lease from runner: {"method":"set_busy","busy":true}
-                # Extensions print this line to hold off hibernation while
-                # playing/downloading/working. Leases expire (see isolation).
-                if data.get('method') == 'set_busy' and 'id' not in data:
-                    try:
-                        self._ext_isolation.set_busy(self.ext_id, bool(data.get('busy', True)))
-                    except Exception:
-                        pass
                     continue
                 rid = data.get('id')
                 if rid is not None:

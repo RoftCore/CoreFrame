@@ -7,7 +7,7 @@ from coreframe.extensions import extensions, _ext_isolation
 from coreframe.extensions.permissions import get_permission_manager, REQUIRES_CONSENT
 
 _client_count = 0
-latest_update = {}
+latest_update = {}  # ext_id -> last realtime payload, replayed to new WS clients
 _poll_stop_events = {}  # Reference to loader's poll stop events
 
 
@@ -19,8 +19,8 @@ def register_websocket_handlers(socketio, ext_isolation):
         global _client_count
         _client_count += 1
         log.info("WS client connected (%d)", _client_count)
-        if latest_update:
-            emit('realtime_update', latest_update)
+        for update in latest_update.values():
+            emit('realtime_update', update)
 
     @socketio.on('disconnect')
     def handle_disconnect():
@@ -107,15 +107,13 @@ def _poll_extension(ext_id, ext_data, interval_ms):
             except Exception as e:
                 _note_error(action, e)
         if values:
-            update = {'ext': ext_id, 'values': values}
-            if ext_id == 'system_monitor':
-                latest_update.clear()
-                latest_update.update(update)
+            payload = {'ext': ext_id, 'values': values}
+            latest_update[ext_id] = payload
             from coreframe.extensions.loader import _ext_isolation as _ei
             _ei.heartbeat(ext_id)
             _socketio = getattr(_ei, '_socketio', None)
             if _socketio:
-                _socketio.emit('realtime_update', update)
+                _socketio.emit('realtime_update', payload)
         next_tick = max(next_tick + interval, tick + interval)
         remaining = next_tick - time.monotonic()
         if remaining > 0:

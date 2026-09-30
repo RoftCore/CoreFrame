@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version">
-  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python">
+    <img src="https://img.shields.io/badge/python-3.13-blue" alt="Python">
   <img src="https://img.shields.io/badge/HTML-5+-E34F26?logo=html5" alt="Html">
   <img src="https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black" alt="Javascript">
   <img src="https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey" alt="Platform">
@@ -117,7 +117,7 @@ pip install -r requirements.txt --upgrade
 
 ### Dependencies
 
-- **Python 3.10+**
+- **Python 3.13** (3.14 segfaults natively; see `AGENTS.md` pitfall 24)
 - Flask, Flask-SocketIO, pywebview (see `requirements.txt`)
 - Build only: PyInstaller
 
@@ -226,14 +226,14 @@ curl -H "X-CoreFrame-Token: $TOKEN" http://127.0.0.1:8420/api/extensions
 **Calling an extension method:**
 
 ```bash
-# GET — calls def get_status(self)
+# GET → calls def get_status(self)
 curl -H "X-CoreFrame-Token: $TOKEN" \
-  http://127.0.0.1:8420/api/extension/notes/get_notes
+    http://127.0.0.1:8420/api/extension/<ext_id>/get_status
 
-# POST — calls def create(self, data) with the JSON body
+# POST → calls def create(self, data) with the JSON body
 curl -X POST -H "X-CoreFrame-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"title":"Hi","body":"..."}' \
-  http://127.0.0.1:8420/api/extension/notes/create
+    http://127.0.0.1:8420/api/extension/<ext_id>/create
 ```
 
 Extension methods must return `{"value": ...}` or `{"error": ...}`.

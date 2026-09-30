@@ -108,8 +108,8 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 # Bootloader splash: static image shown DURING MEIPASS extraction, before
-# any Python runs. Closed via pyi_splash.close() in run_coreframe.pyw
-# (immediately for --ext-runner children, at GDI splash handoff for main).
+# any Python runs. Closed via pyi_splash.close() in run_coreframe.pyw once the
+# main window reveals (children close it immediately, they have no window).
 splash = Splash(
     'splash.png',
     binaries=a.binaries,
@@ -120,7 +120,7 @@ splash = Splash(
     text_pos=(24, 288),
     text_size=11,
     text_color='#A0A0B0',
-    text_default='Iniciando...',
+    text_default='Starting...',
     max_img_size=(440, 330),
     minify_script=True,
     # Never cover other windows (login screen, etc.): plain centered dialog.

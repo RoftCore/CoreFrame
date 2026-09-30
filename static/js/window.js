@@ -33,7 +33,7 @@ document.addEventListener('keydown', (e) => {
       pywebview.api.set_window_mode(next).then(function(applied) {
         currentWindowMode = next;
         updateUrlMode(next);
-        if (!applied && next !== 'fullscreen') showToast('Reinicia CoreFrame para aplicar');
+        if (!applied && next !== 'fullscreen') showToast('Restart CoreFrame to apply');
       }).catch(function(err) {
         console.warn('set_window_mode pywebview failed:', err);
         applyWindowModeFallback(next);

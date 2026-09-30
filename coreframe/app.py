@@ -35,6 +35,9 @@ if getattr(sys, 'frozen', False):
 
 # ── Flask + SocketIO ──────────────────────────────────────────────
 
+# Host window-destroy hook, set by run_coreframe.pyw; called by /api/quit.
+_shutdown_callback = None
+
 app = Flask(__name__, static_folder=STATIC_DIR)
 app.config['SECRET_KEY'] = hashlib.sha256(os.urandom(32)).hexdigest()
 socketio = SocketIO(app, async_mode='threading', cors_allowed_origins=["http://127.0.0.1:8420", "http://localhost:8420"])
@@ -212,6 +215,12 @@ def api_quit():
                 inst.on_stop()
             except Exception as e:
                 print(f"[-] Extension cleanup error: {e}")
+    # The host registers a window-destroy callback; use it before signalling.
+    if _shutdown_callback:
+        try:
+            _shutdown_callback()
+        except Exception as e:
+            log.warning("Shutdown callback failed: %s", e)
     import signal
     os.kill(os.getpid(), signal.SIGTERM)
 
@@ -222,9 +231,6 @@ def _sigint_handler(signum, frame):
     log.info("Shutting down...")
     _ext_isolation.stop_monitor()
     os._exit(0)
-
-
-_shutdown_callback = None  # Set by run_coreframe.pyw
 
 
 def start_server(host='127.0.0.1', port=8420, debug=False):

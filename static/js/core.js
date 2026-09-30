@@ -171,7 +171,7 @@ function initWebSocket() {
       const el = document.querySelector(`[data-widget-id="${id}"][data-ext-id="${data.ext}"]`);
       if (!el) return;
       // Skip hidden widgets: no backend-independent work for unseen content.
-      if (el.style.display === 'none') return;
+      if (cfHidden(el)) return;
       updateWidgetValue(el, { value: data.values[id] });
     });
   }
@@ -190,7 +190,7 @@ function initWebSocket() {
       try {
         const el = document.querySelector(`[data-widget-id="${p.id}"][data-ext-id="${p.ext}"]`);
         if (!el) return;
-        if (el.style.display === 'none') return;
+        if (cfHidden(el)) return;
         updateWidgetValue(el, { value: p.value });
       } catch (e) {}
     };
