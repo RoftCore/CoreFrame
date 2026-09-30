@@ -244,7 +244,9 @@ function isWidgetActive(extId, widgetId) {
       if (pos.hidden) {
         // State says hidden: still allow if actually on screen (state race).
         const el = document.querySelector(`[data-widget-id="${widgetId}"][data-ext-id="${extId}"]`);
-        if (!el || el.style.display === 'none') return false;
+        if (!el) return false;
+        const hidden = typeof cfHidden === 'function' ? cfHidden(el) : el.style.display === 'none';
+        if (hidden) return false;
         return true;
       }
       return true;

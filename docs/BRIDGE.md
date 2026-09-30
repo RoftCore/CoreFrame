@@ -163,7 +163,7 @@ func main() {
 - **Multiple requests**: the bridge is synchronous (waits for a response before sending the next one). The arrival order determines the response order.
 - **Idempotency**: each request has a unique `id`. If the child process receives a repeated `id` (extremely rare), it must respond to both.
 - **Blocked `Popen` is a class**: under permission levels < 4, `subprocess.Popen` is replaced with a raisable `BlockedPopen` *class* (not a function) precisely so libraries that do `class Popen(subprocess.Popen)` at import time (e.g. `yt_dlp`) still import. Only *spawning* raises `PermissionError`.
-- **Frozen mode**: there is no `ext_runner.py` file on disk. The `.exe` re-executes itself as `CoreFrame.exe --ext-runner <config.json>` and `exec()`s the embedded runner source — no `MEIPASS` file reads, no package imports.
+- **Frozen mode, persistent runner**: children launch `Documents\CoreFrame\bin\runner\CoreFrame Extension Host.exe` (one flat copy of `runner.zip`, extracted once at boot and stamp-guarded; the name and the CoreFrame icon make the per-extension processes read as part of the app in Task Manager). If that file is missing the bridge falls back to re-executing the main exe as `CoreFrame.exe --ext-runner <config.json>`, which `exec()`s the embedded runner source — no `MEIPASS` file reads, no package imports.
 
 ## Adding a new language
 

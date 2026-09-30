@@ -45,4 +45,44 @@
   s.showToast = function (msg) {
     if (typeof showToast !== 'undefined') showToast(msg);
   };
+
+  // ── Widget visibility contract ──────────────────────────────────
+  // Two ways to be off-scene, both answer true here:
+  //   display:none  -> destroyed (opt-out via keep_alive:false, or a widget
+  //                    that genuinely must not hold resources)
+  //   .cf-offscene  -> kept in the render tree, moved off-viewport, so the
+  //                    decoded images survive (see widget-control.css)
+  // Everything that asks "is this widget showing?" must use cfHidden(), never
+  // read style.display directly: a heavy widget is hidden without it.
+  function keepAlive(extId) {
+    var ext = (window.extensionsData || {})[extId] || {};
+    return ext.keep_alive !== false;
+  }
+
+  s.cfHidden = function (el) {
+    if (!el) return true;
+    return el.style.display === 'none' || el.classList.contains('cf-offscene');
+  };
+
+  s.cfHide = function (el) {
+    if (!el) return;
+    if (keepAlive(el.dataset.extId)) {
+      el.classList.add('cf-offscene');
+      el.style.display = '';
+    } else {
+      el.classList.remove('cf-offscene');
+      el.style.display = 'none';
+    }
+  };
+
+  s.cfShow = function (el) {
+    if (!el) return;
+    el.classList.remove('cf-offscene');
+    el.style.display = '';
+  };
+
+  // Short globals: app.js and the layout module ask constantly.
+  window.cfHidden = s.cfHidden;
+  window.cfHide = s.cfHide;
+  window.cfShow = s.cfShow;
 })();

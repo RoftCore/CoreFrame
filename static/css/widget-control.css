@@ -191,14 +191,29 @@ body.edit-mode .widget.widget-resizing::after {
 
 /* Cascade animation */
 .widget-extension {
-  transition: grid-column 0.15s ease, grid-row 0.15s ease;
-  z-index: 11;
-  /* Rendering isolation: style/layout/paint of one heavy card never leaks
-     into grab/drop recalcs of the rest. Grid cells are fixed-size, so the
-     intrinsic placeholder can't shift layout. */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 300px;
+    transition: grid-column 0.15s ease, grid-row 0.15s ease;
+    z-index: 11;
+    /* Rendering isolation: style/layout/paint of one heavy card never leaks
+       into grab/drop recalcs of the rest. Grid cells are fixed-size, so the
+       intrinsic placeholder can't shift layout. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 300px;
 }
+
+/* Off-scene widgets are moved off-viewport instead of display:none.
+   display:none drops the whole box tree, and Chromium discards the decoded
+   images with it: revealing a heavy widget then pays a full re-decode on the
+   main thread (measured: ~1s for a 16-photo gallery, on EVERY scene switch,
+   with the core's own switch costing under 2ms). Off-viewport keeps the
+   decode and the layout, skips rasterization, and touches no inline style
+   (the drag code owns `transform`). Extensions opt out with keep_alive:false. */
+.widget-extension.cf-offscene {
+    position: relative !important;
+    left: -200vw !important;
+    visibility: hidden !important;
+    pointer-events: none;
+}
+
 
 /* --- Extension Card Grid (shared for hidden panel, settings, marketplace) --- */
 .ext-grid {

@@ -2,9 +2,13 @@
 
 Extension children normally launch the main exe, which costs one MEIPASS
 extraction per child (~800MB of temp writes per boot with many extensions).
-This builds a minimal onedir runner instead, zips it FLAT (ext_runner.exe at the
+This builds a minimal onedir runner instead, zips it FLAT (the host exe at the
 zip root, as run_coreframe._ensure_persistent_runner expects) and the main spec
 embeds it. Missing runner.zip is not fatal: the app falls back to the main exe.
+
+The binary is named like the host exe and carries its icon and FileDescription:
+there is one per extension, they have no window, and Task Manager only nests
+them under the app group when both strings match the host.
 
 Usage: python tools/build_runner.py
 """
@@ -18,6 +22,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, 'dist-runner')
 BUILT = os.path.join(DIST, 'ext_runner')
 ZIP_PATH = os.path.join(ROOT, 'runner.zip')
+HOST_NAME = 'CoreFrame'
+HOST_EXE = HOST_NAME + ('.exe' if os.name == 'nt' else '')
 
 
 def main():
@@ -27,9 +33,8 @@ def main():
                            '--distpath', DIST, 'runner.spec'], cwd=ROOT)
     if not os.path.isdir(BUILT):
         raise SystemExit('build produced no %s' % BUILT)
-    exe = 'ext_runner.exe' if os.name == 'nt' else 'ext_runner'
-    if not os.path.isfile(os.path.join(BUILT, exe)):
-        raise SystemExit('missing %s in build output' % exe)
+    if not os.path.isfile(os.path.join(BUILT, HOST_EXE)):
+        raise SystemExit('missing %s in build output' % HOST_EXE)
     if os.path.isfile(ZIP_PATH):
         os.remove(ZIP_PATH)
     n = 0

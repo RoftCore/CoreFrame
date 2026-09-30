@@ -128,7 +128,7 @@
       var sw = s.sceneWidgets();
       document.querySelectorAll('.widget-extension').forEach(function (w) {
         var pos = sw[w.dataset.extId];
-        if (!pos || pos.hidden) w.style.display = 'none';
+        if (!pos || pos.hidden) cfHide(w);
       });
       mark('hide', t0);
       s.applySavedLayouts();
@@ -155,7 +155,7 @@
         var n = 0;
         while (i < ids.length && n < s._revealPerFrame) {
           var w = document.querySelector('.widget-extension.ext-' + ids[i++]);
-          if (w) { w.style.display = ''; n++; }
+          if (w) { cfShow(w); n++; }
         }
         if (i < ids.length) { requestAnimationFrame(revealBatch); return; }
         // Reveal complete: one fresh refresh for newly-visible core-driven
