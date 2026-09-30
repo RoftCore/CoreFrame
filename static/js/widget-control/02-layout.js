@@ -129,7 +129,7 @@
     sw[extId] = sw[extId] || { col: 1, row: 1, w: gs.w || 2, h: gs.h || 2 };
     sw[extId].hidden = true;
     s.persistScenes();
-    widget.style.display = 'none';
+    cfHide(widget);
     // Kill process only if hidden in ALL scenes (same ext_runner process shared)
     if(!isVisibleInAnyScene(extId)){
       apiFetch('/api/extensions/' + encodeURIComponent(extId) + '/unload', {method:'POST'}).catch(function(){});
@@ -276,7 +276,7 @@
     s.persistScenes();
     var wEl = document.querySelector('.widget-extension.ext-' + extId);
     if (wEl) {
-      wEl.style.display = '';
+      cfShow(wEl);
       wEl.style.gridColumn = spot.col + ' / span ' + spot.w;
       wEl.style.gridRow = spot.row + ' / span ' + spot.h;
       s.applyStyleToWidget(extId);
@@ -301,10 +301,10 @@
     document.querySelectorAll('.widget-extension').forEach(function (w) {
       var extId = w.dataset.extId;
       if (sw[extId]) {
-        w.style.display = sw[extId].hidden ? 'none' : '';
+        if (sw[extId].hidden) cfHide(w); else cfShow(w);
       } else {
         // Widgets not in scene state are hidden by default (user must Show them)
-        w.style.display = 'none';
+        cfHide(w);
       }
     });
   };
@@ -343,7 +343,7 @@
     var maxRows = (sc && sc.rows) || 6;
     var cur = s.currentScene().widgets;
     document.querySelectorAll('.widget-extension').forEach(function (w) {
-      if (w.style.display === 'none') return;
+      if (cfHidden(w)) return;
       if (!w.dataset.extId || !cur[w.dataset.extId]) return;
       var gc = (w.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       var gr = (w.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
@@ -404,7 +404,7 @@
     var cells = {};
     var widgets = document.querySelectorAll('.widget-extension');
     for (const el of widgets) {
-      if (el.style.display === 'none' || el.dataset.overlayable === 'true') continue;
+      if (cfHidden(el) || el.dataset.overlayable === 'true') continue;
       var cs = getComputedStyle(el);
       var gc = parseGridPos(cs.gridColumn || '');
       var gr = parseGridPos(cs.gridRow || '');
@@ -453,7 +453,7 @@
     const target = getOccupiedCells(col, row, w, h);
     const widgets = document.querySelectorAll('.widget-extension');
     for (const el of widgets) {
-      if (el.dataset.extId === extId || el.dataset.overlayable === 'true' || el.style.display === 'none') continue;
+      if (el.dataset.extId === extId || el.dataset.overlayable === 'true' || cfHidden(el)) continue;
       const gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       const gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       if (!gc || !gr) continue;
@@ -543,7 +543,7 @@
 
     var entries = [];
     document.querySelectorAll('.widget-extension').forEach(function (w) {
-      if (w.style.display === 'none') return;
+      if (cfHidden(w)) return;
       var cs = window.getComputedStyle(w);
       var gc = w.style.gridColumn;
       var gr = w.style.gridRow;
@@ -692,7 +692,7 @@
     function buildOccupancy() {
       var occ = {};
       document.querySelectorAll('.widget-extension').forEach(function (el) {
-        if (el.style.display === 'none' || el.dataset.overlayable === 'true') return;
+        if (cfHidden(el) || el.dataset.overlayable === 'true') return;
         if (el.dataset.dragGhost === 'true') return;
         var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
         var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
@@ -802,7 +802,7 @@
         for (var r = row; r < row + h; r++)
           targetCells[c + ',' + r] = true;
       document.querySelectorAll('.widget-extension').forEach(function (el) {
-        if (el === excludeEl || el.style.display === 'none' || el.dataset.overlayable === 'true') return;
+        if (el === excludeEl || cfHidden(el) || el.dataset.overlayable === 'true') return;
         var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
         var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
         if (!gc || !gr) return;
@@ -822,7 +822,7 @@
         for (var r = row; r < row + h; r++)
           targetCells[c + ',' + r] = true;
       document.querySelectorAll('.widget-extension').forEach(function (el) {
-        if (excludeList.indexOf(el) !== -1 || el.style.display === 'none' || el.dataset.overlayable === 'true') return;
+        if (excludeList.indexOf(el) !== -1 || cfHidden(el) || el.dataset.overlayable === 'true') return;
         var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
         var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
         if (!gc || !gr) return;
@@ -1027,7 +1027,7 @@
         el.classList.remove('widget-edge-hover');
         el.style.cursor = '';
       });
-      if (!widget || widget.style.display === 'none') {
+      if (!widget || cfHidden(widget)) {
         document.body.style.cursor = '';
         return;
       }

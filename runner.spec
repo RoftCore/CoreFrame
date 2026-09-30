@@ -3,6 +3,13 @@ import os
 import sys as _sys
 from PyInstaller.utils.hooks import collect_all
 
+ROOT = os.path.abspath(SPECPATH)
+# Display name of the child binary. There is one per extension and they have no
+# window, so Task Manager shows them as their own groups unless both this name
+# AND the version FileDescription match the host exe's (see
+# runner_version_info.txt). Matching makes them collapse into the app group.
+HOST_NAME = 'CoreFrame'
+
 # Tiny persistent extension runner (stdlib only).
 # Built ONEDIR, zipped to runner.zip, embedded in the main one-file exe and
 # extracted ONCE to Documents\CoreFrame\bin\runner\. Extension children then
@@ -98,7 +105,9 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='ext_runner',
+    # Name/icon/version: this binary is visible in Task Manager (one per
+    # extension), so it must read as part of CoreFrame, not as a stray python.
+    name=HOST_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -109,6 +118,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=os.path.join(ROOT, 'CoreFrame.ico'),
+    version=os.path.join(ROOT, 'runner_version_info.txt'),
 )
 
 coll = COLLECT(

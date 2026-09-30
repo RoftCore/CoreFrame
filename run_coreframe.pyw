@@ -676,7 +676,7 @@ def _ensure_persistent_runner():
         sig = '%d-%d' % (os.path.getsize(zpath), int(os.path.getmtime(zpath)))
         try:
             if os.path.isfile(stamp) and open(stamp, encoding='utf-8').read().strip() == sig \
-                    and os.path.isfile(os.path.join(dest, 'ext_runner.exe')):
+                    and os.path.isfile(os.path.join(dest, 'CoreFrame.exe')):
                 return
         except Exception:
             pass

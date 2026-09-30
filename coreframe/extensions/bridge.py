@@ -330,7 +330,7 @@ class SubprocessBridge:
         if getattr(sys, 'frozen', False):
             try:
                 from coreframe.config import DATA_DIR as _dd
-                _persist = os.path.join(_dd, 'bin', 'runner', 'ext_runner.exe')
+                _persist = os.path.join(_dd, 'bin', 'runner', 'CoreFrame.exe')
                 if os.path.isfile(_persist):
                     return [_persist, self._config_file]
             except Exception:
