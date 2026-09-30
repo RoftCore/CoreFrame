@@ -19,7 +19,6 @@ failed_extensions = {}
 pending_consent = {}  # Extensions waiting for user consent
 pending_migration = {}  # Legacy extensions waiting for migration
 denied_consent = {}  # Extensions whose consent was denied (store config for UI)
-_deferred_candidates = {}  # Hidden extensions deferred for lazy load
 _poll_stop_events = {}
 _ext_isolation = ExtensionIsolation()
 
@@ -315,25 +314,6 @@ def load_after_consent(ext_id: str):
             log.error("Extension %s failed after consent: %s", ext_id, error)
         return success
 
-    thread = _ext_isolation.start_load(ext_id, loader)
-    thread.join(timeout=15.0)
-    return ext_id in extensions
-
-
-def load_deferred(ext_id: str):
-    """Load a deferred hidden extension on demand (lazy load)."""
-    ext_path = _deferred_candidates.pop(ext_id, None)
-    if not ext_path:
-        return ext_id in extensions
-    log.info("Lazy loading deferred extension %s", ext_id)
-    def loader():
-        success, error = _load_extension_core(ext_id, ext_path)
-        if not success:
-            if ext_id not in pending_consent and ext_id not in pending_migration and ext_id not in denied_consent:
-                failed_extensions[ext_id] = {'name': ext_id, 'loadError': error}
-                _ext_isolation.mark_dead(ext_id, error)
-            log.error("Deferred extension %s failed: %s", ext_id, error)
-        return success
     thread = _ext_isolation.start_load(ext_id, loader)
     thread.join(timeout=15.0)
     return ext_id in extensions

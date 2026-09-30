@@ -99,9 +99,7 @@
       sw[extId] = { col: col, row: row, w: w, h: h, hidden: hidden };
       col += w;
     }
-    // NOTA: no persistir aquí — si la escena está vacía (API corruption),
-    // esto SOBREESCRIBIRÍA el fichero con datos incompletos.
-    // persistScenes solo debe llamarse cuando el usuario modifica el estado.
+    // No persist here: an empty scene would overwrite the state file.
   }
 
   if (document.readyState === 'loading') {

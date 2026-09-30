@@ -5,7 +5,6 @@ __pycache__/
 .env
 .show
 *.egg-info/
-AGENTS.md
 CONTINUE.md
 CoreFrameTray.exe
 extensions/spotify_downloader/Downloads_playlists/

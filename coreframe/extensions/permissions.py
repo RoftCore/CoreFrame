@@ -30,20 +30,20 @@ REQUIRES_CONSENT = {3, 4, 5}
 
 # Human-readable descriptions for consent modals
 PERMISSION_DESCRIPTIONS = {
-    0: 'Sin acceso a recursos del sistema',
-    1: 'Solo accede a sus propios datos locales',
-    2: 'Accede a archivos que el usuario seleccione manualmente',
-    3: 'Realiza conexiones de red salientes (HTTP/HTTPS)',
-    4: 'Accede a información del sistema (CPU, RAM, procesos, archivos)',
-    5: 'Control total del sistema: archivos, registro, servicios, procesos',
+    0: 'No access to system resources',
+    1: 'Only its own local data',
+    2: 'Files the user picks manually',
+    3: 'Outgoing network requests (HTTP/HTTPS)',
+    4: 'System information (CPU, RAM, processes, files)',
+    5: 'Full system control: files, registry, services, processes',
 }
 
 PERMISSION_LABELS = {
-    0: 'Basico',
-    1: 'Almacenamiento',
-    2: 'Archivos del usuario',
-    3: 'Red',
-    4: 'Sistema',
+    0: 'Basic',
+    1: 'Storage',
+    2: 'User files',
+    3: 'Network',
+    4: 'System',
     5: 'Admin',
 }
 
@@ -66,9 +66,9 @@ ESCALATION_METHODS = {
 }
 
 ESCALATION_LABELS = {
-    5: 'Ejecucion de codigo / Comandos del sistema',
-    4: 'Escritura de archivos / Acceso a disco',
-    3: 'Lectura de archivos',
+    5: 'Code execution / system commands',
+    4: 'File writes / disk access',
+    3: 'File reads',
 }
 
 
@@ -150,11 +150,11 @@ class ExtensionPermissionManager:
         return {
             'level': level,
             'level_name': PERMISSION_NAMES.get(level, 'unknown') if level >= 0 else 'legacy',
-            'level_label': PERMISSION_LABELS.get(level, 'Desconocido') if level >= 0 else 'Legacy (sin permisos)',
+            'level_label': PERMISSION_LABELS.get(level, 'Unknown') if level >= 0 else 'Legacy (no permissions)',
             'requires': self.get_requires(ext_config),
             'mediated': self.is_mediated(ext_config),
             'escalation': self.get_escalation(ext_config),
-            'description': PERMISSION_DESCRIPTIONS.get(level, '') if level >= 0 else 'Extension sin permisos declarados. Se detecta como legacy.',
+            'description': PERMISSION_DESCRIPTIONS.get(level, '') if level >= 0 else 'No permissions declared; treated as legacy.',
         }
 
     # ── Consent management ─────────────────────────────────────────
@@ -376,7 +376,7 @@ class ExtensionPermissionManager:
                 'name': ext_name,
                 'level': level,
                 'level_name': PERMISSION_NAMES.get(level, 'unknown'),
-                'level_label': PERMISSION_LABELS.get(level, 'Desconocido'),
+                'level_label': PERMISSION_LABELS.get(level, 'Unknown'),
                 'description': PERMISSION_DESCRIPTIONS.get(level, ''),
                 'permissions': permissions,
             })
@@ -389,7 +389,7 @@ class ExtensionPermissionManager:
                 'name': ext_name,
                 'method': method,
                 'level': level,
-                'level_label': PERMISSION_LABELS.get(level, 'Desconocido'),
+                'level_label': PERMISSION_LABELS.get(level, 'Unknown'),
                 'description': ESCALATION_LABELS.get(level, method),
             })
 

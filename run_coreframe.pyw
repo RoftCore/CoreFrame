@@ -139,7 +139,20 @@ Security enforced at OS level:
 """
 import os
 import sys
-import json
+try:
+    import orjson as json
+    _USE_ORJSON = True
+    def _loads(b):
+        return json.loads(b)
+    def _dumps(o):
+        return json.dumps(o).decode()
+except ImportError:
+    import json
+    _USE_ORJSON = False
+    def _loads(b):
+        return json.loads(b.decode() if isinstance(b, bytes) else b)
+    def _dumps(o):
+        return json.dumps(o)
 import time
 import importlib.util
 import traceback
@@ -166,7 +179,9 @@ def _apply_restrictions(restrictions):
     _orig_popen = None
 
     # ── File access restriction ────────────────────────────────────
+    # Build implicit allowlist for runtime internals (exe, MEIPASS, temp, extension dir)
     _implicit_dirs = []
+    # exe dir (CoreFrame.exe) and MEIPASS (frozen libs) must always be readable
     try:
         _implicit_dirs.append(os.path.dirname(os.path.abspath(sys.executable)))
     except Exception:
@@ -174,6 +189,7 @@ def _apply_restrictions(restrictions):
     _meipass = getattr(sys, '_MEIPASS', None)
     if _meipass:
         _implicit_dirs.append(os.path.abspath(_meipass))
+    # Also allow extension's own dir, temp, and runner dir (set later)
     if level < 5:
         def restricted_open(*args, **kwargs):
             path = args[0] if args else kwargs.get('file', '')
@@ -181,6 +197,7 @@ def _apply_restrictions(restrictions):
                 path_str = str(path)
                 norm_path = os.path.normpath(os.path.abspath(path_str))
                 allowed = False
+                # Check explicit allowed_dirs (handle '/' meaning any absolute path on Windows)
                 for d in allowed_dirs:
                     if d in ('/', '\\', os.sep):
                         if os.path.isabs(norm_path):
@@ -190,6 +207,7 @@ def _apply_restrictions(restrictions):
                     if norm_path.startswith(norm_dir + os.sep) or norm_path == norm_dir:
                         allowed = True
                         break
+                # Allow implicit runtime dirs
                 if not allowed:
                     for d in _implicit_dirs:
                         try:
@@ -199,12 +217,15 @@ def _apply_restrictions(restrictions):
                                 break
                         except Exception:
                             continue
+                # Allow reading the extension's own directory
                 norm_ext = os.path.normpath(os.path.abspath(ext_path))
                 if norm_path.startswith(norm_ext + os.sep) or norm_path == norm_ext:
                     allowed = True
+                # Allow temp files (for IPC)
                 tmp_dir = os.path.normpath(os.path.abspath(os.environ.get('TEMP', '')))
                 if tmp_dir and norm_path.startswith(tmp_dir + os.sep):
                     allowed = True
+                # Allow the ext_runner.py itself
                 try:
                     runner_dir = os.path.normpath(os.path.abspath(os.path.dirname(__file__)))
                     if norm_path.startswith(runner_dir + os.sep) or norm_path == runner_dir:
@@ -274,12 +295,14 @@ def _apply_restrictions(restrictions):
         _subprocess.run = blocked_run
         _subprocess.Popen = BlockedPopen
     else:
+        # Allowed but hide console windows on Windows
         if sys.platform.startswith('win'):
             import subprocess as _subprocess
             _CREATE_NO_WINDOW = 0x08000000
             _orig_popen_init2 = _subprocess.Popen.__init__
             def _hidden_init(self, *args, **kwargs):
                 kwargs['creationflags'] = kwargs.get('creationflags', 0) | _CREATE_NO_WINDOW
+                # Also force STARTUPINFO to hide window if not provided
                 if 'startupinfo' not in kwargs or kwargs['startupinfo'] is None:
                     si = _subprocess.STARTUPINFO()
                     si.dwFlags |= _subprocess.STARTF_USESHOWWINDOW
@@ -317,7 +340,7 @@ def _load_extension(ext_path, config):
     return module.Extension(config)
 
 
-# ── JSON-RPC Server ─────────────────────────────────────────────────
+# ── JSON-RPC Server ────────────────────────────────────────────────
 
 def _run_rpc_loop(instance, ext_id, hb_interval=10):
     """
@@ -343,7 +366,7 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
         while True:
             time.sleep(max(hb_interval, 10.0))
             try:
-                safe_write(json.dumps({'method': 'heartbeat'}) + '\n')
+                safe_write(_dumps({'method': 'heartbeat'}) + '\n')
             except Exception:
                 break
 
@@ -359,10 +382,10 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
             if not line:
                 continue
             try:
-                req = json.loads(line)
-            except json.JSONDecodeError as e:
+                req = _loads(line.encode() if isinstance(line, str) else line)
+            except Exception as e:
                 resp = {'error': f'Invalid JSON: {e}', 'id': 0}
-                safe_write(json.dumps(resp) + '\n')
+                safe_write(_dumps(resp) + '\n')
                 continue
 
             method = req.get('method', '')
@@ -371,13 +394,13 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
 
             # Heartbeat from coreframe — respond
             if method == 'heartbeat':
-                safe_write(json.dumps({'method': 'heartbeat', 'id': rid}) + '\n')
+                safe_write(_dumps({'method': 'heartbeat', 'id': rid}) + '\n')
                 continue
 
             # Validate method name (no private methods)
             if method.startswith('_'):
                 resp = {'error': f'Method not allowed: {method}', 'id': rid}
-                safe_write(json.dumps(resp) + '\n')
+                safe_write(_dumps(resp) + '\n')
                 continue
 
             # Call the method
@@ -386,8 +409,10 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
                 if fn is None:
                     resp = {'error': f'Unknown method: {method}', 'id': rid}
                 elif not callable(fn):
+                    # Property/attribute access
                     resp = {'result': fn, 'id': rid}
                 else:
+                    # Try calling with params, fallback to no-args for compat
                     try:
                         import inspect
                         sig = inspect.signature(fn)
@@ -410,7 +435,7 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
                 resp = {'error': f'{type(e).__name__}: {e}', 'id': rid}
 
             try:
-                safe_write(json.dumps(resp) + '\n')
+                safe_write(_dumps(resp) + '\n')
             except Exception:
                 break
     except (OSError, IOError):
@@ -433,7 +458,7 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
             pass
 
 
-# ── Main ────────────────────────────────────────────────────────────
+# ── Main ───────────────────────────────────────────────────────────
 
 def main():
     if len(sys.argv) < 2:
@@ -469,6 +494,7 @@ def main():
     if shared_lib:
         if os.path.isdir(shared_lib) and shared_lib not in sys.path:
             sys.path.insert(0, shared_lib)
+        # Windows --prefix installs to Lib/site-packages
         site_pkgs = os.path.join(shared_lib, 'Lib', 'site-packages')
         if os.path.isdir(site_pkgs) and site_pkgs not in sys.path:
             sys.path.insert(0, site_pkgs)
@@ -523,7 +549,7 @@ if '--ext-runner' in sys.argv:
     _config_file = sys.argv[_runner_idx + 1] if _runner_idx + 1 < len(sys.argv) else None
     if _config_file:
         sys.argv = [sys.argv[0], _config_file]
-        _ns = {'__name__': '__main__', '__file__': 'ext_runner.py'}
+        _ns = {'__name__': 'ext_runner', '__file__': 'ext_runner.py'}
         exec(compile(_EXT_RUNNER_SOURCE, 'ext_runner.py', 'exec'), _ns)
         try:
             _ns['main']()
@@ -775,11 +801,11 @@ except Exception:
     Point = None
     WinFormsTimer = None
 _trace('clr imported')
-_splash_text('Iniciando interfaz...')
+_splash_text('Starting UI...')
 
 from app import start_server  # patches subprocess to hide consoles
 _trace('app imported')
-_splash_text('Cargando aplicación...')
+_splash_text('Loading application...')
 
 HOST = '127.0.0.1'
 PORT = 8420
@@ -802,7 +828,7 @@ _trace('server thread started')
 import webview.util
 import webview
 _trace('webview imported')
-_splash_text('Cargando vista...')
+_splash_text('Loading view...')
 
 # Patch interop_dll_path — AV may delete MEIPASS files after extraction
 if hasattr(sys, '_MEIPASS'):
@@ -922,7 +948,7 @@ if MINIMIZED_FLAG:
     # NOTE: --autostart boots VISIBLE (only --minimized hides).
     _close_boot_splash()
 else:
-    _splash_text('Abriendo ventana...')
+    _splash_text('Opening window...')
 
 config = load_config()
 mode = config.get('window_mode', SAVED_MODE)
@@ -991,7 +1017,7 @@ def _setup_tray():
                 else:
                     ni_local.Text = 'CoreFrame \u2014 minimizado'
                 ni_local.BalloonTipTitle = 'CoreFrame'
-                ni_local.BalloonTipText = 'Ejecut\u00e1ndose en segundo plano. Doble clic para abrir.'
+                ni_local.BalloonTipText = 'Running in background. Double-click to open.'
                 try:
                     ni_local.ShowBalloonTip(3000)
                 except Exception:
@@ -1027,9 +1053,9 @@ def _setup_tray():
 
                 ni_local.DoubleClick += _tray_open
                 menu = WinForms.ContextMenuStrip()
-                mi_open = WinForms.ToolStripMenuItem('Abrir')
+                mi_open = WinForms.ToolStripMenuItem('Open')
                 mi_open.Click += _tray_open
-                mi_exit = WinForms.ToolStripMenuItem('Salir')
+                mi_exit = WinForms.ToolStripMenuItem('Exit')
                 mi_exit.Click += _tray_exit
                 menu.Items.Add(mi_open)
                 menu.Items.Add(mi_exit)

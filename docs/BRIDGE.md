@@ -1,6 +1,6 @@
 # Multi-language Bridge — JSON-RPC Protocol
 
-CoreFrame can run extensions written in any language that supports stdin/stdout, through a subprocess bridge.
+CoreFrame can run extensions written in any language that supports stdin/stdout, through a subprocess bridge. Every extension runs out of process by default — that is what keeps one broken extension from taking the host down.
 
 ## How it works
 
@@ -10,6 +10,51 @@ CoreFrame ──── JSON (stdin) ────→ [child process]
 ```
 
 Each line in stdin is a request. Each line in stdout is a response. The `id` in each message pairs the request with the response.
+
+## The child process
+
+Every extension gets its own OS process — that is the isolation boundary, not a convenience. `bridge.py` writes a temp JSON config, spawns the child, and waits for the ready handshake before wiring the widget.
+
+```
+host                                   child
+ │  config.json ──────────────────────→ read config
+ │                                     apply restrictions   ← before importing extension code
+ │  ← {"result": "ready", "id": 0}     handshake
+ │  {"method": ..., "params": ..., "id": n} ───→ dispatch to the method
+ │  ← {"result"|"error", "id": n}      respond
+ │  ← {"method": "heartbeat"}          child liveness, every max(refresh_interval/1000, 10)s
+ │  {"method": "heartbeat", "id": n} ─→ child answers
+ │  (stdin closed)                      on_stop() + 0.6s grace, then exit
+```
+
+The config file is written by `bridge.py` and holds exactly four keys:
+
+| Key | Description |
+|-----|-------------|
+| `config` | the parsed `extension.json` |
+| `ext_path` | absolute path to the extension directory |
+| `restrictions` | effective permission level plus allowed dirs, blocked modules, network/subprocess flags |
+| `coreframe_config` | `DATA_DIR`, `SHARED_LIB_DIR`, `DATA_DATA_DIR` so a child can reach host paths without importing the host |
+
+Two rules the child must respect:
+
+- **Answer `ready` only after the extension is loaded and usable.** The host treats that line as "safe to call", and every widget action before it times out.
+- **Implement `on_stop`.** On stdin EOF the runner calls it in a `finally` block and then sleeps briefly before the interpreter tears down. Skipping it segfaults extensions that hold native handles (see `AGENTS.md` pitfall 21). Daemon threads alone do not save you.
+
+Which executable runs the child: the persistent runner extracted to `DATA_DIR/bin/runner/` if present, otherwise the main exe re-executed as `CoreFrame.exe --ext-runner <config>`. The `--ext-runner` check in `run_coreframe.pyw` runs before any heavy import, so the child never pays for Flask.
+
+## Runner source: one file, mirrored
+
+The child implementation lives in exactly one editable file, `coreframe/extensions/ext_runner.py`. Because `--ext-runner` cannot import through the `coreframe` package (its `__init__.py` pulls in the whole host), `run_coreframe.pyw` embeds a byte-identical copy of it as a raw string.
+
+After editing the runner:
+
+```bash
+python tools/sync_ext_runner_source.py           # rewrite the mirror
+python tools/sync_ext_runner_source.py --check   # CI runs this; non-zero exit = drift
+```
+
+`build.yml` runs the `--check` before building, so the fallback child cannot silently diverge from the shipped runner. Test both entry paths, not just one: the runner build, and `CoreFrame.exe --ext-runner <config>` with a real config.
 
 ## Configuration
 
@@ -30,6 +75,8 @@ In `extension.json`:
 |-----------|-------------|
 | `language` | `"node"` for Node.js. Maps to the system interpreter. |
 | `main` | Relative path to the main script (inside the extension folder). |
+
+Python extensions need neither field: the host always runs them through its own runner, which loads `main.py`, instantiates `Extension(config)` and dispatches widget actions to its methods.
 
 ## Protocol
 

@@ -10,6 +10,35 @@ from coreframe.extensions.permissions import (
 )
 
 
+def _ext_payload(ext_id, cfg, perm_info, **extra):
+    """Single builder for every extension state, so a manifest field cannot be added to the loaded list and forgotten in the others."""
+    payload = {
+        'id': ext_id,
+        'name': cfg.get('name', ext_id),
+        'icon': cfg.get('icon', ''),
+        'category': cfg.get('category', 'general'),
+        'menu_items': cfg.get('menu_items', []),
+        'widgets': cfg.get('widgets', []),
+        'grid_size': cfg.get('grid_size'),
+        'overlayable': cfg.get('overlayable', False),
+        'keep_alive': cfg.get('keep_alive', True),
+        'realtime': cfg.get('realtime', False),
+        'refresh_interval': cfg.get('refresh_interval', 5000),
+        'platforms': cfg.get('platforms'),
+        'js_modules': cfg.get('js_modules', []),
+        'css_modules': cfg.get('css_modules', []),
+        'author': cfg.get('author', ''),
+        'version': cfg.get('version', '1.0'),
+        'language': cfg.get('language', 'python'),
+        'main': cfg.get('main', 'main.py'),
+        'scroll': cfg.get('scroll'),
+        'hideScrollbar': cfg.get('hideScrollbar', False),
+        'permissions': perm_info,
+    }
+    payload.update(extra)
+    return payload
+
+
 def register_api_routes(app, socketio):
 
     @app.route('/api/extensions')
@@ -19,31 +48,9 @@ def register_api_routes(app, socketio):
         result = {}
         for ext_id, ext_data in extensions.items():
             cfg = ext_data['config']
-            perm_info = perm.get_permission_info(cfg)
-            consent = perm.has_consent(ext_id)
-            result[ext_id] = {
-                'id': ext_id,
-                'name': cfg.get('name', ext_id),
-                'icon': cfg.get('icon', ''),
-                'category': cfg.get('category', 'general'),
-                'menu_items': cfg.get('menu_items', []),
-                'widgets': cfg.get('widgets', []),
-                'grid_size': cfg.get('grid_size'),
-                'overlayable': cfg.get('overlayable', False),
-                'realtime': cfg.get('realtime', False),
-                'refresh_interval': cfg.get('refresh_interval', 5000),
-                'platforms': cfg.get('platforms'),
-                'js_modules': cfg.get('js_modules', []),
-                'css_modules': cfg.get('css_modules', []),
-                'author': cfg.get('author', ''),
-                'version': cfg.get('version', '1.0'),
-                'language': cfg.get('language', 'python'),
-                'main': cfg.get('main', 'main.py'),
-                'scroll': cfg.get('scroll'),
-                'hideScrollbar': cfg.get('hideScrollbar', False),
-                'permissions': perm_info,
-                'consent_granted': consent,
-            }
+            result[ext_id] = _ext_payload(
+                ext_id, cfg, perm.get_permission_info(cfg),
+                consent_granted=perm.has_consent(ext_id))
         for ext_id, ext_data in failed_extensions.items():
             cfg = ext_data.get('config', {})
             perm_info = perm.get_permission_info(cfg) if cfg else {'level': -1, 'level_name': 'unknown'}
@@ -55,69 +62,17 @@ def register_api_routes(app, socketio):
                 'permissions': perm_info,
                 'consent_granted': False,
             }
-        # Include denied extensions (not loaded, but user should see them)
-        for ext_id, info in denied_consent.items():
-            if ext_id in result:
-                continue  # Already in result
-            cfg = info.get('config', {})
-            perm_info = perm.get_permission_info(cfg)
-            result[ext_id] = {
-                'id': ext_id,
-                'name': info.get('name', ext_id),
-                'icon': cfg.get('icon', ''),
-                'category': cfg.get('category', 'general'),
-                'menu_items': cfg.get('menu_items', []),
-                'widgets': cfg.get('widgets', []),
-                'grid_size': cfg.get('grid_size'),
-                'overlayable': cfg.get('overlayable', False),
-                'realtime': cfg.get('realtime', False),
-                'refresh_interval': cfg.get('refresh_interval', 5000),
-                'platforms': cfg.get('platforms'),
-                'js_modules': cfg.get('js_modules', []),
-                'css_modules': cfg.get('css_modules', []),
-                'author': cfg.get('author', ''),
-                'version': cfg.get('version', '1.0'),
-                'language': cfg.get('language', 'python'),
-                'main': cfg.get('main', 'main.py'),
-                'scroll': cfg.get('scroll'),
-                'hideScrollbar': cfg.get('hideScrollbar', False),
-                'permissions': perm_info,
-                'consent_granted': False,
-                'consent_denied': True,
-                'loadError': 'Consent denied by user',
-            }
-        # Include pending consent (revoked or needs consent) as paperweight
+        # Denied and pending extensions are listed too: not loaded, still visible
         from coreframe.extensions.loader import pending_consent as _pending
-        for ext_id, info in _pending.items():
-            if ext_id in result:
-                continue
-            cfg = info.get('config', {})
-            perm_info = perm.get_permission_info(cfg)
-            result[ext_id] = {
-                'id': ext_id,
-                'name': info.get('name', ext_id),
-                'icon': cfg.get('icon', ''),
-                'category': cfg.get('category', 'general'),
-                'menu_items': cfg.get('menu_items', []),
-                'widgets': cfg.get('widgets', []),
-                'grid_size': cfg.get('grid_size'),
-                'overlayable': cfg.get('overlayable', False),
-                'realtime': cfg.get('realtime', False),
-                'refresh_interval': cfg.get('refresh_interval', 5000),
-                'platforms': cfg.get('platforms'),
-                'js_modules': cfg.get('js_modules', []),
-                'css_modules': cfg.get('css_modules', []),
-                'author': cfg.get('author', ''),
-                'version': cfg.get('version', '1.0'),
-                'language': cfg.get('language', 'python'),
-                'main': cfg.get('main', 'main.py'),
-                'scroll': cfg.get('scroll'),
-                'hideScrollbar': cfg.get('hideScrollbar', False),
-                'permissions': perm_info,
-                'consent_granted': False,
-                'consent_denied': True,
-                'loadError': 'Consent denied by user',
-            }
+        for source in (denied_consent, _pending):
+            for ext_id, info in source.items():
+                if ext_id in result:
+                    continue
+                cfg = info.get('config', {})
+                result[ext_id] = _ext_payload(
+                    ext_id, cfg, perm.get_permission_info(cfg),
+                    consent_granted=False, consent_denied=True,
+                    loadError='Consent denied by user')
         return jsonify(result)
 
     @app.route('/api/health')
@@ -511,12 +466,12 @@ def register_api_routes(app, socketio):
 
     @app.route('/api/extensions/<ext_id>/load', methods=['POST'])
     def api_extensions_load(ext_id):
-        """Load a deferred hidden extension on demand."""
-        from coreframe.extensions.loader import load_deferred, extensions as _exts
+        """Re-check a hidden extension: it is already loaded unless it failed."""
+        from coreframe.extensions.loader import extensions as _exts, failed_extensions as _failed
         if ext_id in _exts:
             return jsonify({'ok': True, 'loaded': True, 'already': True})
-        ok = load_deferred(ext_id)
-        return jsonify({'ok': ok, 'loaded': ok})
+        return jsonify({'ok': False, 'loaded': False,
+                        'loadError': _failed.get(ext_id, {}).get('loadError', 'Not loaded')})
 
     @app.route('/api/extensions/<ext_id>/unload', methods=['POST'])
     def api_extensions_unload(ext_id):

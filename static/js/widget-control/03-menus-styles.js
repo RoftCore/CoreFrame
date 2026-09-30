@@ -72,7 +72,7 @@
         var lvl = extData.permissions.level;
         var labels = window.__permissions.LEVEL_LABELS || {};
         var colors = window.__permissions.LEVEL_COLORS || {};
-        levelEl.textContent = labels[lvl] || ('Nivel ' + lvl);
+        levelEl.textContent = labels[lvl] || ('Level ' + lvl);
         levelEl.style.color = colors[lvl] || 'var(--text-muted)';
         levelEl.style.borderColor = colors[lvl] || 'var(--text-muted)';
       } else {
