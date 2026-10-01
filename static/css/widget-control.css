@@ -206,9 +206,18 @@ body.edit-mode .widget.widget-resizing::after {
    main thread (measured: ~1s for a 16-photo gallery, on EVERY scene switch,
    with the core's own switch costing under 2ms). Off-viewport keeps the
    decode and the layout, skips rasterization, and touches no inline style
-   (the drag code owns `transform`). Extensions opt out with keep_alive:false. */
+   (the drag code owns `transform`). Extensions opt out with keep_alive:false.
+
+   position MUST be absolute, not relative. As a relative grid item an
+   off-scene widget still occupies a cell: foreign widgets auto-place into it,
+   overflow the 6 explicit rows, and the browser adds implicit rows. Measured
+   with the DragGeometry dump: repeat(6, 1fr) resolved to TWELVE 48px tracks
+   instead of six 104px ones (12*48 + 11*8 = the grid height exactly), which is
+   what halved every cell and made the drop projection drift further the lower
+   it went. Absolute removes it from the grid flow while keeping the box tree,
+   so the decode survives. Do not "simplify" this back to relative. */
 .widget-extension.cf-offscene {
-    position: relative !important;
+    position: absolute !important;
     left: -200vw !important;
     visibility: hidden !important;
     pointer-events: none;
@@ -458,31 +467,51 @@ body.edit-mode .widget-overlayable {
   transition: none !important;
 }
 
-/* --- Drag placeholder (target indicator during drag) --- */
+/* --- Drop projection + source-cell spacer ---
+   The projection is absolute and painted in px from the real tracks, so it
+   lines up with the drawn grid and stays out of the layout: as a grid item it
+   created implicit rows past the last explicit one, and every 1fr track then
+   split a fixed height between more of them, shrinking the cells under the
+   cursor.
+   The spacer is a real grid item that only keeps the source cell occupied so
+   siblings do not reflow. Empty and unstyled on purpose: no border, no
+   background, nothing that could feed a track's automatic minimum. */
 .widget-drag-placeholder {
+  position: absolute;
+  box-sizing: border-box;
   border: 2px dashed var(--accent-cyan);
   border-radius: var(--radius-md);
   background: rgba(0, 212, 255, 0.06);
   pointer-events: none;
-  min-height: 0;
-  min-width: 0;
+  z-index: 11;
   transition: border-color 0.15s, background 0.15s;
 }
+.widget-drag-spacer {
+  pointer-events: none;
+}
+/* Collision: the drop is not possible here. */
 .widget-drag-placeholder.widget-drag-placeholder-occupied {
   border-color: var(--accent-red);
   background: rgba(255, 51, 85, 0.08);
 }
-.widget-drag-placeholder.widget-drag-placeholder-displace {
+/* It DOES collide with another widget, but the drop is still valid: either the
+   two trade places or the other one is pushed somewhere that fits. Same green
+   for both cases, since from the user's side they mean the same thing: you can
+   let go. Blue stays reserved for "nothing in the way". */
+.widget-drag-placeholder.widget-drag-placeholder-drop {
   border-color: var(--accent-green);
-  background: rgba(0, 200, 120, 0.12);
+  background: rgba(0, 255, 136, 0.12);
 }
 
-/* --- Swap target highlight --- */
-.widget-swap-target {
-  outline: 2px dashed var(--accent-cyan) !important;
-  outline-offset: 2px;
-  box-shadow: 0 0 16px rgba(0, 212, 255, 0.25) !important;
-}
+/* --- Swap target ---
+   No rule on purpose. This widget is not the one being moved, and a second
+   outline read as the drop target. Nothing is drawn on it: the projection
+   above carries the whole answer.
+   Do NOT mark it with opacity/transform/filter to dim it. Any of those makes
+   the element a containing block for its position:fixed descendants, so an
+   overlay inside the widget suddenly resolves against the widget instead of
+   the viewport and the grid relayouts mid-drag. The class is still toggled by
+   the drag code for state tracking; it just has no visual rule. */
 
 /* --- Disable right-click on sub-widgets with click_action --- */
 .widget-sub[data-click-action] {

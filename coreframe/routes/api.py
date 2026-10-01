@@ -596,6 +596,25 @@ def register_api_routes(app, socketio):
             pass
         return jsonify({'ok': True})
 
+    @app.route('/api/debug/drag', methods=['POST'])
+    def api_debug_drag():
+        """Geometry dump from the widget drag path (grid tracks, pitch, kids).
+        Lets us check what the browser actually resolved instead of guessing."""
+        try:
+            from coreframe.config import log as _log
+            d = request.get_json(silent=True) or {}
+            _log.info("[DragGeometry] %s scene=%s rows=%s cols=%s rect=%s "
+                      "inline_rows=%s used_rows=%r used_cols=%r auto_rows=%r flow=%r "
+                      "px_rows=%s px_cols=%s derived_row0=%s pitch=%s kids=%s",
+                      d.get('tag'), d.get('scene'), d.get('sceneRows'),
+                      d.get('sceneCols'), d.get('rect'), d.get('inlineRows'),
+                      d.get('rows'), d.get('cols'), d.get('autoRows'),
+                      d.get('autoFlow'), d.get('pxRows'), d.get('pxCols'),
+                      d.get('derivedRow0'), d.get('pitch'), d.get('kids'))
+        except Exception:
+            pass
+        return jsonify({'ok': True})
+
     @app.route('/api/debug')
     def api_debug():
         try:
