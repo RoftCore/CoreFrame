@@ -284,7 +284,7 @@ class SubprocessBridge:
             if resp is not None:
                 if 'error' in resp:
                     raise RuntimeError(f"Runner startup failed: {resp['error']}")
-                log.info("[Bridge] Runner ready for %s", self.ext_id)
+                log.debug("[Bridge] Runner ready for %s", self.ext_id)
                 return
             time.sleep(0.01)
         raise RuntimeError(f"Runner for {self.ext_id} did not become ready within {timeout}s")
@@ -325,7 +325,7 @@ class SubprocessBridge:
         with open(self._config_file, 'w', encoding='utf-8') as f:
             json.dump(params, f, ensure_ascii=False)
 
-        log.info("[Bridge] Isolated mode for %s (restrictions: level=%s, network=%s)",
+        log.debug("[Bridge] Isolated mode for %s (restrictions: level=%s, network=%s)",
                  self.ext_id, restrictions.get('level'), restrictions.get('network_allowed'))
         if getattr(sys, 'frozen', False):
             try:
