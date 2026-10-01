@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+import logging.handlers
 import threading
 
 # ── Paths ──────────────────────────────────────────────────────────
@@ -72,11 +73,14 @@ if getattr(sys, 'frozen', False):
 
 # ── Logging ────────────────────────────────────────────────────────
 
+# Rotating: an unbounded FileHandler grew this to 138 MB, almost all of it
+# faulthandler thread dumps from before the repeat-dump fix. Capped at 8 MB x 4.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.FileHandler(LOG_PATH, encoding='utf-8'),
+        logging.handlers.RotatingFileHandler(
+            LOG_PATH, maxBytes=8 * 1024 * 1024, backupCount=3, encoding='utf-8'),
     ]
 )
 log = logging.getLogger('CoreFrame')

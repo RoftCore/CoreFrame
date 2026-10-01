@@ -250,6 +250,11 @@ class ExtensionPermissionManager:
 
     def revoke(self, ext_id: str):
         """Revoke all permissions from an extension."""
+        from coreframe.extensions.security import restore_consent_files
+        # The consent file is kept read-only on purpose, so every writer has to
+        # unlock it first. Without this the revocation was dropped silently and
+        # the permission came back on the next start.
+        restore_consent_files()
         with self._lock:
             self._consents.pop(ext_id, None)
             self._save_consents()

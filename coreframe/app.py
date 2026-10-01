@@ -206,7 +206,12 @@ def _do_restart():
 @app.route('/api/quit', methods=['POST'])
 def api_quit():
     log.info("Shutting down gracefully...")
-    socketio.stop()
+    try:
+        socketio.stop()
+    except RuntimeError as e:
+        # The frozen host owns the web server, so socketio has nothing to stop.
+        # Uncaught, this 500'd and the shutdown below never ran.
+        log.debug("socketio.stop skipped: %s", e)
     time.sleep(0.5)
     for ext in extensions.values():
         inst = ext.get('instance')

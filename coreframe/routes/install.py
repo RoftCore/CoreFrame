@@ -233,39 +233,59 @@ def register_install_routes(app, socketio):
         if not os.path.isdir(ext_path):
             return jsonify({'error': 'Extension not found'}), 404
 
-        ext_data = extensions.get(ext_id)
-        if ext_data:
-            inst = ext_data.get('instance')
-            cleanup = getattr(inst, 'cleanup', None)
-            if cleanup:
-                try:
-                    cleanup()
-                except Exception as e:
-                    log.warning("Cleanup failed for %s: %s", ext_id, e)
-
-        last_err = None
-        for attempt in range(5):
-            try:
-                shutil.rmtree(ext_path)
-                break
-            except Exception as e:
-                last_err = str(e)
-                if attempt < 4:
-                    time.sleep(0.5)
-                else:
-                    return jsonify({'error': f'Failed to delete extension files: {last_err}'}), 500
-
+        # Stop polling and the child process BEFORE touching its files. On
+        # Windows any open handle under the folder makes rmtree fail, and a live
+        # child can rewrite files after they are gone. The bridge's on_stop()
+        # waits for the process, so by the time it returns the handles are
+        # released (or the process is dying, which the retry loop absorbs).
         from coreframe.extensions.loader import _poll_stop_events
         stop_evt = _poll_stop_events.pop(ext_id, None)
         if stop_evt:
             stop_evt.set()
-        extensions.pop(ext_id, None)
+
+        ext_data = extensions.pop(ext_id, None)
         failed_extensions.pop(ext_id, None)
         pending_consent.pop(ext_id, None)
         pending_migration.pop(ext_id, None)
         mod_name = f"extensions.{ext_id}"
         if mod_name in sys.modules:
             del sys.modules[mod_name]
+
+        inst = (ext_data or {}).get('instance')
+        if inst is not None:
+            # cleanup() first: it may want the child alive to flush. on_stop()
+            # then kills it, and the folder is only touched after both.
+            cleanup = getattr(inst, 'cleanup', None)
+            if cleanup:
+                try:
+                    cleanup()
+                except Exception as e:
+                    log.warning("Cleanup failed for %s: %s", ext_id, e)
+            stop = getattr(inst, 'on_stop', None) or getattr(inst, 'stop', None)
+            if stop:
+                try:
+                    stop()
+                except Exception as e:
+                    log.warning("Stop failed for %s: %s", ext_id, e)
+        # Without this the isolation monitor keeps heartbeating and restarting a
+        # folder that no longer exists.
+        _ext_isolation.mark_dead(ext_id, 'Deleted')
+
+        last_err = None
+        for attempt in range(8):
+            try:
+                shutil.rmtree(ext_path)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = str(e)
+                if attempt < 7:
+                    time.sleep(0.4)
+        if last_err:
+            # Silent failures here are why this looked like "it just errors":
+            # nothing reached the log, only the toast.
+            log.error("Delete failed for %s (%s): %s", ext_id, ext_path, last_err)
+            return jsonify({'error': f'Failed to delete extension files: {last_err}'}), 500
 
         # Revoke permissions
         perm = get_permission_manager()
