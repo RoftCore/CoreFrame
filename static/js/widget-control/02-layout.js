@@ -472,6 +472,83 @@
     return parseFloat(cs.gridAutoRows) + gap || 93;
   }
 
+  // Real geometry of the grid, read from the computed tracks: the same numbers
+  // the overlay lines are drawn from, gaps included. Deriving it from
+  // width / cols instead drifts, because gap removes (cols - 1) * gap px and
+  // the error accumulates to ~80px by the last column.
+  // Only a used length counts as a track size. parseFloat('1fr') is 1, not
+  // NaN, so a fr token would silently turn into a 1px track and every row
+  // would collapse on top of the first one.
+  function pxTracks(value) {
+    var out = [];
+    (value || '').split(' ').forEach(function (tok) {
+      var m = /(-?\d+(?:\.\d+)?)px$/.exec(tok);
+      if (m) out.push(parseFloat(m[1]));
+    });
+    return out;
+  }
+
+  // This grid is always repeat(n, 1fr), so uniform tracks can be derived
+  // exactly from the box and the gap when the computed value is not a length.
+  function uniformTracks(size, gap, n) {
+    if (!(n > 0)) return [];
+    var t = (size - gap * (n - 1)) / n;
+    var out = [];
+    for (var i = 0; i < n; i++) out.push(t > 0 ? t : 0);
+    return out;
+  }
+
+  function gridTracks(grid, nCols, nRows) {
+    var cs = window.getComputedStyle(grid);
+    var gap = parseFloat(cs.gap) || 0;
+    var cols = pxTracks(cs.gridTemplateColumns);
+    var rows = pxTracks(cs.gridTemplateRows);
+    var r = grid.getBoundingClientRect();
+    if (cols.length === 0) cols = uniformTracks(r.width, gap, nCols || 12);
+    if (rows.length === 0) rows = uniformTracks(r.height, gap, nRows || 6);
+    return { cols: cols, rows: rows, gap: gap };
+  }
+
+  function tracksOf(metrics) {
+    if (metrics && metrics.colTracks && metrics.rowTracks) {
+      return { cols: metrics.colTracks, rows: metrics.rowTracks, gap: metrics.trackGap || 0 };
+    }
+    var sc = s.currentScene();
+    return gridTracks(metrics.grid, metrics.maxCol, metrics.maxRow ||
+      ((sc && sc.rows) || 6));
+  }
+
+  function spanBox(list, gap, i0, n) {
+    var start = 0;
+    for (var k = 0; k < i0 && k < list.length; k++) start += list[k] + gap;
+    var size = 0;
+    for (var i = 0; i < n; i++) {
+      var v = list[i0 + i];
+      if (v === undefined) v = list[list.length - 1] || 0;
+      size += v + (i ? gap : 0);
+    }
+    return { start: start, size: size };
+  }
+
+  // Pixel box of a cell span in the grid's padding box. Explicit tracks only:
+  // it never invents an implicit row, which is what used to shrink every 1fr
+  // track when the projection landed past the last one.
+  function gridCellBox(tracks, col, row, w, h) {
+    var c = spanBox(tracks.cols, tracks.gap, Math.max(0, col - 1), w);
+    var r = spanBox(tracks.rows, tracks.gap, Math.max(0, row - 1), h);
+    return { left: c.start, top: r.start, width: c.size, height: r.size };
+  }
+
+  function colAtLocal(grid, x) {
+    var sc = s.currentScene();
+    var t = gridTracks(grid, (sc && sc.cols) || 12, (sc && sc.rows) || 6);
+    for (var c = 0; c < t.cols.length; c++) {
+      var b = spanBox(t.cols, t.gap, c, 1);
+      if (x < b.start + b.size) return c + 1;
+    }
+    return t.cols.length;
+  }
+
   function pixelToRow(grid, y) {
     var cs = window.getComputedStyle(grid);
     var gap = parseFloat(cs.rowGap || cs.gap) || 8;
@@ -489,11 +566,12 @@
   function gridPosFromPixel(el, grid, maxCols, maxRows) {
     var gridRect = grid.getBoundingClientRect();
     var elRect = el.getBoundingClientRect();
-    var colW = gridRect.width / maxCols;
-    var rowH = gridRect.height / maxRows;
+    // maxCols / maxRows are kept for the call signature but no longer used:
+    // dividing the grid by a column count ignores the gap, so the answer drifts
+    // along the row. Read the tracks instead, as the overlay does.
     return {
-      col: Math.max(1, Math.round((elRect.left - gridRect.left) / colW) + 1),
-      row: Math.max(1, Math.round((elRect.top - gridRect.top) / rowH) + 1)
+      col: colAtLocal(grid, elRect.left - gridRect.left),
+      row: pixelToRow(grid, elRect.top - gridRect.top)
     };
   }
 
@@ -612,6 +690,7 @@
     let grabDX = 0, grabDY = 0, ghostW = 0, ghostH = 0;
     let grabLeft = 0, grabTop = 0, ghostX = 0, ghostY = 0;
     let placeholder = null;
+    let spacer = null;
     let swapTarget = null;
     let _mode = null; // 'move' or 'resize' — set on mousedown
 
@@ -637,32 +716,79 @@
     // case: only a height/rows change pays for a fresh style read.
     let _pitchCache = null;
     let _dragCache = null;
+    let _geomMid = false;
 
     function buildDragCache() {
       var g = document.querySelector('.widget-grid');
       if (!g) return null;
+      // Sweep leftovers from an aborted drag: a stale spacer keeps its cell
+      // occupied, so the whole scene lays out differently until the next drag
+      // happens to clean it.
+      document.querySelectorAll('.widget-drag-placeholder, .widget-drag-spacer').forEach(function (el) { el.remove(); });
+      placeholder = null;
+      spacer = null;
+      _geomMid = false;
       var r = g.getBoundingClientRect();
       var sc = s.currentScene();
       var rows = (sc && sc.rows) || 6;
       if (!_pitchCache || _pitchCache.h !== r.height || _pitchCache.rows !== rows) {
         var cs = window.getComputedStyle(g);
         var gap = parseFloat(cs.rowGap || cs.gap) || 8;
-        var tracks = (cs.gridTemplateRows || '').split(' ').filter(Boolean).map(function (v) { return parseFloat(v); }).filter(function (v) { return isFinite(v); });
+        var tracks = pxTracks(cs.gridTemplateRows);
+        if (tracks.length === 0) tracks = uniformTracks(r.height, gap, rows);
         _pitchCache = {
           h: r.height, rows: rows, gap: gap, tracks: tracks,
-          autoRows: parseFloat(cs.gridAutoRows) || 0
+          colTracks: pxTracks(cs.gridTemplateColumns),
+          autoRows: tracks[0] || 0
         };
+        if (_pitchCache.colTracks.length === 0) {
+          _pitchCache.colTracks = uniformTracks(r.width, gap, (sc && sc.cols) || 12);
+        }
       }
       var pc = _pitchCache;
       var pitch = pc.tracks.length > 0 ? pc.tracks[0] + pc.gap : (pc.autoRows + pc.gap || 93);
       _dragCache = {
         grid: g, rect: r,
         colW: r.width / s.sceneCols(),
+        colTracks: pc.colTracks, rowTracks: pc.tracks, trackGap: pc.gap,
         maxCol: (sc && sc.cols) || 12,
         maxRow: rows,
         rowPitch: pitch, rowGap: pc.gap
       };
+      dumpDragGeometry('start');
       return _dragCache;
+    }
+
+    // One-shot geometry dump to the app log. Drag geometry has been wrong
+    // three times in a row and every guess was wrong too: this reports what the
+    // browser actually resolved, so the next round starts from data.
+    function dumpDragGeometry(tag) {
+      var g = document.querySelector('.widget-grid');
+      if (!g) return;
+      var cs = window.getComputedStyle(g);
+      var sc = s.currentScene();
+      var r = g.getBoundingClientRect();
+      var kids = [];
+      Array.prototype.forEach.call(g.querySelectorAll('.widget-extension'), function (el) {
+        var k = window.getComputedStyle(el);
+        kids.push(k.gridRowStart + ':' + k.gridColumnStart + '=' + Math.round(el.getBoundingClientRect().height));
+      });
+      apiFetch('/api/debug/drag', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tag: tag, scene: s._activeScene,
+          sceneRows: (sc && sc.rows) || 0, sceneCols: (sc && sc.cols) || 0,
+          rect: Math.round(r.width) + 'x' + Math.round(r.height),
+          inlineRows: g.style.gridTemplateRows || '(none)',
+          rows: cs.gridTemplateRows, cols: cs.gridTemplateColumns,
+          autoRows: cs.gridAutoRows, autoFlow: cs.gridAutoFlow,
+          pxRows: pxTracks(cs.gridTemplateRows).length,
+          pxCols: pxTracks(cs.gridTemplateColumns).length,
+          derivedRow0: _pitchCache && _pitchCache.tracks[0] ? Math.round(_pitchCache.tracks[0]) : -1,
+          pitch: _pitchCache ? Math.round(_pitchCache.tracks[0] + _pitchCache.gap) : -1,
+          kids: kids.slice(0, 24)
+        })
+      });
     }
 
     // Track-walking row lookup over the cached tracks: same result as
@@ -739,17 +865,18 @@
     }
 
     function pixelToCol(metrics, px) {
-      var ghostLeft = px - ghostW / 2;
-      var ghostRight = px + ghostW / 2;
+      var ghostLeft = px - ghostW / 2 - metrics.rect.left;
+      var ghostRight = px + ghostW / 2 - metrics.rect.left;
+      var t = tracksOf(metrics);
+      var n = Math.min(t.cols.length, metrics.maxCol);
       var bestCol = 1;
       var bestOverlap = -1;
-      for (var c = 1; c <= metrics.maxCol - wSpan + 1; c++) {
-        var cellLeft = metrics.rect.left + (c - 1) * metrics.colW;
-        var cellRight = metrics.rect.left + (c + wSpan - 1) * metrics.colW;
-        var overlap = Math.min(ghostRight, cellRight) - Math.max(ghostLeft, cellLeft);
+      for (var c = 0; c <= n - wSpan; c++) {
+        var box = spanBox(t.cols, t.gap, c, wSpan);
+        var overlap = Math.min(ghostRight, box.start + box.size) - Math.max(ghostLeft, box.start);
         if (overlap > bestOverlap) {
           bestOverlap = overlap;
-          bestCol = c;
+          bestCol = c + 1;
         }
       }
       return bestCol;
@@ -919,8 +1046,33 @@
       return best;
     }
 
+    // Two elements, on purpose. The spacer is a real grid item that keeps the
+    // source cell occupied, so siblings do not reflow when the dragged widget
+    // leaves the flow; it is empty and unstyled, so it adds nothing to track
+    // sizing. The projection is absolute and painted, so it can neither create
+    // an implicit row nor squeeze the 1fr tracks, which is exactly what a
+    // bordered grid item did: one extra row split the fixed height between more
+    // tracks and every cell shrank under the cursor.
+    function ensureDragEl(metrics, startCol, startRow) {
+      if (!spacer) {
+        spacer = document.createElement('div');
+        spacer.className = 'widget-drag-spacer';
+      }
+      if (startCol) {
+        spacer.style.gridColumn = startCol + ' / span ' + wSpan;
+        spacer.style.gridRow = startRow + ' / span ' + hSpan;
+      }
+      if (spacer.parentNode !== metrics.grid) metrics.grid.appendChild(spacer);
+      if (!placeholder) {
+        placeholder = document.createElement('div');
+        placeholder.className = 'widget-drag-placeholder';
+      }
+      if (placeholder.parentNode !== metrics.grid) metrics.grid.appendChild(placeholder);
+    }
+
     function removePlaceholder() {
       if (placeholder) { placeholder.remove(); placeholder = null; }
+      if (spacer) { spacer.remove(); spacer = null; }
     }
 
     function nowMs() {
@@ -945,11 +1097,17 @@
 
     function updateTargetIndicator(metrics, col, row, state) {
       if (!placeholder) return;
-      placeholder.style.gridColumn = col + ' / span ' + wSpan;
-      placeholder.style.gridRow = row + ' / span ' + hSpan;
-      placeholder.classList.remove('widget-drag-placeholder-occupied', 'widget-drag-placeholder-displace');
+      var box = gridCellBox(tracksOf(metrics), col, row, wSpan, hSpan);
+      placeholder.style.left = box.left + 'px';
+      placeholder.style.top = box.top + 'px';
+      placeholder.style.width = box.width + 'px';
+      placeholder.style.height = box.height + 'px';
+      // Three meanings, three colours: free = nothing in the way (blue),
+      // drop = it collides but the placement is still valid (green),
+      // occupied = cannot be dropped here (red).
+      placeholder.classList.remove('widget-drag-placeholder-occupied', 'widget-drag-placeholder-drop');
       if (state === 'occupied') placeholder.classList.add('widget-drag-placeholder-occupied');
-      else if (state === 'displace') placeholder.classList.add('widget-drag-placeholder-displace');
+      else if (state === 'drop') placeholder.classList.add('widget-drag-placeholder-drop');
     }
 
     function clearSwapTarget() {
@@ -1098,7 +1256,7 @@
         wSpan = parseInt(((gcm) || [,'2'])[1], 10);
         hSpan = parseInt(((grm) || [,'2'])[1], 10);
 
-        startCol = Math.max(1, Math.round((wr.left - metrics.rect.left) / metrics.colW) + 1);
+        startCol = colAtLocal(metrics.grid, wr.left - metrics.rect.left);
         var sc = s.currentScene();
         var maxRow = (sc && sc.rows) || 6;
         startRow = Math.max(1, Math.min(maxRow - hSpan + 1, pixelToRowFromCache(wr.top - metrics.rect.top)));
@@ -1116,13 +1274,7 @@
         // layout per frame no matter how heavy the widget content is.
         // Core live updates stay paused during the gesture (see core.js),
         // so the widget also looks frozen while dragged.
-        if (!placeholder) {
-          placeholder = document.createElement('div');
-          placeholder.className = 'widget-drag-placeholder';
-        }
-        placeholder.style.gridColumn = startCol + ' / span ' + wSpan;
-        placeholder.style.gridRow = startRow + ' / span ' + hSpan;
-        metrics.grid.appendChild(placeholder);
+        ensureDragEl(metrics, startCol, startRow);
         grabLeft = wr.left; grabTop = wr.top;
         ghostX = e.clientX - grabDX; ghostY = e.clientY - grabDY;
         dragEl.style.gridColumn = '';
@@ -1185,12 +1337,12 @@
 
       var tCol = pixelToCol(metrics, newLeft + ghostW / 2);
       var tRow = pixelToRowCached(metrics, newTop + ghostH / 2);
-
-      if (!placeholder) {
-        placeholder = document.createElement('div');
-        placeholder.className = 'widget-drag-placeholder';
-        metrics.grid.appendChild(placeholder);
+      if (!_geomMid && newTop > metrics.rect.top + metrics.rect.height / 2) {
+        _geomMid = true;
+        dumpDragGeometry('mid');
       }
+
+      ensureDragEl(metrics);
 
       // Single DOM query per frame; every overlap test below is a map lookup.
       var occ = buildOccupancy();
@@ -1228,10 +1380,10 @@
         if (canSwap) {
           swapTarget = candidate;
           candidate.classList.add('widget-swap-target');
-          updateTargetIndicator(metrics, tCol, tRow, 'free');
+          updateTargetIndicator(metrics, tCol, tRow, 'drop');
           dragGhost.classList.remove('widget-collision');
         } else if (canDisplace) {
-          updateTargetIndicator(metrics, tCol, tRow, 'displace');
+          updateTargetIndicator(metrics, tCol, tRow, 'drop');
           dragGhost.classList.remove('widget-collision');
         } else {
           dragGhost.classList.add('widget-collision');
@@ -1543,7 +1695,7 @@
     });
     document.querySelectorAll('.widget-swap-target').forEach(function (el) { el.classList.remove('widget-swap-target'); });
     document.body.style.cursor = '';
-    document.querySelectorAll('.widget-drag-placeholder').forEach(function (el) { el.remove(); });
+    document.querySelectorAll('.widget-drag-placeholder, .widget-drag-spacer').forEach(function (el) { el.remove(); });
   };
 
   // keep old names as aliases for backward compat
