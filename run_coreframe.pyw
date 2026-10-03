@@ -1012,10 +1012,12 @@ def _setup_tray():
                 ni_local = WinForms.NotifyIcon()
                 ni_local.Icon = icon
                 ni_local.Visible = True
-                if AUTOSTART_FLAG:
-                    ni_local.Text = 'CoreFrame \u2014 inicio autom\u00e1tico activo'
-                else:
+                # AUTOSTART_FLAG is also true for --minimized, so test that one first
+                # or every hidden boot would claim to be a visible one.
+                if MINIMIZED_FLAG:
                     ni_local.Text = 'CoreFrame \u2014 minimizado'
+                else:
+                    ni_local.Text = 'CoreFrame \u2014 inicio autom\u00e1tico activo'
                 ni_local.BalloonTipTitle = 'CoreFrame'
                 ni_local.BalloonTipText = 'Running in background. Double-click to open.'
                 try:
