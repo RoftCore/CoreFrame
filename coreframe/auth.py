@@ -23,9 +23,32 @@ def get_token():
 # ── Autostart ──────────────────────────────────────────────────────
 
 AUTOSTART_KEY = 'CoreFrame'
+AUTOSTART_MODES = ('off', 'on', 'minimized')
+# The host reads these flags in run_coreframe.pyw: --autostart boots the window
+# visible, --minimized leaves it hidden with only the tray icon. Minimized is
+# the background-services mode: extensions load, nothing is shown.
+_MODE_FLAG = {'on': '--autostart', 'minimized': '--minimized'}
 
 
-def _get_autostart_enabled():
+def _parse_autostart_value(val):
+    """'"C:\\path\\CoreFrame.exe" --minimized' -> 'minimized' ('off' if unusable)."""
+    p = (val or '').strip()
+    if p.startswith('"'):
+        p = p[1:].split('"', 1)[0]
+    else:
+        p = p.split()[0] if p.split() else ''
+    # isfile() on the whole string (quotes + args) is always False, so the exe
+    # path has to be pulled out first. A stale path counts as off.
+    if not p or not os.path.isfile(p):
+        return 'off'
+    low = (val or '').lower()
+    for mode in ('minimized', 'on'):
+        if _MODE_FLAG[mode] in low:
+            return mode
+    return 'on'
+
+
+def _get_autostart_mode():
     try:
         if sys.platform == 'win32':
             import winreg
@@ -33,57 +56,54 @@ def _get_autostart_enabled():
             try:
                 val, _ = winreg.QueryValueEx(key, AUTOSTART_KEY)
                 winreg.CloseKey(key)
-                # Value looks like: '"C:\...\CoreFrame.exe" --autostart'.
-                # isfile() on the whole string (quotes + args) is always
-                # False — extract just the exe path first.
-                p = (val or '').strip()
-                if p.startswith('"'):
-                    p = p[1:].split('"', 1)[0]
-                else:
-                    p = p.split()[0] if p.split() else ''
-                return bool(p) and os.path.isfile(p)
+                return _parse_autostart_value(val)
             except FileNotFoundError:
                 winreg.CloseKey(key)
-                return False
+                return 'off'
         elif sys.platform == 'linux':
             path = os.path.join(os.path.expanduser('~'), '.config', 'autostart', 'coreframe.desktop')
-            return os.path.isfile(path)
-        return False
+            if not os.path.isfile(path):
+                return 'off'
+            with open(path, encoding='utf-8') as f:
+                return _parse_autostart_value(f.read().replace('Exec=', '').strip())
+        return 'off'
     except Exception:
-        return False
+        return 'off'
 
 
-def _set_autostart_enabled(enable):
+def _set_autostart_mode(mode):
+    mode = mode if mode in AUTOSTART_MODES else 'off'
     try:
         if sys.platform == 'win32':
             import winreg
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Run', 0, winreg.KEY_SET_VALUE)
-            if enable:
-                winreg.SetValueEx(key, AUTOSTART_KEY, 0, winreg.REG_SZ, f'"{sys.executable}" --autostart')
-            else:
+            if mode == 'off':
                 try:
                     winreg.DeleteValue(key, AUTOSTART_KEY)
                 except FileNotFoundError:
                     pass
+            else:
+                winreg.SetValueEx(key, AUTOSTART_KEY, 0, winreg.REG_SZ,
+                                  '"{}" {}'.format(sys.executable, _MODE_FLAG[mode]))
             winreg.CloseKey(key)
             return True
         elif sys.platform == 'linux':
             autostart_dir = os.path.join(os.path.expanduser('~'), '.config', 'autostart')
             path = os.path.join(autostart_dir, 'coreframe.desktop')
-            if enable:
+            if mode == 'off':
+                if os.path.isfile(path):
+                    os.remove(path)
+            else:
                 os.makedirs(autostart_dir, exist_ok=True)
                 content = (
                     '[Desktop Entry]\n'
                     'Type=Application\n'
                     'Name=CoreFrame\n'
-                    f'Exec={sys.executable} --autostart\n'
+                    'Exec={} {}\n'
                     'Terminal=false\n'
-                )
+                ).format(sys.executable, _MODE_FLAG[mode])
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(content)
-            else:
-                if os.path.isfile(path):
-                    os.remove(path)
             return True
         return False
     except Exception:
@@ -100,11 +120,18 @@ def register_auth_routes(app):
         frozen = getattr(sys, 'frozen', False)
         if request.method == 'POST':
             if not frozen:
-                return jsonify({'error': 'Not available', 'available': False, 'enabled': False}), 400
-            enabled = _get_autostart_enabled()
-            _set_autostart_enabled(not enabled)
+                return jsonify({'error': 'Not available', 'available': False, 'mode': 'off'}), 400
+            data = request.get_json(silent=True) or {}
+            mode = data.get('mode')
+            if mode not in AUTOSTART_MODES:
+                # No explicit mode: cycle, so a bare click still toggles.
+                cur = _get_autostart_mode()
+                mode = 'on' if cur == 'off' else ('minimized' if cur == 'on' else 'off')
+            _set_autostart_mode(mode)
+        mode = _get_autostart_mode()
         return jsonify({
-            'enabled': _get_autostart_enabled(),
+            'mode': mode,
+            'enabled': mode != 'off',
             'available': frozen
         })
 

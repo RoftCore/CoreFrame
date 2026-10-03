@@ -479,6 +479,29 @@
     );
   };
 
+  // Start on boot has three states, not a toggle. 'minimized' boots CoreFrame
+  // with the window hidden (tray icon only), which is the background-services
+  // mode: extensions load and nothing takes the screen. Mirrors the
+  // window-settings submenu: Back, separator, one row per option, check on the
+  // active one.
+  s._autostartModes = [
+    ['off', 'square', 'Off'],
+    ['on', 'monitor', 'On'],
+    ['minimized', 'minimize', 'Minimized (background)']
+  ];
+
+  s._updateAutostartHTML = function (mode) {
+    var m = mode || s._autostartMode || 'off';
+    var out = '<div class="ctx-menu-item" data-action="back" style="color:var(--text-muted);font-size:10px"><i data-feather="arrow-left" width="16" height="16"></i>  Back</div>' +
+      '<div class="ctx-menu-separator"></div>';
+    s._autostartModes.forEach(function (r) {
+      out += '<div class="ctx-menu-item" data-action="autostart-' + r[0] + '">' +
+        (m === r[0] ? '<i data-feather="check" width="16" height="16"></i>  ' : '') +
+        '<i data-feather="' + r[1] + '" width="16" height="16"></i>  ' + r[2] + '</div>';
+    });
+    return out;
+  };
+
   s.openSettingsDropdown = function (e) {
     e.stopPropagation();
     s.closeCtxMenu();
@@ -502,7 +525,7 @@
           if (typeof feather !== 'undefined') feather.replace();
         } else if (action === 'back') {
           menu.innerHTML = s._settingsMainHTML;
-          if (typeof feather !== 'undefined') feather.replace();
+          s._renderAutostartItem();
         } else if (action === 'scenes') {
           s.closeSettingsDropdown();
           s.openSceneSettings();
@@ -513,14 +536,24 @@
           s.closeSettingsDropdown();
           s.setWindowMode(action);
         } else if (action === 'autostart') {
-          apiFetch('/api/autostart', { method: 'POST' }).then(function (res) {
-            if (res && !res.error) s.updateAutostartItem(res);
+          menu.innerHTML = s._updateAutostartHTML();
+          if (typeof feather !== 'undefined') feather.replace();
+        } else if (action.indexOf('autostart-') === 0) {
+          var mode = action.slice('autostart-'.length);
+          apiFetch('/api/autostart', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: mode })
+          }).then(function (res) {
+            if (!res || res.error) return;
+            s._autostartMode = res.mode;
+            menu.innerHTML = s._updateAutostartHTML(res.mode);
+            if (typeof feather !== 'undefined') feather.replace();
           });
         }
       });
     }
     menu.innerHTML = s._settingsMainHTML;
-    if (typeof feather !== 'undefined') feather.replace();
+    s._renderAutostartItem();
     menu.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(rect.bottom + 4, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');
@@ -529,23 +562,36 @@
     });
   };
 
-  s.updateAutostartItem = function (res) {
+  s._autostartMode = 'off';
+  s._autostartAvailable = true;
+
+  // Paint from the cached state, no request. Anything that restores the static
+  // _settingsMainHTML has to call this: that string says "Loading...", so the
+  // label would stay stuck on it until the menu was reopened and refetched.
+  s._renderAutostartItem = function () {
     var item = document.getElementById('autostart-item');
     if (!item) return;
-    if (res.available === false) {
+    if (s._autostartAvailable === false) {
       item.innerHTML = '<i data-feather="clock" width="16" height="16"></i>  Start on boot';
       item.style.opacity = '0.4';
-    } else if (res.enabled) {
-      item.innerHTML = '<i data-feather="check-circle" width="16" height="16"></i>  Start on boot <span class="autostart-state on">ON</span>';
-      item.style.opacity = '1';
     } else {
-      item.innerHTML = '<i data-feather="square" width="16" height="16"></i>  Start on boot <span class="autostart-state">OFF</span>';
+      var mode = s._autostartMode || 'off';
+      var badge = mode === 'minimized' ? 'MIN' : (mode === 'on' ? 'ON' : 'OFF');
+      var icon = mode === 'off' ? 'square' : 'check-circle';
+      item.innerHTML = '<i data-feather="' + icon + '" width="16" height="16"></i>  Start on boot' +
+        ' <span class="autostart-state' + (mode === 'off' ? '' : ' on') + '">' + badge + '</span>';
       item.style.opacity = '1';
     }
-    // Re-render icons: this runs after the async /api/autostart fetch,
-    // long after the initial feather.replace() — without this the <i>
-    // tags stay raw and the indicator is invisible.
+    // Re-render icons: this runs after innerHTML, long after the initial
+    // feather.replace() — without it the <i> tags stay raw and invisible.
     if (typeof feather !== 'undefined') feather.replace();
+  };
+
+  s.updateAutostartItem = function (res) {
+    // Fall back to the old boolean for a host that predates mode.
+    s._autostartMode = res.mode || (res.enabled ? 'on' : 'off');
+    if (res.available !== undefined) s._autostartAvailable = res.available;
+    s._renderAutostartItem();
   };
 
   s.closeSettingsDropdown = function () {
