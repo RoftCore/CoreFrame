@@ -173,7 +173,6 @@ body.edit-mode .widget.widget-dragging {
   box-shadow: 0 0 20px rgba(0, 212, 255, 0.3), var(--shadow-lg);
 }
 body.edit-mode .widget.widget-resizing {
-  pointer-events: auto;
   border-color: var(--accent-cyan) !important;
   box-shadow: 0 0 0 1px var(--accent-cyan), 0 0 20px rgba(0, 212, 255, 0.3), var(--shadow-lg) !important;
   cursor: default;
@@ -187,6 +186,22 @@ body.edit-mode .widget.widget-resizing::after {
   outline-offset: 3px;
   border-radius: var(--radius-md);
   pointer-events: none;
+}
+
+/* Edit mode: the interior of a widget is inert.
+   pointer-events is NOT inherited by hit-testing: a descendant left at the
+   default `auto` stays clickable even when the parent is `none`, so a rule on
+   the widget alone does nothing for a widget whose body is an iframe or a row
+   of buttons. In edit mode the layout is what is being manipulated, so the
+   widget becomes a solid object: its own children stop being hit targets and
+   the widget element receives the press instead. Both gestures read the
+   pointer from capture-phase listeners on `document` and resolve the widget
+   with `closest('.widget-extension')`, so a press on the widget still starts
+   a move or a resize.
+   `> *` and not `*` on purpose: the widget element itself must stay a hit
+   target, and the subtree is already inert once the direct children are. */
+body.edit-mode .widget > * {
+  pointer-events: none !important;
 }
 
 /* Cascade animation */
