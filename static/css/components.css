@@ -27,6 +27,100 @@
   box-shadow: var(--shadow-md);
 }
 
+/* ── Extension appearance ──────────────────────────────────────────
+   Core-owned. An extension picks one of these by name from its
+   extension.json ("appear_animation"); the host applies the class. The
+   default is the same for every extension, so the dashboard reads as one
+   surface instead of a dozen extensions each picking a different entrance.
+
+   Rules that matter: no animation may change layout, and all of them must
+   end in the element's natural state, so the card is interactive the
+   moment it appears.
+
+   Deliberately not gated on prefers-reduced-motion: WebView2 reports
+   reduce whenever Windows window animations are off (MinAnimate=0), which
+   is about minimizing windows, not motion sensitivity, and it silently
+   removed every entrance animation on such a machine. */
+
+/* From the left edge: the farthest point is a corner at ~112%, so it needs more. */
+@keyframes cf-appear-fill {
+  from { clip-path: circle(0% at 0% 50%); opacity: 0.3; }
+  to   { clip-path: circle(115% at 0% 50%); opacity: 1; }
+}
+
+/* Default: a circle growing from the card's own centre. A centre origin needs
+   ~71% radius to reach the farthest corner (the reference radius is
+   sqrt(w^2+h^2)/sqrt(2)), so 75% ends exactly when the card is covered instead
+   of spending half the duration on a shape that is already full. */
+@keyframes cf-appear-fill-center {
+  from { clip-path: circle(0% at 50% 50%); opacity: 0.45; }
+  to   { clip-path: circle(75% at 50% 50%); opacity: 1; }
+}
+
+@keyframes cf-appear-rise {
+  from { transform: translateY(14px) scale(0.97); opacity: 0; }
+  to   { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes cf-appear-unfold {
+  from { clip-path: inset(100% 0 0 0); opacity: 0.2; }
+  to   { clip-path: inset(0 0 0 0); opacity: 1; }
+}
+
+@keyframes cf-appear-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Animations transform/clip, which would break the drag hit-testing and the
+   pointer-events immunity used in edit mode while it plays. */
+.widget-extension.cf-appearing {
+  animation-duration: 820ms;
+  animation-delay: var(--cf-appear-delay, 0ms);
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+  animation-fill-mode: both;
+  pointer-events: none;
+}
+
+.widget-extension.cf-appearing.cf-anim-fill        { animation-name: cf-appear-fill; }
+.widget-extension.cf-appearing.cf-anim-fill-center { animation-name: cf-appear-fill-center; }
+.widget-extension.cf-appearing.cf-anim-rise        { animation-name: cf-appear-rise; }
+.widget-extension.cf-appearing.cf-anim-unfold      { animation-name: cf-appear-unfold; }
+.widget-extension.cf-appearing.cf-anim-fade        { animation-name: cf-appear-fade; animation-duration: 300ms; }
+/* Explicit opt-out for an extension that must appear instantly. */
+.widget-extension.cf-appearing.cf-anim-none        { animation-name: none; }
+
+/* ── Loading placeholder ─────────────────────────────────────────────
+   Shown for an extension that is installed and reserved in the grid but
+   not loaded yet. It occupies the extension's real size so the layout
+   does not jump when the card arrives. */
+
+.widget-extension.cf-placeholder {
+  border-color: rgba(0, 212, 255, 0.14);
+  background: var(--bg-widget);
+}
+
+.widget-extension.cf-placeholder .widget-body { opacity: 0.5; }
+
+.cf-placeholder-bar {
+  height: 7px;
+  border-radius: 3px;
+  background: linear-gradient(90deg,
+    rgba(0, 212, 255, 0.07) 0%,
+    rgba(0, 212, 255, 0.16) 50%,
+    rgba(0, 212, 255, 0.07) 100%);
+  background-size: 200% 100%;
+  animation: cf-placeholder-shimmer 1.5s ease-in-out infinite;
+  margin-bottom: 7px;
+}
+
+.cf-placeholder-bar:last-child { margin-bottom: 0; }
+
+@keyframes cf-placeholder-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .widget-header {
   display: flex;
   justify-content: space-between;
@@ -1032,4 +1126,11 @@
 }
 
 /*  Settings dropdown  */
+
+
+
+/* Disabled extension: installed and listed, not running. */
+.ext-card-disabled { opacity: .45; }
+.ext-card-disabled .ext-card-name { text-decoration: line-through; }
+.ext-settings-toggle:disabled { opacity: .4; cursor: default; }
 
