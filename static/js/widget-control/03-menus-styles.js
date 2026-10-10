@@ -153,7 +153,8 @@
         var isError = ext.loadError ? true : false;
         var icon = ext.icon || '';
         var iconHtml = window.renderExtIconHtml ? window.renderExtIconHtml(icon, id) : '<i data-feather="box"></i>';
-        var cardClass = 'ext-card' + (isError ? ' ext-card-error' : '');
+        var cardClass = 'ext-card' + (isError ? ' ext-card-error' : '') +
+                        (ext.disabled ? ' ext-card-disabled' : '');
         html += '<div class="' + cardClass + '" data-ext="' + id + '">';
         html += '<div class="ext-card-icon">' + iconHtml + '</div>';
         html += '<div class="ext-card-name">' + escapeHtml(name) + '</div>';
@@ -166,6 +167,13 @@
         if (ext.consent_granted) {
           html += '<button class="ext-card-btn ext-card-btn-revoke ext-settings-revoke" data-ext="' + id + '">Revoke</button>';
         }
+        // Disable keeps the files and the registry entry, just stops it running.
+        // Delete stays separate: that one really removes it.
+        html += '<button class="ext-card-btn ext-settings-toggle" data-ext="' + id + '"' +
+                ' title="' + (ext.disabled
+                  ? 'Activate: start it again and restore its widget'
+                  : 'Disable: no widget and no background work, files kept') + '">' +
+                (ext.disabled ? 'Enable' : 'Disable') + '</button>';
         html += '<button class="ext-card-btn ext-card-btn-danger ext-settings-del" data-ext="' + id + '">Delete</button>';
         html += '</div>';
         html += '</div>';
@@ -189,6 +197,32 @@
           e.stopPropagation();
           var eid = btn.dataset.ext;
           s.showRevokeConfirm(eid);
+        });
+      });
+
+      list.querySelectorAll('.ext-settings-toggle').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var eid = btn.dataset.ext;
+          var ext = (window.extensionsData || {})[eid] || {};
+          var verb = ext.disabled ? 'enable' : 'disable';
+          var name = ext.name || eid;
+          btn.disabled = true;
+          apiFetch('/api/extensions/' + encodeURIComponent(eid) + '/' + verb,
+                   { method: 'POST' }).then(function (res) {
+            if (res && res.error) {
+              btn.disabled = false;
+              s.showToast('Error: ' + res.error);
+              return;
+            }
+            // What is loaded and what gets polled both changed on the host, so
+            // reload and let it rebuild from the server rather than patching
+            // the DOM here and hoping it matches.
+            location.reload();
+          }).catch(function () {
+            btn.disabled = false;
+            s.showToast('Could not ' + verb + ' ' + name);
+          });
         });
       });
     }

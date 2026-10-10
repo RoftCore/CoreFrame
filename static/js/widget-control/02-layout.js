@@ -127,9 +127,16 @@
     var sw = s.currentScene().widgets;
     var gs = s.getExtGrid(extId);
     sw[extId] = sw[extId] || { col: 1, row: 1, w: gs.w || 2, h: gs.h || 2 };
+    // Snapshot before the flag flips: afterwards the "before" is unrecoverable.
+    var _hBefore = (window.cfHistory && sw[extId])
+      ? window.cfHistory.snapshot(extId, s._activeScene) : null;
     sw[extId].hidden = true;
     s.persistScenes();
     cfHide(widget);
+    if (window.cfHistory && _hBefore) {
+      window.cfHistory.record('hide ' + extId, extId, s._activeScene, _hBefore,
+                              window.cfHistory.snapshot(extId, s._activeScene));
+    }
     // Kill process only if hidden in ALL scenes (same ext_runner process shared)
     if(!isVisibleInAnyScene(extId)){
       apiFetch('/api/extensions/' + encodeURIComponent(extId) + '/unload', {method:'POST'}).catch(function(){});
@@ -272,8 +279,14 @@
       s.showToast('No space for this widget');
       return false;
     }
+    var _sBefore = window.cfHistory
+      ? window.cfHistory.snapshot(extId, s._activeScene) : null;
     sw[extId] = { col: spot.col, row: spot.row, w: spot.w, h: spot.h, hidden: false };
     s.persistScenes();
+    if (window.cfHistory && _sBefore) {
+      window.cfHistory.record('show ' + extId, extId, s._activeScene, _sBefore,
+                              window.cfHistory.snapshot(extId, s._activeScene));
+    }
     var wEl = document.querySelector('.widget-extension.ext-' + extId);
     if (wEl) {
       cfShow(wEl);
@@ -695,6 +708,9 @@
     let _mode = null; // 'move' or 'resize' — set on mousedown
 
     // --- resize state ---
+    // Undo: the widget's layout as it was when the gesture started.
+    let _historyBefore = null;
+    let _historyLabel = 'move ';
     let resizeEdges = {};
     let dragStartCol, dragStartRow, dragStartW, dragStartH;
 
@@ -1211,6 +1227,13 @@
       var edges = detectEdges(widget, e.clientX, e.clientY);
       var isEdge = edges.top || edges.bottom || edges.left || edges.right;
 
+      // Undo needs the layout as it was when the gesture started, and by the end
+      // the resolver has already rewritten it several times.
+      if (window.cfHistory && widget.dataset.extId) {
+        _historyBefore = window.cfHistory.snapshot(widget.dataset.extId, s._activeScene);
+        _historyLabel = isEdge ? 'resize ' : 'move ';
+      }
+
       if (isEdge) {
         // --- RESIZE ---
         e.preventDefault();
@@ -1543,6 +1566,12 @@
       }
 
       dragGhost = null;
+      if (window.cfHistory && _historyBefore && dragEl.dataset.extId) {
+        window.cfHistory.record(_historyLabel + dragEl.dataset.extId,
+                                dragEl.dataset.extId, s._activeScene, _historyBefore,
+                                window.cfHistory.snapshot(dragEl.dataset.extId, s._activeScene));
+      }
+      _historyBefore = null;
       dragEl.classList.remove('widget-dragging', 'widget-collision');
       var _etEnd = nowMs();
       dragTimingReport('drop ' + Math.round(_etEnd - _et0) + 'ms [cleanup ' +
@@ -1611,7 +1640,13 @@
       if (dragEl) {
         dragEl.classList.remove('widget-collision', 'widget-resizing');
         s.saveAllLayouts();
+        if (window.cfHistory && _historyBefore && dragEl.dataset.extId) {
+          window.cfHistory.record(_historyLabel + dragEl.dataset.extId,
+                                  dragEl.dataset.extId, s._activeScene, _historyBefore,
+                                  window.cfHistory.snapshot(dragEl.dataset.extId, s._activeScene));
+        }
       }
+      _historyBefore = null;
       dragEl = null;
       resizeEdges = {};
       _mode = null;
