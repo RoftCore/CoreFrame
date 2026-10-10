@@ -61,6 +61,7 @@ extensions/mi_extension/
 | `permissions` | object | — | ❌ | Permission declaration (see [Permissions](#permissions)) |
 | `serve_data` | bool | `false` | — | Publishes the extension's **data dir** over `/ext-data/<id>/` (with Range/206, so `<audio>`/`<video>` can seek). Use it to serve local media, sessions or exports without putting them in the extension folder, which gets packaged and copied on install |
 | `keep_alive` | bool | `true` | — | Keeps off-scene widgets alive (decoded images and layout preserved) by moving them off-viewport instead of `display:none`. Set `false` only if the widget must be genuinely torn down while its scene is inactive |
+| `appear_animation` | string | `"fill-center"` | — | Entrance animation when the card appears. **Owned by the host**: the animations are defined in `static/css/components.css` and the extension only picks one by name. Omit it and every extension gets the same default, which is what keeps the dashboard reading as one surface. Values: `"fill-center"` (default, a circle growing from the card's own centre, revealing the content), `"fill"` (same from the left edge), `"rise"`, `"unfold"`, `"fade"`, `"none"`. An unknown value silently falls back to the default. Extensions cannot define their own animation — that would make the grid inconsistent and there is no safe way to let extension CSS reach the host shell |
 
 ### permissions
 
