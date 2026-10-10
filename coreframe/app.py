@@ -83,6 +83,20 @@ def _save_registry():
             'author': cfg.get('author', ''),
             'category': cfg.get('category', 'general')
         }
+        # Carry the disabled flag across: this file is rebuilt from the in-memory
+        # dict every boot, so without this a disabled extension would come back
+        # on its own after a restart.
+        if registry[ext_id].get('disabled'):
+            pass
+        else:
+            registry[ext_id]['disabled'] = False
+        # Carry the disabled flag across: this file is rebuilt from the in-memory
+        # dict every boot, so without this a disabled extension would come back
+        # on its own after a restart.
+        if registry[ext_id].get('disabled'):
+            pass
+        else:
+            registry[ext_id]['disabled'] = False
     # Heal: adopt extension dirs present on disk but missing from registry.
     try:
         for name in os.listdir(EXTENSIONS_DIR):
@@ -194,6 +208,8 @@ def _do_restart():
 
     _ext_isolation.stop_monitor()
     _ext_isolation.__init__()
+    # __init__ resets _socketio and only this rebind restores it: without it every realtime widget froze after one Reload click while /api/debug/pollers still said healthy.
+    _ext_isolation.set_socketio(socketio)
     _ext_isolation.start_monitor()
     load_extensions()
 
@@ -250,7 +266,13 @@ def start_server(host='127.0.0.1', port=8420, debug=False):
     _logging.getLogger('werkzeug').setLevel(_logging.DEBUG if debug else _logging.WARNING)
 
     log.info("Starting server (instant mode)...")
-    threading.Thread(target=load_extensions, daemon=True, name='ext-initial-load').start()
+    def _initial_load_worker():
+        # Held until the frontend asks, so the host can reserve the grid while loading; the timeout covers minimized mode.
+        from coreframe.extensions.loader import wait_for_load_gate
+        if not wait_for_load_gate():
+            log.info("No frontend asked for extensions; starting load on timeout")
+        load_extensions()
+    threading.Thread(target=_initial_load_worker, daemon=True, name='ext-initial-load').start()
     _save_registry()
     from coreframe.websocket import realtime_broadcast
     rt_thread = threading.Thread(target=realtime_broadcast, daemon=True)

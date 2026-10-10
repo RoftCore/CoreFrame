@@ -38,9 +38,12 @@ class ExtensionIsolation:
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_monitor = threading.Event()
         self._socketio = None  # Set by websocket module after init
+        # A second construction resets _socketio and only set_socketio restores it.
+        log.info("[isolation] ExtensionIsolation constructed id=%x", id(self))
 
     def set_socketio(self, socketio):
         self._socketio = socketio
+        log.info("[isolation] socketio bound id=%x -> %s", id(self), type(socketio).__name__)
 
     def start_monitor(self):
         if self._monitor_thread is None or not self._monitor_thread.is_alive():
@@ -89,14 +92,37 @@ class ExtensionIsolation:
             return
         health.cancel_event.set()
         health.restart_count += 1
+        attempt = health.restart_count
         health.status = 'loading'
         health.load_time = 0.0
         health.cancel_event = threading.Event()
         if self._socketio:
-            self._socketio.emit('extension_restart', {'id': ext_id, 'attempt': health.restart_count})
+            self._socketio.emit('extension_restart', {'id': ext_id, 'attempt': attempt})
 
-    def start_load(self, ext_id: str, loader_fn: Callable[[], bool]) -> threading.Thread:
-        health = ExtensionHealth(ext_id=ext_id)
+        # The event has no frontend handler, so the server must do the reload itself.
+        def _reload():
+            try:
+                from coreframe.extensions.loader import _load_single_extension
+                ok = _load_single_extension(ext_id)
+                log.info("Auto-restart of %s (attempt %d/%d) %s",
+                         ext_id, attempt, self.MAX_RESTARTS,
+                         'succeeded' if ok else 'failed')
+                if not ok:
+                    cur = self.health.get(ext_id)
+                    if cur is not None:
+                        cur.status = 'dead'
+                        cur.last_error = 'Auto-restart failed'
+            except Exception as e:
+                log.warning("Auto-restart of %s raised %s", ext_id, e)
+
+        threading.Thread(target=_reload, daemon=True,
+                         name='ext-restart-%s' % ext_id).start()
+
+    def start_load(self, ext_id: str, loader_fn: Callable[[], bool],
+                   restart_count: int = 0, quarantined: bool = False) -> threading.Thread:
+        # Carried by the auto-restart path; a fresh health would reset the MAX_RESTARTS budget.
+        health = ExtensionHealth(ext_id=ext_id, restart_count=restart_count,
+                                 quarantined=quarantined)
         with self._lock:
             self.health[ext_id] = health
 

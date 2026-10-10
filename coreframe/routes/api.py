@@ -2,7 +2,7 @@ import os
 import sys
 from flask import jsonify, request
 
-from coreframe.config import EXTENSIONS_DIR, REGISTRY_PATH
+from coreframe.config import EXTENSIONS_DIR, REGISTRY_PATH, log
 from coreframe.extensions import extensions, failed_extensions, _ext_isolation
 from coreframe.extensions.permissions import (
     get_permission_manager, PERMISSION_LEVELS, PERMISSION_NAMES,
@@ -33,6 +33,11 @@ def _ext_payload(ext_id, cfg, perm_info, **extra):
         'main': cfg.get('main', 'main.py'),
         'scroll': cfg.get('scroll'),
         'hideScrollbar': cfg.get('hideScrollbar', False),
+        # Core-owned appearance animation. Absent means "use the core default",
+        # which is the whole point: extensions should not each ship their own
+        # entrance animation, they only get the chance to opt out or pick
+        # another one from the palette the core defines.
+        'appear_animation': cfg.get('appear_animation'),
         'permissions': perm_info,
     }
     payload.update(extra)
@@ -44,6 +49,12 @@ def register_api_routes(app, socketio):
     @app.route('/api/extensions')
     def api_extensions():
         from coreframe.extensions.loader import denied_consent
+        # Opens the load gate so the host receives "pending" entries and can reserve the grid while loading.
+        try:
+            from coreframe.extensions.loader import request_initial_load
+            request_initial_load()
+        except Exception:
+            pass
         perm = get_permission_manager()
         result = {}
         for ext_id, ext_data in extensions.items():
@@ -62,6 +73,30 @@ def register_api_routes(app, socketio):
                 'permissions': perm_info,
                 'consent_granted': False,
             }
+        # Still loading: report the manifest so the host reserves the grid slot immediately.
+        from coreframe.extensions.loader import pending_manifests
+        for ext_id, cfg in pending_manifests().items():
+            if ext_id in result:
+                continue
+            payload = _ext_payload(ext_id, cfg,
+                                   perm.get_permission_info(cfg),
+                                   consent_granted=perm.has_consent(ext_id))
+            payload['pending'] = True
+            result[ext_id] = payload
+        # Disabled extensions: installed and registered, but not running. They
+        # are listed with widgets emptied so the host renders no card for them.
+        from coreframe.extensions.loader import disabled_extensions as _disabled
+        for ext_id, info in _disabled.items():
+            if ext_id in result:
+                continue
+            cfg = info.get('config', {})
+            payload = _ext_payload(ext_id, cfg,
+                                   perm.get_permission_info(cfg) if cfg else {'level': -1, 'level_name': 'unknown'},
+                                   consent_granted=perm.has_consent(ext_id))
+            payload['disabled'] = True
+            payload['widgets'] = []
+            result[ext_id] = payload
+
         # Denied and pending extensions are listed too: not loaded, still visible
         from coreframe.extensions.loader import pending_consent as _pending
         for source in (denied_consent, _pending):
@@ -83,6 +118,12 @@ def register_api_routes(app, socketio):
             'extensions': len(extensions),
             'clients': _client_count,
         })
+
+    @app.route('/api/debug/pollers')
+    def api_debug_pollers():
+        """Which realtime pollers are alive and when they last emitted."""
+        from coreframe.extensions.loader import pollers_status
+        return jsonify(pollers_status())
 
     @app.route('/api/extensions/health')
     def api_extensions_health():
@@ -202,6 +243,38 @@ def register_api_routes(app, socketio):
             'level_labels': PERMISSION_LABELS,
             'descriptions': PERMISSION_DESCRIPTIONS,
         })
+
+    @app.route('/api/extensions/<ext_id>/disable', methods=['POST'])
+    def api_disable_extension(ext_id):
+        """Stop an extension without touching its files or its registry entry.
+
+        Re-enabling is the mirror image: clear the flag and load it again.
+        """
+        from coreframe.extensions.loader import (is_disabled, set_disabled,
+                                                 unload_disabled, load_disabled)
+        ext_path = os.path.join(EXTENSIONS_DIR, ext_id)
+        if not os.path.isdir(ext_path):
+            return jsonify({'error': 'Extension not installed'}), 404
+        if is_disabled(ext_id):
+            return jsonify({'ok': True, 'disabled': True, 'id': ext_id})
+        if not set_disabled(ext_id, True):
+            return jsonify({'error': 'Could not persist the disabled flag'}), 500
+        unload_disabled(ext_id)
+        log.info("Extension %s disabled (files kept)", ext_id)
+        return jsonify({'ok': True, 'disabled': True, 'id': ext_id})
+
+    @app.route('/api/extensions/<ext_id>/enable', methods=['POST'])
+    def api_enable_extension(ext_id):
+        from coreframe.extensions.loader import is_disabled, set_disabled, load_disabled
+        ext_path = os.path.join(EXTENSIONS_DIR, ext_id)
+        if not os.path.isdir(ext_path):
+            return jsonify({'error': 'Extension not installed'}), 404
+        if not is_disabled(ext_id):
+            return jsonify({'ok': True, 'disabled': False, 'id': ext_id})
+        set_disabled(ext_id, False)
+        ok = load_disabled(ext_id)
+        log.info("Extension %s enabled (loaded=%s)", ext_id, ok)
+        return jsonify({'ok': True, 'disabled': False, 'id': ext_id, 'loaded': bool(ok)})
 
     @app.route('/api/extensions/<ext_id>/permissions')
     def api_permissions_info(ext_id):
