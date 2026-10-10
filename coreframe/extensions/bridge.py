@@ -204,6 +204,11 @@ class SubprocessBridge:
         self._lock = threading.Lock()
         self._reader_lock = threading.Lock()
         self._read_buffer = {}
+        # Monotonic request ids. The previous time-derived id repeated whenever two
+        # calls to the same method landed in the same millisecond, and both
+        # responses then collided on one _read_buffer key. Concurrency makes that
+        # far likelier, because short calls no longer queue behind long ones.
+        self._rid_seq = 0
         self._running = True
         self._started = False
         self._start_time = 0.0
@@ -458,7 +463,9 @@ class SubprocessBridge:
         if method in _ADMIN_METHODS:
             return _call_elevated(method, params)
 
-        rid = int(time.time() * 1000) % 1000000 + id(method) % 1000
+        with self._lock:
+            self._rid_seq += 1
+            rid = self._rid_seq
         req = _json_dumps({'method': method, 'params': params or {}, 'id': rid}) + '\n'
 
         with self._lock:

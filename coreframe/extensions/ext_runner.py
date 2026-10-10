@@ -224,13 +224,39 @@ def _load_extension(ext_path, config):
 
 # ── JSON-RPC Server ────────────────────────────────────────────────
 
+def _invoke(fn, params):
+    """Call an extension method, adapting to its signature."""
+    try:
+        import inspect
+        sig = inspect.signature(fn)
+        if len(sig.parameters) == 0:
+            return fn()
+        if params:
+            return fn(params)
+        try:
+            return fn(params)
+        except TypeError:
+            return fn()
+    except Exception:
+        try:
+            return fn(params) if params else fn()
+        except TypeError:
+            return fn()
+
+
 def _run_rpc_loop(instance, ext_id, hb_interval=10):
     """
     Main JSON-RPC loop. Reads requests from stdin, calls methods on the
     extension instance, writes responses to stdout.
+
+    Dispatch is concurrent: one reader thread plus a worker pool, correlating
+    responses by id as JSON-RPC 2.0 requires. Serving calls in order froze the
+    whole child for the duration of the slowest one, so a 0.8s widget call
+    timed out behind an 8s call that had nothing to do with it.
     """
     import sys
     import threading
+    from concurrent.futures import ThreadPoolExecutor
 
     _stdout_lock = threading.Lock()
 
@@ -242,6 +268,27 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
         except (BrokenPipeError, OSError):
             # Parent process closed the pipe — we're done
             os._exit(0)
+
+    # Bounded on purpose: a child that can spawn 32 threads can multiply that
+    # by every extension. I/O-bound calls still overlap at a handful of workers.
+    pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix='rpc')
+
+    def reply(resp):
+        safe_write(_dumps(resp) + '\n')
+
+    def serve(rid, method, params):
+        """Run one call in a worker and write its response."""
+        try:
+            fn = getattr(instance, method, None)
+            if fn is None:
+                resp = {'error': f'Unknown method: {method}', 'id': rid}
+            elif not callable(fn):
+                resp = {'result': fn, 'id': rid}
+            else:
+                resp = {'result': _invoke(fn, params), 'id': rid}
+        except Exception as e:
+            resp = {'error': f'{type(e).__name__}: {e}', 'id': rid}
+        reply(resp)
 
     # Heartbeat sender
     def heartbeat_loop():
@@ -266,64 +313,31 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
             try:
                 req = _loads(line.encode() if isinstance(line, str) else line)
             except Exception as e:
-                resp = {'error': f'Invalid JSON: {e}', 'id': 0}
-                safe_write(_dumps(resp) + '\n')
+                reply({'error': f'Invalid JSON: {e}', 'id': 0})
                 continue
 
             method = req.get('method', '')
             params = req.get('params', {})
             rid = req.get('id', 0)
 
-            # Heartbeat from coreframe — respond
+            # Heartbeat from coreframe — answered inline, it must not queue
             if method == 'heartbeat':
-                safe_write(_dumps({'method': 'heartbeat', 'id': rid}) + '\n')
+                reply({'method': 'heartbeat', 'id': rid})
                 continue
 
-            # Validate method name (no private methods)
+            # Validate method name (no private methods) before handing it to a worker
             if method.startswith('_'):
-                resp = {'error': f'Method not allowed: {method}', 'id': rid}
-                safe_write(_dumps(resp) + '\n')
+                reply({'error': f'Method not allowed: {method}', 'id': rid})
                 continue
 
-            # Call the method
-            try:
-                fn = getattr(instance, method, None)
-                if fn is None:
-                    resp = {'error': f'Unknown method: {method}', 'id': rid}
-                elif not callable(fn):
-                    # Property/attribute access
-                    resp = {'result': fn, 'id': rid}
-                else:
-                    # Try calling with params, fallback to no-args for compat
-                    try:
-                        import inspect
-                        sig = inspect.signature(fn)
-                        if len(sig.parameters) == 0:
-                            result = fn()
-                        elif params:
-                            result = fn(params)
-                        else:
-                            try:
-                                result = fn(params)
-                            except TypeError:
-                                result = fn()
-                    except Exception:
-                        try:
-                            result = fn(params) if params else fn()
-                        except TypeError:
-                            result = fn()
-                    resp = {'result': result, 'id': rid}
-            except Exception as e:
-                resp = {'error': f'{type(e).__name__}: {e}', 'id': rid}
-
-            try:
-                safe_write(_dumps(resp) + '\n')
-            except Exception:
-                break
+            pool.submit(serve, rid, method, params)
     except (OSError, IOError):
         # Parent process exited, pipes closed
         pass
     finally:
+        # Let in-flight calls finish before on_stop, so a worker is not still
+        # inside extension code while the extension tears itself down.
+        pool.shutdown(wait=True)
         # Graceful extension shutdown BEFORE interpreter teardown: lets
         # backends stop threads and close handles (e.g. HID) while every
         # module is still alive. Skipping this segfaults C extensions
