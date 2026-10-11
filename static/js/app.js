@@ -116,15 +116,36 @@ async function pollExtensionUpdates() {
 // the global scope, so a second run re-declares their top-level let/const and
 // dies on a SyntaxError.
 // Did an extension already paint into this placeholder card?
-// Only meaningful for a skeleton (dataset.placeholder === '1'): the skeleton is
-// built with .cf-placeholder-bar stripes, so anything else in the body means a
-// script painted there. A real card is always rebuilt on the swap; the painted
-// body is carried over separately (see addExtensionToUI).
+// A skeleton is built with .cf-placeholder-bar stripes inside .widget-body, so
+// either extra content in the body, or a body the extension replaced wholesale,
+// means a script painted there. Some extensions (fortune_cookie) assign
+// widget.innerHTML to the WHOLE card, which removes .widget-body entirely;
+// those were read as "not painted" and had their DOM thrown away by the swap.
+// A real card is always rebuilt; a painted body is carried over separately.
 function cfCardIsPainted(card) {
   if (!card || card.dataset.placeholder !== '1') return false;
   const body = card.querySelector('.widget-body');
-  if (!body) return false;
+  // The skeleton always ships a .widget-body. Its absence means an extension
+  // assigned innerHTML to the whole card and removed it (fortune_cookie).
+  if (!body) return true;
+  // Body present: painted only if something beyond the placeholder bars is in.
   return !!body.querySelector('*:not(.cf-placeholder-bar)');
+}
+
+// Did the extension claim this (real) card's body?
+// The host builds .widget-body as a flat list of .widget-sub scaffolds. If the
+// extension painted into the card, that scaffold is gone or wrapped, so the
+// body's direct children are no longer the bare sub-widgets. Used to keep the
+// core from writing a payload over a card the extension owns, whether or not
+// its repaint hook has arrived yet (a heavy extension's hook is late).
+function cfCardBodyClaimed(card) {
+  if (!card) return false;
+  const body = card.querySelector('.widget-body');
+  if (!body) return card.children.length > 1;      // extension replaced the card
+  for (const child of body.children) {
+    if (!child.classList.contains('widget-sub')) return true;  // non-scaffold child
+  }
+  return false;
 }
 
 function addExtensionToUI(extId, ext) {
@@ -163,16 +184,26 @@ function addExtensionToUI(extId, ext) {
         if (existing) {
           // The placeholder->real swap happens once per load cycle, by design
           // (the host holds loading until the frontend asks so it can reserve
-          // the grid). An extension that already painted into the old card would
-          // lose that DOM, and its script cannot be re-run to repaint (classic
+          // the grid). An extension that already painted the card would lose
+          // that DOM, and its script cannot be re-run to repaint (classic
           // scripts share global scope; a second run re-declares top-level
-          // let/const and dies on a SyntaxError). So carry the painted body
-          // over to the new card and let the repaint hook redraw in place.
-          const painted = cfCardIsPainted(existing);
-          if (painted) {
+          // let/const and dies on a SyntaxError).
+          //
+          // Two shapes of ownership:
+          //  - painted the .widget-body: carry those nodes into the new card.
+          //  - replaced the whole card (widget.innerHTML, so there is no
+          //    .widget-body left): there is nothing to carry, so keep the card
+          //    as it is and just clear the skeleton flag. Replacing it here is
+          //    what made fortune_cookie drop its buttons and fortune.
+          if (cfCardIsPainted(existing)) {
             const oldBody = existing.querySelector('.widget-body');
+            if (!oldBody) {
+              delete existing.dataset.placeholder;
+              cfMarkExtensionLive(extId);
+              return;
+            }
             const newBody = card.querySelector('.widget-body');
-            if (oldBody && newBody) newBody.replaceChildren(...oldBody.childNodes);
+            if (newBody) newBody.replaceChildren(...oldBody.childNodes);
           }
           grid.replaceChild(card, existing);
           cfMarkExtensionLive(extId);
@@ -442,7 +473,14 @@ function refreshAllWidgets(data) {
   const primeOne = function (extId, ext) {
     if (ext.disabled) return;
     if (!cfNeedsWidgetPriming(ext, extId)) return;
+    // If the extension already painted its card (hook registered, or the DOM is
+    // no longer the host's), the core must not write a payload over it. This is
+    // the check that survives a slow boot: a late hook still means "the
+    // extension owns this card", and writing here is what showed "[6]" on
+    // metadata_stripper when its heavy assets arrived after the prime.
     for (const wDef of (ext.widgets || [])) {
+      const card = document.querySelector(`.widget-extension.ext-${extId}`);
+      if (card && cfCardBodyClaimed(card)) continue;
       try { refreshWidget(extId, wDef); } catch (e) {
         console.error('[EXT] Error refreshing ' + extId + ':', e);
       }
