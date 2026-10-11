@@ -280,18 +280,26 @@ function createSubWidget(widgetDef, extId) {
 
   const body = document.createElement('div');
   body.className = 'widget-sub-body';
+  // Marks the node this widget type paints into. The ownership guard in
+  // updateWidgetValue used to test for ".widget-value", which only type:text
+  // ever creates, so chart/badge/list always looked "stolen" and never got
+  // painted (they sat on "--" / "Loading..." forever).
+  body.dataset.cfValueSel = '.widget-value';
 
   switch (type) {
     case 'text':
       body.innerHTML = '<div class="widget-value" id="val-' + id + '">--</div>';
       break;
     case 'badge':
+      body.dataset.cfValueSel = '.badge-label';
       body.innerHTML = '<div class="widget-badge"><span class="badge-dot" id="dot-' + id + '"></span><span class="badge-label" id="lbl-' + id + '">Loading...</span></div>';
       break;
     case 'list':
+      body.dataset.cfValueSel = '.widget-list-items';
       body.innerHTML = '<div class="widget-list-items" id="lst-' + id + '"></div>';
       break;
     case 'chart':
+      body.dataset.cfValueSel = '.chart-value';
       body.innerHTML = `
         <div class="chart-container">
           <canvas id="chart-${extId}-${id}" width="120" height="60"></canvas>
@@ -574,13 +582,24 @@ function createSubWidget(widgetDef, extId) {
   return el;
 }
 
+// Which node inside a sub-widget its type paints into. Read from the marker
+// written at construction (see createSubWidget). Shared by widgets.js and
+// app.js so the ownership check never drifts per-type again.
+function cfValueSelector(widgetEl) {
+  var bodyEl = widgetEl && widgetEl.querySelector('.widget-sub-body');
+  return (bodyEl && bodyEl.dataset.cfValueSel) || '.widget-value';
+}
+
 function updateWidgetValue(widgetEl, response) {
   if (!widgetEl) return;
   // Ownership, detected: an extension that renders its own DOM removes the
-  // .widget-value node the core created. With it gone the extension owns this
-  // card and the core must not paint a value over content it does not own.
-  if (!widgetEl.querySelector('.widget-value') &&
-      widgetEl.closest('.widget-body')) return;
+  // value node the core created, and with it gone the core must not paint over
+  // content it does not own. Which node counts as "the value" depends on the
+  // widget type (text->.widget-value, badge->.badge-label, list->.widget-list-items,
+  // chart->.chart-value), so read it from the marker instead of hardcoding
+  // .widget-value, which made every non-text type look stolen.
+  var valueSel = cfValueSelector(widgetEl);
+  if (!widgetEl.querySelector(valueSel) && widgetEl.closest('.widget-body')) return;
   if (response && response.error) {
     var valEl = widgetEl.querySelector('.widget-value, .widget-list-items, .widget-terminal-output, .badge-label');
     if (valEl) {
