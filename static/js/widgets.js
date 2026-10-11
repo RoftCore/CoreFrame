@@ -260,7 +260,35 @@ function _createExtensionCardInner(ext) {
   }
 
   el.appendChild(body);
+
+  // A card whose extension has not painted yet shows its raw initial values
+  // ("--", "[6]", "Loading...") until the script mounts. Mark it loading and
+  // put shimmer bars over it; cfClearLoadingState() removes both as soon as
+  // real content lands (script paint or core value).
+  if (ext.js_modules && ext.js_modules.length) {
+    el.classList.add('cf-loading');
+    const bars = document.createElement('div');
+    bars.className = 'cf-loading-bars';
+    const count = Math.max(1, Math.min((widgets && widgets.length) || 1, 6));
+    for (let i = 0; i < count; i++) {
+      const bar = document.createElement('div');
+      bar.className = 'cf-placeholder-bar';
+      if (i === count - 1 && count > 1) bar.style.width = '62%';
+      bars.appendChild(bar);
+    }
+    el.appendChild(bars);
+  }
   return el;
+}
+
+// Stop showing a freshly built card as "loading" once it has real content.
+// Called when the extension paints into the body, or when the core writes a
+// value. Removes the shimmer bars and reveals the widgets underneath.
+function cfClearLoadingState(card) {
+  if (!card || !card.classList.contains('cf-loading')) return;
+  card.classList.remove('cf-loading');
+  const bars = card.querySelector('.cf-loading-bars');
+  if (bars) bars.remove();
 }
 
 function createSubWidget(widgetDef, extId) {
@@ -592,6 +620,9 @@ function cfValueSelector(widgetEl) {
 
 function updateWidgetValue(widgetEl, response) {
   if (!widgetEl) return;
+  // Core wrote a value: the card has content, stop the loading shimmer.
+  const ownerCard = widgetEl.closest('.widget-extension');
+  if (ownerCard) cfClearLoadingState(ownerCard);
   // Ownership, detected: an extension that renders its own DOM removes the
   // value node the core created, and with it gone the core must not paint over
   // content it does not own. Which node counts as "the value" depends on the
