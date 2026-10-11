@@ -576,6 +576,11 @@ function createSubWidget(widgetDef, extId) {
 
 function updateWidgetValue(widgetEl, response) {
   if (!widgetEl) return;
+  // Ownership, detected: an extension that renders its own DOM removes the
+  // .widget-value node the core created. With it gone the extension owns this
+  // card and the core must not paint a value over content it does not own.
+  if (!widgetEl.querySelector('.widget-value') &&
+      widgetEl.closest('.widget-body')) return;
   if (response && response.error) {
     var valEl = widgetEl.querySelector('.widget-value, .widget-list-items, .widget-terminal-output, .badge-label');
     if (valEl) {
@@ -722,7 +727,12 @@ function formatValue(el, format, val) {
       break;
     default:
       if (typeof val === 'object') {
-        el.textContent = JSON.stringify(val);
+        // A serialized structure overflows a card and reads as a rendering
+        // fault. An extension returning one renders it in its own DOM; until
+        // then a neutral marker rather than raw JSON.
+        el.textContent = Array.isArray(val) || val
+          ? '[' + (Array.isArray(val) ? val.length : Object.keys(val).length) + ']'
+          : '--';
       } else {
         el.textContent = val;
       }
