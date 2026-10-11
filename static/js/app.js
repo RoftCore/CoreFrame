@@ -109,19 +109,7 @@ async function pollExtensionUpdates() {
 
 // ── Extension UI ──────────────────────────────────────────────────
 
-// Did an extension already paint into this card?
-// The skeleton only has .cf-placeholder-bar stripes. Anything else in the body
-// means a script painted here, and replacing the card would throw that away.
-// Re-injecting the script to repaint is not an option: classic scripts share
-// the global scope, so a second run re-declares their top-level let/const and
-// dies on a SyntaxError.
-// Did an extension already paint into this placeholder card?
-// Did the extension claim this (real) card's body?
-// The host builds .widget-body as a flat list of .widget-sub scaffolds. If the
-// extension painted into the card, that scaffold is gone or wrapped, so the
-// body's direct children are no longer the bare sub-widgets. Used to keep the
-// core from writing a payload over a card the extension owns, whether or not
-// its repaint hook has arrived yet (a heavy extension's hook is late).
+// True when the card body is no longer the host's bare widget scaffold.
 function cfCardBodyClaimed(card) {
   if (!card) return false;
   const body = card.querySelector('.widget-body');
@@ -132,20 +120,11 @@ function cfCardBodyClaimed(card) {
   return false;
 }
 
-// Clear a card's loading shimmer as soon as its extension script paints into
-// it. Extensions reach the card in two ways: through cfOnCardRerender (handled
-// there), or by mutating the DOM directly — fortune_cookie assigns
-// widget.innerHTML, most others append their own nodes. Neither goes through
-// updateWidgetValue, so watch the body: the first real mutation is the paint.
-// Only reacts while the card is still flagged cf-loading, so it stops once the
-// card is showing content.
+// Drop the loading shimmer on the first paint, which is a DOM mutation here.
 function cfWatchForFirstPaint(card, extId) {
   if (!card || typeof MutationObserver === 'undefined') return;
   if (!card.classList.contains('cf-loading')) return;
-  // Watch the CARD, not .widget-body: an extension that assigns
-  // widget.innerHTML to the whole card (fortune_cookie) removes the body, and
-  // an observer on it was watching a detached node, so the shimmer was never
-  // cleared and the placeholder bars showed through next to the real content.
+  // Watch the card: an extension that assigns widget.innerHTML drops .widget-body.
   const isBarNode = function (n) {
     return n && n.nodeType === 1 &&
       (n.classList.contains('cf-loading-bars') || n.classList.contains('cf-placeholder-bar'));
