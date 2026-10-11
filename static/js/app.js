@@ -109,6 +109,23 @@ async function pollExtensionUpdates() {
 
 // ── Extension UI ──────────────────────────────────────────────────
 
+// Did an extension already paint into this card?
+// The skeleton only has .cf-placeholder-bar stripes. Anything else in the body
+// means a script painted here, and replacing the card would throw that away.
+// Re-injecting the script to repaint is not an option: classic scripts share
+// the global scope, so a second run re-declares their top-level let/const and
+// dies on a SyntaxError.
+function cfCardIsPainted(card) {
+  if (!card || card.dataset.placeholder === '1' && !card.querySelector('.widget-body > *:not(.cf-placeholder-bar)')) return false;
+  const body = card.querySelector('.widget-body');
+  if (!body) return false;
+  if (card.dataset.placeholder === '1') {
+    // Still flagged as skeleton: painted only if something beyond the bars is in.
+    return !!body.querySelector('*:not(.cf-placeholder-bar)');
+  }
+  return true;
+}
+
 function addExtensionToUI(extId, ext) {
   const sidebar = document.getElementById('sidebar-extensions');
   if (sidebar) {
@@ -143,17 +160,24 @@ function addExtensionToUI(extId, ext) {
         }
         const card = createExtensionCard({ ...ext, id: extId });
         if (existing) {
+          // An extension that already painted this card keeps its DOM. Replacing
+          // it would discard the paint, and re-running the script to repaint is
+          // impossible (classic scripts share global scope; a second run
+          // re-declares top-level let/const and dies on a SyntaxError). If the
+          // extension registered a repaint hook, ask it to redraw in place;
+          // a hookless painter is simply left alone, holding its own DOM.
+          if (cfCardIsPainted(existing)) {
+            delete existing.dataset.placeholder;
+            cfMarkExtensionLive(extId);
+            cfNotifyCardRerender(extId);
+            return;
+          }
           grid.replaceChild(card, existing);
         } else {
           grid.appendChild(card);
         }
         cfApplyAppearAnimation(card, ext);
         loadExtensionAssets({ [extId]: ext });
-        // The swap above destroyed whatever an extension had painted into the
-        // placeholder card. Extensions that registered a repaint handler get
-        // called back (cfNotifyCardRerender below); the ones that paint the card
-        // without a hook would be lost, so their scripts are re-run once.
-        cfRepaintIfNoHook(extId, ext);
         const interval = ext.refresh_interval || 5000;
         // The core keeps the refresh clock for any extension whose widget values
         // it still owns. A repaint handler only redraws on demand; it does not
@@ -166,9 +190,21 @@ function addExtensionToUI(extId, ext) {
           });
         }
         // Prime widgets the core owns, including js-driven ones that have no
-        // refresh_interval of their own; see cfNeedsWidgetPriming.
+        // refresh_interval of their own; see cfNeedsWidgetPriming. A js
+        // extension is deferred so its script can claim the fresh card first,
+        // otherwise the core writes the raw payload and the card flashes "[6]"
+        // style text until the extension paints over it.
+        const _isJsExt = (ext.js_modules || []).length > 0;
         if (cfNeedsWidgetPriming(ext, extId)) {
-          ext.widgets.forEach(wDef => refreshWidget(extId, wDef));
+          if (_isJsExt) {
+            setTimeout(function () {
+              if (cfNeedsWidgetPriming(ext, extId)) {
+                ext.widgets.forEach(wDef => refreshWidget(extId, wDef));
+              }
+            }, CF_PRIME_DEFER_MS);
+          } else {
+            ext.widgets.forEach(wDef => refreshWidget(extId, wDef));
+          }
         }
         // The card was just created or replaced in place. Any extension that
         // paints the card itself gets told to repaint into the new DOM.
@@ -344,40 +380,18 @@ window.cfOnCardRerender = function (extId, fn) {
 // leave them blank. Re-injecting the script with a nonce defeats the load
 // dedupe, so the boot block runs again and repaints the new DOM.
 //
-// The check is DEFERRED on purpose: this runs right after loadExtensionAssets,
-// before any extension script has booted, so no handler exists yet. Deciding
-// immediately would double-execute every script (two caches, two poll timers
-// fighting each other). After the boot window the handler list is authoritative.
-var CF_REPAINT_DELAY_MS = 900;
-function cfRepaintIfNoHook(extId, ext) {
-  const js = (ext && ext.js_modules) || [];
-  if (!js.length) return;
-  setTimeout(function () {
-    if (cfHasRerenderHandler(extId)) return;   // it repaints on demand; leave it alone
-    // A hookless painter (fortune_cookie and friends) paints during this re-run.
-    // Register a stub handler now that we know it paints its own body: from
-    // here the core treats it as extension-owned and stops writing raw payloads
-    // over the card, which is what flashed unformatted text during boot.
-    cfRerenderHandlers[extId] = function () {};
-    cfMarkExtensionLive(extId);
-    const nonce = 'repaint=' + Date.now();
-    js.forEach(function (mod) {
-      const script = document.createElement('script');
-      script.async = false;
-      script.src = '/ext-static/' + extId + '/' + mod + '?' + nonce;
-      script.onerror = function () { console.warn('[EXT] repaint failed for ' + extId + '/' + mod); };
-      document.body.appendChild(script);
-    });
-  }, CF_REPAINT_DELAY_MS);
-}
-
 // An extension is "live" once its script has run. Until then the core must not
 // write a value into its card: the raw payload shows as a flash of unformatted
-// text before the extension paints over it. This tracks which extensions have
-// loaded so refreshWidget can leave them alone while they are still booting.
+// text before the extension paints over it.
 const cfExtensionLive = {};
 function cfIsExtensionLive(extId) { return !!cfExtensionLive[extId]; }
 function cfMarkExtensionLive(extId) { cfExtensionLive[extId] = true; }
+// How long the first mass-prime waits for js extensions to boot and claim their
+// cards before the core writes into them. Heavy assets load 500ms after light
+// ones, so this sits past both. After the wait the repaint-hook list is
+// authoritative: extensions that painted registered a hook (or kept their DOM),
+// so cfNeedsWidgetPriming no longer mistakes them for core-owned.
+var CF_PRIME_DEFER_MS = 1200;
 
 // Does the core still own this extension's widget values?
 // The core owns them unless the extension's JS paints the card body itself.
@@ -409,14 +423,29 @@ function cfNeedsWidgetPriming(ext, extId) {
 }
 
 function refreshAllWidgets(data) {
-  for (const [extId, ext] of Object.entries(data)) {
-    if (ext.disabled) continue;
-    if (!cfNeedsWidgetPriming(ext, extId)) continue;
+  // Prime core-owned widgets immediately, but give js extensions a beat to boot
+  // and claim their cards first. At this point in the page (renderWidgets runs
+  // before loadExtensionAssets) no extension script has executed yet, so every
+  // js extension would look "core-owned" and the core would write the raw
+  // payload onto cards the extension is about to paint — the "[6]" / raw-text
+  // flash on entry. Waiting lets the scripts register their repaint hooks (or,
+  // for hookless painters, whose DOM is preserved by cfCardIsPainted) so the ownership
+  // check below is accurate.
+  const primeOne = function (extId, ext) {
+    if (ext.disabled) return;
+    if (!cfNeedsWidgetPriming(ext, extId)) return;
     for (const wDef of (ext.widgets || [])) {
       try { refreshWidget(extId, wDef); } catch (e) {
         console.error('[EXT] Error refreshing ' + extId + ':', e);
       }
     }
+  };
+
+  for (const [extId, ext] of Object.entries(data)) {
+    const isJs = (ext.js_modules || []).length > 0;
+    if (!isJs) { primeOne(extId, ext); continue; }  // no script: core owns it now
+    // js extension: defer so it can claim its card before the core writes.
+    setTimeout(function () { primeOne(extId, ext); }, CF_PRIME_DEFER_MS);
   }
 }
 
