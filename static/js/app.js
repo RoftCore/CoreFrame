@@ -115,15 +115,16 @@ async function pollExtensionUpdates() {
 // Re-injecting the script to repaint is not an option: classic scripts share
 // the global scope, so a second run re-declares their top-level let/const and
 // dies on a SyntaxError.
+// Did an extension already paint into this placeholder card?
+// Only meaningful for a skeleton (dataset.placeholder === '1'): the skeleton is
+// built with .cf-placeholder-bar stripes, so anything else in the body means a
+// script painted there. A real card is always rebuilt on the swap; the painted
+// body is carried over separately (see addExtensionToUI).
 function cfCardIsPainted(card) {
-  if (!card || card.dataset.placeholder === '1' && !card.querySelector('.widget-body > *:not(.cf-placeholder-bar)')) return false;
+  if (!card || card.dataset.placeholder !== '1') return false;
   const body = card.querySelector('.widget-body');
   if (!body) return false;
-  if (card.dataset.placeholder === '1') {
-    // Still flagged as skeleton: painted only if something beyond the bars is in.
-    return !!body.querySelector('*:not(.cf-placeholder-bar)');
-  }
-  return true;
+  return !!body.querySelector('*:not(.cf-placeholder-bar)');
 }
 
 function addExtensionToUI(extId, ext) {
@@ -160,19 +161,21 @@ function addExtensionToUI(extId, ext) {
         }
         const card = createExtensionCard({ ...ext, id: extId });
         if (existing) {
-          // An extension that already painted this card keeps its DOM. Replacing
-          // it would discard the paint, and re-running the script to repaint is
-          // impossible (classic scripts share global scope; a second run
-          // re-declares top-level let/const and dies on a SyntaxError). If the
-          // extension registered a repaint hook, ask it to redraw in place;
-          // a hookless painter is simply left alone, holding its own DOM.
-          if (cfCardIsPainted(existing)) {
-            delete existing.dataset.placeholder;
-            cfMarkExtensionLive(extId);
-            cfNotifyCardRerender(extId);
-            return;
+          // The placeholder->real swap happens once per load cycle, by design
+          // (the host holds loading until the frontend asks so it can reserve
+          // the grid). An extension that already painted into the old card would
+          // lose that DOM, and its script cannot be re-run to repaint (classic
+          // scripts share global scope; a second run re-declares top-level
+          // let/const and dies on a SyntaxError). So carry the painted body
+          // over to the new card and let the repaint hook redraw in place.
+          const painted = cfCardIsPainted(existing);
+          if (painted) {
+            const oldBody = existing.querySelector('.widget-body');
+            const newBody = card.querySelector('.widget-body');
+            if (oldBody && newBody) newBody.replaceChildren(...oldBody.childNodes);
           }
           grid.replaceChild(card, existing);
+          cfMarkExtensionLive(extId);
         } else {
           grid.appendChild(card);
         }
