@@ -402,9 +402,12 @@ function renderWidgets(data) {
         ? createPlaceholderCard({ ...ext, id: extId })
         : createExtensionCard({ ...ext, id: extId });
       grid.appendChild(card);
+      // The skeleton animates in like any card: it takes its grid slot, so it
+      // should not pop in static. cfApplyAppearAnimation's once-flag means the
+      // later promotion does not replay it.
+      cfApplyAppearAnimation(card, ext);
       if (!ext.pending) {
         if ((ext.js_modules || []).length) cfMarkLoadingState(card, (ext.widgets || []).length);
-        cfApplyAppearAnimation(card, ext);
         // A card built here starts in cf-loading, so it needs its own watcher:
         // addExtensionToUI only promotes placeholders and would leave this one
         // shimmering forever (the "stuck loading after a reload" case).

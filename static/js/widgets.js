@@ -792,12 +792,17 @@ function formatValue(el, format, val) {
       break;
     default:
       if (typeof val === 'object') {
-        // A serialized structure overflows a card and reads as a rendering
-        // fault. An extension returning one renders it in its own DOM; until
-        // then a neutral marker rather than raw JSON.
-        el.textContent = Array.isArray(val) || val
-          ? '[' + (Array.isArray(val) ? val.length : Object.keys(val).length) + ']'
-          : '--';
+        // A text widget cannot show a structure. An extension that returns an
+        // array or an object paints it in its own DOM, so there is nothing to
+        // display here. Writing "[6]" (an item count) was the "old error" the
+        // cards kept showing: it looked like a rendering fault and, for a
+        // widget the extension never paints, it stayed forever. Stay on the
+        // empty marker instead and let the extension own the card.
+        if (val.label !== undefined) {
+          el.textContent = val.label;
+        } else {
+          el.textContent = '--';
+        }
       } else {
         el.textContent = val;
       }
