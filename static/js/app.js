@@ -326,6 +326,7 @@ function cfNotifyCardRerender(extId) {
 }
 window.cfOnCardRerender = function (extId, fn) {
   if (typeof fn !== 'function') return;
+  cfMarkExtensionLive(extId);
   cfRerenderHandlers[extId] = fn;
   // The extension now paints its own body, so the core must stop polling it.
   // At first card build no handler existed yet, so a core clock may have been
@@ -347,12 +348,18 @@ window.cfOnCardRerender = function (extId, fn) {
 // before any extension script has booted, so no handler exists yet. Deciding
 // immediately would double-execute every script (two caches, two poll timers
 // fighting each other). After the boot window the handler list is authoritative.
-var CF_REPAINT_DELAY_MS = 2500;
+var CF_REPAINT_DELAY_MS = 900;
 function cfRepaintIfNoHook(extId, ext) {
   const js = (ext && ext.js_modules) || [];
   if (!js.length) return;
   setTimeout(function () {
     if (cfHasRerenderHandler(extId)) return;   // it repaints on demand; leave it alone
+    // A hookless painter (fortune_cookie and friends) paints during this re-run.
+    // Register a stub handler now that we know it paints its own body: from
+    // here the core treats it as extension-owned and stops writing raw payloads
+    // over the card, which is what flashed unformatted text during boot.
+    cfRerenderHandlers[extId] = function () {};
+    cfMarkExtensionLive(extId);
     const nonce = 'repaint=' + Date.now();
     js.forEach(function (mod) {
       const script = document.createElement('script');
@@ -363,6 +370,14 @@ function cfRepaintIfNoHook(extId, ext) {
     });
   }, CF_REPAINT_DELAY_MS);
 }
+
+// An extension is "live" once its script has run. Until then the core must not
+// write a value into its card: the raw payload shows as a flash of unformatted
+// text before the extension paints over it. This tracks which extensions have
+// loaded so refreshWidget can leave them alone while they are still booting.
+const cfExtensionLive = {};
+function cfIsExtensionLive(extId) { return !!cfExtensionLive[extId]; }
+function cfMarkExtensionLive(extId) { cfExtensionLive[extId] = true; }
 
 // Does the core still own this extension's widget values?
 // The core owns them unless the extension's JS paints the card body itself.
