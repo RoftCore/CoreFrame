@@ -474,8 +474,16 @@ class SubprocessBridge:
 
         # NOTE: get_entries (Autoruns full scan, ~4s) is NOT here on purpose —
         # it is heavy legitimate work, not a lightweight poll.
-        is_data_fetch = method in ('get_config','get_status','get_cpu','get_ram','get_gpu','get_disk','get_fortune','get_notes','get_ping')
-        timeout = 0.8 if is_data_fetch else 30
+        #
+        # Measured on a loaded machine: get_processes 0.83-1.23s, get_open_ports
+        # 0.61s. Both are widget reads that belong to the short budget, and
+        # both sat right on the 0.8s edge, so they missed it and the widget was
+        # left on -- with nothing asking again. 2s covers the observed range with
+        # room to spare and is still far below the 30s heavy budget.
+        _FAST = ('get_config', 'get_status', 'get_cpu', 'get_ram', 'get_gpu',
+                 'get_disk', 'get_fortune', 'get_notes', 'get_ping', 'get_ip',
+                 'check_vpn', 'get_open_ports', 'get_processes')
+        timeout = 2.0 if method in _FAST else 30
         deadline = time.time() + timeout
         while time.time() < deadline:
             with self._reader_lock:
@@ -489,13 +497,22 @@ class SubprocessBridge:
                 return {'value': result}
             time.sleep(0.01)
 
-        # Timeout -> widget en degradado, no bloquea CoreFrame
+        # Timeout: the caller gets an error, but a strike is only counted when
+        # the child may actually be dead (no fresh heartbeat). A live child
+        # serves heartbeats from its reader thread even while every worker is
+        # busy; timing out against it means slow, not dead. Restarting a slow
+        # child wipes its warm caches and guarantees the next round is slow
+        # too — the degraded/restart/quarantine spiral. Heartbeats prove
+        # liveness, so they veto the strike.
         try:
             h = self._ext_isolation.health.get(self.ext_id) if hasattr(self, '_ext_isolation') and self._ext_isolation else None
             if h:
-                h.error_count = getattr(h, 'error_count', 0) + 1
-                if h.error_count >= 3:
-                    h.status = 'degraded'
+                max_age = getattr(h, 'MAX_HEARTBEAT_AGE', 60.0)
+                last_hb = getattr(h, 'last_heartbeat', 0) or 0
+                if time.monotonic() - last_hb > max_age:
+                    h.error_count = getattr(h, 'error_count', 0) + 1
+                    if h.error_count >= 3:
+                        h.status = 'degraded'
         except Exception:
             pass
         return {'error': f'Timeout: {method} no responde ({timeout}s) — widget en degradado'}

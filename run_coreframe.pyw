@@ -443,6 +443,25 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
                 reply({'method': 'heartbeat', 'id': rid})
                 continue
 
+            # Trivial calls are answered inline in the reader thread, never
+            # queued behind slow work. A single pool means a burst of slow
+            # calls can occupy every worker; a trivial call waiting behind
+            # them then burns its whole budget, the host marks the widget
+            # degraded, and after three of those the extension is quarantined
+            # for the session — all while the child is healthy and the answer
+            # was a dict return away. Only methods that are pure, instant dict
+            # returns belong here; anything doing real work stays on the pool.
+            if method in ('get_config', 'get_status'):
+                try:
+                    fn = getattr(instance, method, None)
+                    if fn is None or not callable(fn):
+                        reply({'error': f'Unknown method: {method}', 'id': rid})
+                    else:
+                        reply({'result': _invoke(fn, params), 'id': rid})
+                except Exception as e:
+                    reply({'error': f'{type(e).__name__}: {e}', 'id': rid})
+                continue
+
             # Validate method name (no private methods) before handing it to a worker
             if method.startswith('_'):
                 reply({'error': f'Method not allowed: {method}', 'id': rid})

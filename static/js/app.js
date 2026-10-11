@@ -329,6 +329,8 @@ function refreshAllWidgets(data) {
 // Core immunity: hidden widgets cost zero backend calls and zero DOM work.
 // A slow/hanging widget that nobody sees can never slow the UI.
 const widgetInflight = {};
+// How many times a widget has been retried after coming back empty.
+const retryCount = {};
 
 function isWidgetActive(extId, widgetId) {
   try {
@@ -368,11 +370,36 @@ async function refreshWidget(extId, wDef) {
     widgetInflight[key] = true;
     try {
       const response = await apiFetch(`/api/extension/${extId}/${wDef.action}`);
+      // A js-driven extension paints its own body. Its script mounts
+      // asynchronously, so writing the payload immediately left the card
+      // showing the serialized response until the extension took over. Give
+      // that script a moment to claim the body, and write nothing if it did.
+      // Core-owned widgets have no script to wait for, and delaying them only
+      // left system_monitor and process_manager sitting on --.
+      const ownsBody = (window.extensionsData[extId].js_modules || []).length > 0;
+      if (ownsBody) {
+        await new Promise(r => setTimeout(r, 900));
+        if (!el.querySelector('.widget-value')) return;
+      }
       updateWidgetValue(el, response);
     } catch (e) {
       try { updateWidgetValue(el, { error: 'Connection error' }); } catch (e2) {}
     } finally {
       delete widgetInflight[key];
+      // A widget that never received a value used to stay on "--" for the rest
+      // of the session: the host asks once at start, and an extension that owns
+      // its own DOM polls by itself from then on. get_processes sits right at
+      // the 0.8s budget, so on a loaded machine the first attempt misses and
+      // nothing ever asked again.
+      if (el && el.isConnected && !widgetInflight[key]) {
+        const valEl = el.querySelector('.widget-value');
+        if (valEl && (valEl.textContent || '').trim() === '--') {
+          const tries = (retryCount[key] = (retryCount[key] || 0) + 1);
+          if (tries <= 4) {
+            setTimeout(() => { retryCount[key] = 0; refreshWidget(extId, wDef); }, 700 * tries);
+          }
+        }
+      }
     }
   }
 }
