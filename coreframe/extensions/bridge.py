@@ -481,9 +481,20 @@ class SubprocessBridge:
         # left on -- with nothing asking again. 2s covers the observed range with
         # room to spare and is still far below the 30s heavy budget.
         _FAST = ('get_config', 'get_status', 'get_cpu', 'get_ram', 'get_gpu',
-                 'get_disk', 'get_fortune', 'get_notes', 'get_ping', 'get_ip',
-                 'check_vpn', 'get_open_ports', 'get_processes')
-        timeout = 2.0 if method in _FAST else 30
+                 'get_disk', 'get_fortune', 'get_notes', 'get_ping', 'get_processes')
+        # Measured cold, one call at a time on an idle machine: get_ip median
+        # 1.461s, max 3.268s, and it is over 2.0s in 15.6% of calls. get_ip has
+        # its own internal deadline of 6.5s (IP_TIMEOUT 3.5 + slack 3.0), so a
+        # 2s host budget truncated work the method was still legitimately doing,
+        # and the truncation showed up on screen as "Timeout: get_ip no
+        # responde". 4s covers the observed range; the heavy budget is 30s.
+        _MEDIUM = ('get_ip', 'check_vpn', 'get_open_ports')
+        if method in _FAST:
+            timeout = 2.0
+        elif method in _MEDIUM:
+            timeout = 4.0
+        else:
+            timeout = 30
         deadline = time.time() + timeout
         while time.time() < deadline:
             with self._reader_lock:
