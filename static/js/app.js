@@ -162,9 +162,12 @@ function addExtensionToUI(extId, ext) {
         }
         // Prime widgets the core owns, including js-driven ones that have no
         // refresh_interval of their own; see cfNeedsWidgetPriming.
-        if (cfNeedsWidgetPriming(ext)) {
+        if (cfNeedsWidgetPriming(ext, extId)) {
           ext.widgets.forEach(wDef => refreshWidget(extId, wDef));
         }
+        // The card was just created or replaced in place. Any extension that
+        // paints the card itself gets told to repaint into the new DOM.
+        cfNotifyCardRerender(extId);
       }
     }
   }
@@ -302,14 +305,34 @@ function renderWidgets(data) {
   if (window.__widgetControl) window.__widgetControl.applyWidgetState();
 }
 
+// ── Repaint registry ──────────────────────────────────────────────
+// The placeholder→real swap (addExtensionToUI) replaces the card DOM an
+// extension may have already painted into, and loadExtensionAssets dedupes
+// the script tag so it never re-runs. An extension that paints the card
+// registers a repaint callback here so the core can tell it "card replaced,
+// repaint". Without this the extension's own paint is destroyed by the swap
+// and never restored, and the card keeps whatever the core wrote.
+const cfRerenderHandlers = {};
+function cfHasRerenderHandler(extId) { return !!cfRerenderHandlers[extId]; }
+function cfNotifyCardRerender(extId) {
+  const fn = cfRerenderHandlers[extId];
+  if (!fn) return;
+  try { fn(); } catch (e) { console.error('[EXT] repaint failed for ' + extId + ':', e); }
+}
+window.cfOnCardRerender = function (extId, fn) {
+  if (typeof fn === 'function') cfRerenderHandlers[extId] = fn;
+};
+
 // Does the core have to prime this extension's widgets?
-// Extensions with js_modules own their content. The exception is an extension
-// that declares no refresh_interval: with interval 0 there is no polling
-// either, so nobody would ever fill the widget and it would sit on "--" for
-// the whole session. One priming call fills it; the extension's own script
-// takes over from there.
-function cfNeedsWidgetPriming(ext) {
+// Extensions with js_modules own their content. Two exceptions, both safety
+// nets so a card is never left blank:
+//   - the extension registered a repaint handler: it paints the card itself,
+//     so the core stays out of its DOM entirely (no raw text / "[2]" markers);
+//   - the extension declares no refresh_interval and is not realtime: with
+//     interval 0 there is no polling, so nobody would fill the widget.
+function cfNeedsWidgetPriming(ext, extId) {
   if (!ext.js_modules || !ext.js_modules.length) return true;
+  if (cfHasRerenderHandler(extId)) return false;
   const interval = ext.refresh_interval || 0;
   return !(ext.realtime === true || interval > 0);
 }
@@ -317,7 +340,7 @@ function cfNeedsWidgetPriming(ext) {
 function refreshAllWidgets(data) {
   for (const [extId, ext] of Object.entries(data)) {
     if (ext.disabled) continue;
-    if (!cfNeedsWidgetPriming(ext)) continue;
+    if (!cfNeedsWidgetPriming(ext, extId)) continue;
     for (const wDef of (ext.widgets || [])) {
       try { refreshWidget(extId, wDef); } catch (e) {
         console.error('[EXT] Error refreshing ' + extId + ':', e);

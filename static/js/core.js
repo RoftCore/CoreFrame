@@ -41,6 +41,52 @@ document.addEventListener('DOMContentLoaded', async () => {
   setInterval(pollExtensionUpdates, 1000);
   applyStartupMode();
 
+  // ── Page error bridge ───────────────────────────────────────────
+  // Extension JS runs in this page. A throw in its boot script is invisible
+  // to the host: the card just never renders. The remote-debugging port is
+  // ignored when the host is elevated, so the page reports its own errors.
+  try {
+    var _errBuf = [];
+    var _errTimer = null;
+    var _flushErrs = function () {
+      if (!_errBuf.length) return;
+      var batch = _errBuf.splice(0, _errBuf.length);
+      try {
+        if (typeof apiFetch !== 'undefined') {
+          apiFetch('/api/debug/console', { method: 'POST',
+            body: JSON.stringify({ entries: batch }) }).catch(function () {});
+        }
+      } catch (e) {}
+    };
+    var _note = function (kind, text) {
+      var src = '';
+      try {
+        var m = (new Error()).stack || '';
+        var hits = m.match(/https?:\/\/[^)\s]+\.js[^)\s]*/g);
+        src = hits && hits.length ? hits[hits.length - 1] : '';
+      } catch (_) {}
+      _errBuf.push({ k: kind, m: String(text).slice(0, 400), s: src });
+      try { clearTimeout(_errTimer); } catch (_) {}
+      _errTimer = setTimeout(_flushErrs, 800);
+    };
+    var _ce = console.error;
+    console.error = function () {
+      _note('console.error', Array.prototype.join.call(arguments, ' '));
+      return _ce.apply(console, arguments);
+    };
+    var _cw = console.warn;
+    console.warn = function () {
+      _note('console.warn', Array.prototype.join.call(arguments, ' '));
+      return _cw.apply(console, arguments);
+    };
+    window.addEventListener('error', function (ev) {
+      _note('window.onerror', ev.message + ' @ ' + (ev.filename || '') + ':' + (ev.lineno || ''));
+    });
+    window.addEventListener('unhandledrejection', function (ev) {
+      _note('unhandledrejection', (ev.reason && (ev.reason.message || ev.reason)) || 'rejection');
+    });
+  } catch (e) {}
+
   // ── Freeze attribution: any main-thread block (>200ms) is reported
   // with the culprit script URL to the backend log. Proves whether a
   // freeze comes from core files or an extension script.

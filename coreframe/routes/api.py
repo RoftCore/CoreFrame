@@ -669,6 +669,25 @@ def register_api_routes(app, socketio):
             pass
         return jsonify({'ok': True})
 
+    @app.route('/api/debug/console', methods=['POST'])
+    def api_debug_console():
+        """Console errors and warnings from the page.
+
+        Extension JS runs inside the webview, so a throw in its boot script has
+        no other way out: the card simply never renders and the host logs
+        nothing. The remote-debugging port is ignored when the host runs
+        elevated, so the page posts its own errors here.
+        """
+        try:
+            from coreframe.config import log as _log
+            data = request.get_json(silent=True) or {}
+            for e in (data.get('entries') or [])[:30]:
+                _log.warning("[PageJS] %s: %s | %s",
+                             e.get('k'), e.get('m'), (e.get('s') or '')[-140:])
+        except Exception:
+            pass
+        return jsonify({'ok': True})
+
     @app.route('/api/debug/drag', methods=['POST'])
     def api_debug_drag():
         """Geometry dump from the widget drag path (grid tracks, pitch, kids).
