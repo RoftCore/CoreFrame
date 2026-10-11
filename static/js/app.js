@@ -148,6 +148,34 @@ function cfCardBodyClaimed(card) {
   return false;
 }
 
+// Clear a card's loading shimmer as soon as its extension script paints into
+// it. Extensions reach the card in two ways: through cfOnCardRerender (handled
+// there), or by mutating the DOM directly — fortune_cookie assigns
+// widget.innerHTML, most others append their own nodes. Neither goes through
+// updateWidgetValue, so watch the body: the first real mutation is the paint.
+// Only reacts while the card is still flagged cf-loading, so it stops once the
+// card is showing content.
+function cfWatchForFirstPaint(card, extId) {
+  if (!card || typeof MutationObserver === 'undefined') return;
+  if (!card.classList.contains('cf-loading')) return;
+  const body = card.querySelector('.widget-body');
+  if (!body) return;
+  const mo = new MutationObserver(function () {
+    if (!card.isConnected || !card.classList.contains('cf-loading')) { mo.disconnect(); return; }
+    // A mutation inside the body means the extension is painting.
+    cfClearLoadingState(card);
+    mo.disconnect();
+  });
+  mo.observe(body, { childList: true, subtree: true });
+  // Safety net: whatever happens, the card must never stay hidden forever. If
+  // nothing painted within 8s (or the observer saw nothing), reveal it so a
+  // partly-working extension is still readable.
+  setTimeout(function () {
+    mo.disconnect();
+    if (card.isConnected) cfClearLoadingState(card);
+  }, 8000);
+}
+
 function addExtensionToUI(extId, ext) {
   const sidebar = document.getElementById('sidebar-extensions');
   if (sidebar) {
@@ -200,6 +228,7 @@ function addExtensionToUI(extId, ext) {
             if (!oldBody) {
               delete existing.dataset.placeholder;
               cfMarkExtensionLive(extId);
+              cfClearLoadingState(existing);
               return;
             }
             const newBody = card.querySelector('.widget-body');
@@ -211,6 +240,7 @@ function addExtensionToUI(extId, ext) {
           grid.appendChild(card);
         }
         cfApplyAppearAnimation(card, ext);
+        cfWatchForFirstPaint(card, extId);
         loadExtensionAssets({ [extId]: ext });
         const interval = cfRefreshInterval(ext);
         // The core keeps the refresh clock for any extension whose widget values
@@ -397,6 +427,9 @@ function cfNotifyCardRerender(extId) {
 window.cfOnCardRerender = function (extId, fn) {
   if (typeof fn !== 'function') return;
   cfMarkExtensionLive(extId);
+  // The extension is about to paint, so the card is no longer "loading".
+  const card = document.querySelector(`.widget-extension.ext-${extId}`);
+  if (card) cfClearLoadingState(card);
   cfRerenderHandlers[extId] = fn;
   // The extension now paints its own body, so the core must stop polling it.
   // At first card build no handler existed yet, so a core clock may have been

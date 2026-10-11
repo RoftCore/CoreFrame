@@ -102,6 +102,33 @@
 
 .widget-extension.cf-placeholder .widget-body { opacity: 0.5; }
 
+/* A freshly built card whose extension has not painted yet. Its widgets would
+   otherwise show their raw initial state ("--", "[6]", "Loading...") for the
+   split second between the card being created and the script mounting. Hide
+   them and keep the shimmer, so every card reads as "loading" until it has
+   real content. cfClearLoadingState() drops the class on first paint. */
+.widget-extension.cf-loading .widget-body { visibility: hidden; }
+.widget-extension.cf-loading::after {
+  content: '';
+  position: absolute;
+  left: 14px; right: 14px; top: 46px; bottom: 14px;
+  pointer-events: none;
+}
+.widget-extension.cf-loading .cf-loading-bars {
+  position: absolute;
+  left: 14px; right: 14px; top: 46px;
+  pointer-events: none;
+}
+.widget-extension.cf-loading .cf-loading-bars .cf-placeholder-bar {
+  background: linear-gradient(90deg,
+    rgba(0, 212, 255, 0.07) 0%,
+    rgba(0, 212, 255, 0.16) 50%,
+    rgba(0, 212, 255, 0.07) 100%);
+  background-size: 200% 100%;
+  animation: cf-placeholder-shimmer 1.5s ease-in-out infinite;
+  margin-bottom: 7px;
+}
+
 .cf-placeholder-bar {
   height: 7px;
   border-radius: 3px;
