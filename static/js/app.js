@@ -142,18 +142,32 @@ function cfCardBodyClaimed(card) {
 function cfWatchForFirstPaint(card, extId) {
   if (!card || typeof MutationObserver === 'undefined') return;
   if (!card.classList.contains('cf-loading')) return;
-  const body = card.querySelector('.widget-body');
-  if (!body) return;
-  const mo = new MutationObserver(function () {
+  // Watch the CARD, not .widget-body: an extension that assigns
+  // widget.innerHTML to the whole card (fortune_cookie) removes the body, and
+  // an observer on it was watching a detached node, so the shimmer was never
+  // cleared and the placeholder bars showed through next to the real content.
+  const isBarNode = function (n) {
+    return n && n.nodeType === 1 &&
+      (n.classList.contains('cf-loading-bars') || n.classList.contains('cf-placeholder-bar'));
+  };
+  const mo = new MutationObserver(function (records) {
     if (!card.isConnected || !card.classList.contains('cf-loading')) { mo.disconnect(); return; }
-    // A mutation inside the body means the extension is painting.
-    cfClearLoadingState(card);
-    mo.disconnect();
+    for (const r of records) {
+      const touched = [];
+      for (let i = 0; i < r.addedNodes.length; i++) touched.push(r.addedNodes[i]);
+      for (let i = 0; i < r.removedNodes.length; i++) touched.push(r.removedNodes[i]);
+      if (r.type === 'characterData' && r.target) { cfClearLoadingState(card); mo.disconnect(); return; }
+      // Ignore the shimmer bars themselves appearing; anything else is the
+      // extension painting.
+      if (touched.length && !touched.every(isBarNode)) {
+        cfClearLoadingState(card);
+        mo.disconnect();
+        return;
+      }
+    }
   });
-  mo.observe(body, { childList: true, subtree: true, characterData: true });
-  // Safety net: whatever happens, the card must never stay hidden forever. If
-  // nothing painted within 8s (or the observer saw nothing), reveal it so a
-  // partly-working extension is still readable.
+  mo.observe(card, { childList: true, subtree: true, characterData: true });
+  // Safety net: whatever happens, the card must never stay hidden forever.
   setTimeout(function () {
     mo.disconnect();
     if (card.isConnected) cfClearLoadingState(card);
@@ -247,7 +261,9 @@ function addExtensionToUI(extId, ext) {
           // clicks and nothing in it was pressable.
           existing.style.pointerEvents = '';
           if ((ext.js_modules || []).length) cfMarkLoadingState(existing, (ext.widgets || []).length);
-          cfApplyAppearAnimation(existing, ext);
+          // No entrance animation here: the skeleton already played it when it
+          // took its slot, so replaying it a second later re-animated a card
+          // that had been visible for seconds (the duplicated-reveal flicker).
           cfWatchForFirstPaint(existing, extId);
           loadExtensionAssets({ [extId]: ext });
           cfMarkExtensionLive(extId);
