@@ -10,6 +10,10 @@ CoreFrameTray.exe
 extensions/spotify_downloader/Downloads_playlists/
 extensions/spotify_downloader/config.json
 
+# Scratch space: throwaway scripts, probes and captures made while working on
+# the project. Nothing here belongs in the repo.
+temp/
+
 # PyInstaller
 dist/
 dist-runner/
