@@ -178,7 +178,7 @@ function addExtensionToUI(extId, ext) {
         }
         cfApplyAppearAnimation(card, ext);
         loadExtensionAssets({ [extId]: ext });
-        const interval = ext.refresh_interval || 5000;
+        const interval = cfRefreshInterval(ext);
         // The core keeps the refresh clock for any extension whose widget values
         // it still owns. A repaint handler only redraws on demand; it does not
         // poll. network_monitor relies on this clock for its VPN/ports badge and
@@ -374,12 +374,17 @@ window.cfOnCardRerender = function (extId, fn) {
   }
 };
 
-// Re-run an extension's scripts when its card was rebuilt and it has no repaint
-// handler. Extensions like fortune_cookie paint their card body (buttons, text)
-// on boot with no cfOnCardRerender hook, so the placeholder->real swap would
-// leave them blank. Re-injecting the script with a nonce defeats the load
-// dedupe, so the boot block runs again and repaints the new DOM.
-//
+// The declared refresh interval in ms. A declared 0 means "do not poll me", so
+// it must not fall through to the default the way `refresh_interval || 5000`
+// did: that handed fortune_cookie (interval:0) a 5s clock, so the core re-primed
+// it every 5s, the card reloaded itself and the fortune changed phrase on its
+// own. Only a missing value takes the 5000 default.
+function cfRefreshInterval(ext) {
+  const ri = ext && ext.refresh_interval;
+  if (ri === undefined || ri === null) return 5000;
+  return ri;
+}
+
 // An extension is "live" once its script has run. Until then the core must not
 // write a value into its card: the raw payload shows as a flash of unformatted
 // text before the extension paints over it.
@@ -539,7 +544,7 @@ function startWidgetIntervals(data) {
     // realtime alone is not a reason to skip: network_monitor is realtime:true
     // with JS and still depends on this clock (see cfCoreOwnsWidgets).
     if (!cfCoreOwnsWidgets(ext, extId)) continue;
-    const interval = ext.refresh_interval || 5000;
+    const interval = cfRefreshInterval(ext);
     if (interval <= 0) continue;
     for (const wDef of (ext.widgets || [])) {
       const key = `${extId}-${wDef.id}`;
