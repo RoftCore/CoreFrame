@@ -149,6 +149,11 @@ function addExtensionToUI(extId, ext) {
         }
         cfApplyAppearAnimation(card, ext);
         loadExtensionAssets({ [extId]: ext });
+        // The swap above destroyed whatever an extension had painted into the
+        // placeholder card. Extensions that registered a repaint handler get
+        // called back (cfNotifyCardRerender below); the ones that paint the card
+        // without a hook would be lost, so their scripts are re-run once.
+        cfRepaintIfNoHook(extId, ext);
         const interval = ext.refresh_interval || 5000;
         // The core keeps the refresh clock for any extension whose widget values
         // it still owns. A repaint handler only redraws on demand; it does not
@@ -331,6 +336,33 @@ window.cfOnCardRerender = function (extId, fn) {
     if (widgetTimers[k]) { clearInterval(widgetTimers[k]); delete widgetTimers[k]; }
   }
 };
+
+// Re-run an extension's scripts when its card was rebuilt and it has no repaint
+// handler. Extensions like fortune_cookie paint their card body (buttons, text)
+// on boot with no cfOnCardRerender hook, so the placeholder->real swap would
+// leave them blank. Re-injecting the script with a nonce defeats the load
+// dedupe, so the boot block runs again and repaints the new DOM.
+//
+// The check is DEFERRED on purpose: this runs right after loadExtensionAssets,
+// before any extension script has booted, so no handler exists yet. Deciding
+// immediately would double-execute every script (two caches, two poll timers
+// fighting each other). After the boot window the handler list is authoritative.
+var CF_REPAINT_DELAY_MS = 2500;
+function cfRepaintIfNoHook(extId, ext) {
+  const js = (ext && ext.js_modules) || [];
+  if (!js.length) return;
+  setTimeout(function () {
+    if (cfHasRerenderHandler(extId)) return;   // it repaints on demand; leave it alone
+    const nonce = 'repaint=' + Date.now();
+    js.forEach(function (mod) {
+      const script = document.createElement('script');
+      script.async = false;
+      script.src = '/ext-static/' + extId + '/' + mod + '?' + nonce;
+      script.onerror = function () { console.warn('[EXT] repaint failed for ' + extId + '/' + mod); };
+      document.body.appendChild(script);
+    });
+  }, CF_REPAINT_DELAY_MS);
+}
 
 // Does the core still own this extension's widget values?
 // The core owns them unless the extension's JS paints the card body itself.

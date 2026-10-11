@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from flask import jsonify, request
 
 from coreframe.config import EXTENSIONS_DIR, REGISTRY_PATH, log
@@ -162,10 +163,31 @@ def register_api_routes(app, socketio):
         socketio.emit('focus_window')
         return jsonify({'ok': True})
 
+    def _ext_is_booting(ext_id):
+        """True if the extension exists on disk but hasn't registered yet.
+
+        Extensions load asynchronously at startup. The frontend renders and
+        calls actions immediately (a widget prime, or process_manager's batched
+        icon fetch), so those first calls used to land before the instance was
+        in `extensions` and got a hard "Extension not found". The extension was
+        there, just not ready.
+        """
+        try:
+            return os.path.isfile(os.path.join(EXTENSIONS_DIR, ext_id, 'main.py'))
+        except Exception:
+            return False
+
     @app.route('/api/extension/<ext_id>/<action>', methods=['GET', 'POST'])
     def api_extension_action(ext_id, action):
         if ext_id not in extensions:
-            return jsonify({'error': 'Extension not found'}), 404
+            # Not registered yet. If it exists on disk it is still booting, so
+            # wait briefly for it instead of failing the caller's first attempt.
+            if _ext_is_booting(ext_id):
+                deadline = time.time() + 3.0
+                while time.time() < deadline and ext_id not in extensions:
+                    time.sleep(0.05)
+            if ext_id not in extensions:
+                return jsonify({'error': 'Extension not found'}), 404
         if action.startswith('_') or action.startswith('__'):
             return jsonify({'error': 'Action not allowed'}), 403
 
