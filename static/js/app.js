@@ -242,6 +242,11 @@ function addExtensionToUI(extId, ext) {
           delete existing.dataset.placeholder;
           delete existing.dataset.cfDeferred;
           existing.classList.remove('cf-placeholder');
+          // The skeleton is inert; promoting it in place has to hand the card
+          // back to the user. Without this the whole card kept swallowing
+          // clicks and nothing in it was pressable.
+          existing.style.pointerEvents = '';
+          if ((ext.js_modules || []).length) cfMarkLoadingState(existing, (ext.widgets || []).length);
           cfApplyAppearAnimation(existing, ext);
           cfWatchForFirstPaint(existing, extId);
           loadExtensionAssets({ [extId]: ext });
@@ -250,6 +255,7 @@ function addExtensionToUI(extId, ext) {
           return;
         }
         grid.appendChild(card);
+        if ((ext.js_modules || []).length) cfMarkLoadingState(card, (ext.widgets || []).length);
         cfApplyAppearAnimation(card, ext);
         cfWatchForFirstPaint(card, extId);
         loadExtensionAssets({ [extId]: ext });
@@ -380,7 +386,14 @@ function renderWidgets(data) {
         ? createPlaceholderCard({ ...ext, id: extId })
         : createExtensionCard({ ...ext, id: extId });
       grid.appendChild(card);
-      if (!ext.pending) cfApplyAppearAnimation(card, ext);
+      if (!ext.pending) {
+        if ((ext.js_modules || []).length) cfMarkLoadingState(card, (ext.widgets || []).length);
+        cfApplyAppearAnimation(card, ext);
+        // A card built here starts in cf-loading, so it needs its own watcher:
+        // addExtensionToUI only promotes placeholders and would leave this one
+        // shimmering forever (the "stuck loading after a reload" case).
+        cfWatchForFirstPaint(card, extId);
+      }
     } catch (e) {
       console.error('[EXT] Failed to render card for ' + extId + ':', e);
     }

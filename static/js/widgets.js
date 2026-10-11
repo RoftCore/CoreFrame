@@ -260,25 +260,26 @@ function _createExtensionCardInner(ext) {
   }
 
   el.appendChild(body);
-
-  // A card whose extension has not painted yet shows its raw initial values
-  // ("--", "[6]", "Loading...") until the script mounts. Mark it loading and
-  // put shimmer bars over it; cfClearLoadingState() removes both as soon as
-  // real content lands (script paint or core value).
-  if (ext.js_modules && ext.js_modules.length) {
-    el.classList.add('cf-loading');
-    const bars = document.createElement('div');
-    bars.className = 'cf-loading-bars';
-    const count = Math.max(1, Math.min((widgets && widgets.length) || 1, 6));
-    for (let i = 0; i < count; i++) {
-      const bar = document.createElement('div');
-      bar.className = 'cf-placeholder-bar';
-      if (i === count - 1 && count > 1) bar.style.width = '62%';
-      bars.appendChild(bar);
-    }
-    el.appendChild(bars);
-  }
   return el;
+}
+
+// Mark a freshly built card as "loading": its widgets still hold their raw
+// initial state ("--", "[6]", "Loading...") until the extension script mounts.
+// cfClearLoadingState() removes the class and the bars once real content lands.
+// Always pair this with cfWatchForFirstPaint(), which is what clears it.
+function cfMarkLoadingState(card, widgetCount) {
+  if (!card || card.classList.contains('cf-loading')) return;
+  card.classList.add('cf-loading');
+  const bars = document.createElement('div');
+  bars.className = 'cf-loading-bars';
+  const count = Math.max(1, Math.min(widgetCount || 1, 6));
+  for (let i = 0; i < count; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'cf-placeholder-bar';
+    if (i === count - 1 && count > 1) bar.style.width = '62%';
+    bars.appendChild(bar);
+  }
+  card.appendChild(bars);
 }
 
 // Stop showing a freshly built card as "loading" once it has real content.
