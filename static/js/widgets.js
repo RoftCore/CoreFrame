@@ -601,11 +601,25 @@ function updateWidgetValue(widgetEl, response) {
   var valueSel = cfValueSelector(widgetEl);
   if (!widgetEl.querySelector(valueSel) && widgetEl.closest('.widget-body')) return;
   if (response && response.error) {
+    // A host-side timeout is not the widget's content. Painting it as such made
+    // the card show "Timeout: get_ip no responde (2.0s)" where the IP belongs, and
+    // because that branch never touched _widgetHash, an unchanged value on the
+    // next tick hit the hash guard and left the error stuck for the whole
+    // session (a page reload cleared it, which is why F5 looked like a fix).
+    // Restore the type's empty marker instead, so app.js's existing retry test
+    // (-- / Loading... / empty) schedules another attempt and the real value
+    // repaints on top.
     var valEl = widgetEl.querySelector('.widget-value, .widget-list-items, .widget-terminal-output, .badge-label');
     if (valEl) {
-      valEl.innerHTML = '<i data-feather="alert-triangle" width="14" height="14"></i> ' + escapeHtml(response.error);
-      valEl.style.color = 'var(--accent-red)';
+      var isBadge = valEl.classList.contains('badge-label');
+      valEl.textContent = isBadge ? 'Loading...' : (valEl.classList.contains('widget-list-items') ? '' : '--');
+      valEl.style.color = '';
+      var dotEl = widgetEl.querySelector('.badge-dot');
+      if (dotEl) dotEl.className = 'badge-dot';
     }
+    // Drop the memoized hash so the next real value is not suppressed.
+    delete _widgetHash[widgetEl.dataset.extId + '-' + widgetEl.dataset.widgetId];
+    console.warn('[EXT] widget value failed:', response.error);
     return;
   }
 

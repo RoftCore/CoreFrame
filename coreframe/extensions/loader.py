@@ -334,9 +334,12 @@ def pollers_status():
     now = _t.time()
     from coreframe.websocket import latest_update
 # Transport truth: a poller can be alive and updating the cache while the emit goes nowhere.
+# The bound server lives on the isolation object; there is no module-level `si` here,
+# which made this endpoint raise NameError on every call and 500 unconditionally.
+    _si = getattr(_ext_isolation, '_socketio', None)
     transport = {
-        'socketio_bound': si is not None,
-        'socketio_type': type(si).__name__ if si is not None else None,
+        'socketio_bound': _si is not None,
+        'socketio_type': type(_si).__name__ if _si is not None else None,
     }
     out = {}
     for ext_id, ev in list(_poll_stop_events.items()):
