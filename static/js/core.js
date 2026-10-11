@@ -85,7 +85,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('unhandledrejection', function (ev) {
       _note('unhandledrejection', (ev.reason && (ev.reason.message || ev.reason)) || 'rejection');
     });
-  } catch (e) {}
+} catch (e) {}
 
   // ── Freeze attribution: any main-thread block (>200ms) is reported
   // with the culprit script URL to the backend log. Proves whether a

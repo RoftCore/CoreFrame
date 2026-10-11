@@ -149,16 +149,16 @@ function addExtensionToUI(extId, ext) {
         }
         cfApplyAppearAnimation(card, ext);
         loadExtensionAssets({ [extId]: ext });
-        if (!ext.realtime) {
-          const interval = ext.refresh_interval || 5000;
-          // Repeat polling only where the core owns the widget; a js-driven
-          // extension refreshes its own DOM.
-          if (interval > 0 && (!ext.js_modules || !ext.js_modules.length)) {
-            ext.widgets.forEach(wDef => {
-              const key = `${extId}-${wDef.id}`;
-              widgetTimers[key] = setInterval(() => refreshWidget(extId, wDef), interval);
-            });
-          }
+        const interval = ext.refresh_interval || 5000;
+        // The core keeps the refresh clock for any extension whose widget values
+        // it still owns. A repaint handler only redraws on demand; it does not
+        // poll. network_monitor relies on this clock for its VPN/ports badge and
+        // declares realtime:true with JS, so it must not be skipped here.
+        if (interval > 0 && cfCoreOwnsWidgets(ext, extId)) {
+          ext.widgets.forEach(wDef => {
+            const key = `${extId}-${wDef.id}`;
+            widgetTimers[key] = setInterval(() => refreshWidget(extId, wDef), interval);
+          });
         }
         // Prime widgets the core owns, including js-driven ones that have no
         // refresh_interval of their own; see cfNeedsWidgetPriming.
@@ -320,8 +320,28 @@ function cfNotifyCardRerender(extId) {
   try { fn(); } catch (e) { console.error('[EXT] repaint failed for ' + extId + ':', e); }
 }
 window.cfOnCardRerender = function (extId, fn) {
-  if (typeof fn === 'function') cfRerenderHandlers[extId] = fn;
+  if (typeof fn !== 'function') return;
+  cfRerenderHandlers[extId] = fn;
+  // The extension now paints its own body, so the core must stop polling it.
+  // At first card build no handler existed yet, so a core clock may have been
+  // started for it; clear it here so the two do not fight over the same DOM.
+  const meta = (window.extensionsData || {})[extId];
+  for (const w of ((meta && meta.widgets) || [])) {
+    const k = `${extId}-${w.id}`;
+    if (widgetTimers[k]) { clearInterval(widgetTimers[k]); delete widgetTimers[k]; }
+  }
 };
+
+// Does the core still own this extension's widget values?
+// The core owns them unless the extension's JS paints the card body itself.
+// A registered repaint handler is exactly that signal: it means the extension
+// draws the values into the DOM. network_monitor has JS but no handler — it
+// relies on the core clock to feed its VPN/ports badge, so it stays core-owned
+// even though it declares realtime:true.
+function cfCoreOwnsWidgets(ext, extId) {
+  if (!ext.js_modules || !ext.js_modules.length) return true;   // no JS: core owns
+  return !cfHasRerenderHandler(extId);                          // JS paints => extension owns
+}
 
 // Does the core have to prime this extension's widgets?
 // Extensions with js_modules own their content. Two exceptions, both safety
@@ -331,10 +351,14 @@ window.cfOnCardRerender = function (extId, fn) {
 //   - the extension declares no refresh_interval and is not realtime: with
 //     interval 0 there is no polling, so nobody would fill the widget.
 function cfNeedsWidgetPriming(ext, extId) {
-  if (!ext.js_modules || !ext.js_modules.length) return true;
-  if (cfHasRerenderHandler(extId)) return false;
-  const interval = ext.refresh_interval || 0;
-  return !(ext.realtime === true || interval > 0);
+  if (cfCoreOwnsWidgets(ext, extId)) {
+    // Core-owned: prime it. Unless it declares no interval and is not realtime,
+    // in which case there is no clock and one priming call fills it for good.
+    const interval = ext.refresh_interval || 0;
+    return !(ext.realtime === true || interval > 0);
+  }
+  // Extension paints its own body; the core stays out of it.
+  return false;
 }
 
 function refreshAllWidgets(data) {
@@ -398,11 +422,13 @@ async function refreshWidget(extId, wDef) {
       // showing the serialized response until the extension took over. Give
       // that script a moment to claim the body, and write nothing if it did.
       // Core-owned widgets have no script to wait for, and delaying them only
-      // left system_monitor and process_manager sitting on --.
-      const ownsBody = (window.extensionsData[extId].js_modules || []).length > 0;
+      // left system_monitor and process_manager sitting on --. Ownership is
+      // decided by a repaint handler, not by "has JS": network_monitor has JS
+      // but is still core-fed, so it must not wait or bail.
+      const ownsBody = !cfCoreOwnsWidgets(window.extensionsData[extId] || {}, extId);
       if (ownsBody) {
         await new Promise(r => setTimeout(r, 900));
-        if (!el.querySelector('.widget-value')) return;
+        if (!el.querySelector(cfValueSelector(el))) return;
       }
       updateWidgetValue(el, response);
     } catch (e) {
@@ -413,10 +439,12 @@ async function refreshWidget(extId, wDef) {
       // of the session: the host asks once at start, and an extension that owns
       // its own DOM polls by itself from then on. get_processes sits right at
       // the 0.8s budget, so on a loaded machine the first attempt misses and
-      // nothing ever asked again.
+      // nothing ever asked again. The empty-node test is per type: a badge sits
+      // on "Loading..." and a list on "", so "--" is only the text/chart marker.
       if (el && el.isConnected && !widgetInflight[key]) {
-        const valEl = el.querySelector('.widget-value');
-        if (valEl && (valEl.textContent || '').trim() === '--') {
+        const valEl = el.querySelector(cfValueSelector(el));
+        const cur = (valEl && (valEl.textContent || '').trim()) || '';
+        if (valEl && (cur === '--' || cur === 'Loading...' || cur === '')) {
           const tries = (retryCount[key] = (retryCount[key] || 0) + 1);
           if (tries <= 4) {
             setTimeout(() => { retryCount[key] = 0; refreshWidget(extId, wDef); }, 700 * tries);
@@ -431,9 +459,10 @@ function startWidgetIntervals(data) {
   for (const timer in widgetTimers) clearInterval(widgetTimers[timer]);
   for (const [extId, ext] of Object.entries(data)) {
     if (ext.disabled) continue;   // no polling for a disabled extension
-    if (ext.realtime) continue;
-    // js_modules extensions own their content; polling here made the core overwrite their DOM.
-    if (ext.js_modules && ext.js_modules.length) continue;
+    // Keep the refresh clock wherever the core still owns the widget values.
+    // realtime alone is not a reason to skip: network_monitor is realtime:true
+    // with JS and still depends on this clock (see cfCoreOwnsWidgets).
+    if (!cfCoreOwnsWidgets(ext, extId)) continue;
     const interval = ext.refresh_interval || 5000;
     if (interval <= 0) continue;
     for (const wDef of (ext.widgets || [])) {
