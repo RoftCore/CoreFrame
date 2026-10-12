@@ -605,58 +605,24 @@ except Exception:
     except Exception:
         pass
 
-# Freeze forensics: dump ALL thread stacks to coreframe.log every 15s.
-# When the app hangs, the last dump shows exactly where each thread is stuck.
-_boot_log_file = None
+# Freeze forensics and early-boot helpers live in coreframe/host/. They are bound
+# here under their original names and signatures so no call site changed; the
+# modules take their paths as arguments and hold no launcher state.
+from coreframe.host import boot as _boot
+from coreframe.host import diagnostics as _diag
 
-# Post-mortem snapshots: full thread stacks to a rotating pair of files
-# every 5 min (overwrite). A segfault kills logging mid-dump, but the
-# previous snapshot always survives and shows what threads did last.
-_snap_files = []
-_snap_idx = [0]
-
-def _start_snapshotter():
-    try:
-        d = DATA_DIR_EARLY
-        for i in (1, 2):
-            _snap_files.append(open(os.path.join(d, 'stacksnap%d.log' % i), 'w', encoding='utf-8'))
-        def _snap():
-            while True:
-                time.sleep(300)
-                try:
-                    f = _snap_files[_snap_idx[0] % 2]
-                    f.seek(0)
-                    f.truncate()
-                    f.write('===== %s =====\n' % time.strftime('%Y-%m-%d %H:%M:%S'))
-                    faulthandler.dump_traceback(file=f)
-                    f.flush()
-                    try:
-                        os.fsync(f.fileno())
-                    except Exception:
-                        pass
-                    _snap_idx[0] += 1
-                except Exception:
-                    pass
-        threading.Thread(target=_snap, daemon=True, name='stacksnap').start()
-    except Exception:
-        pass
-
-def _start_stack_dumper():
-    global _boot_log_file
-    try:
-        d = DATA_DIR_EARLY
-        os.makedirs(d, exist_ok=True)
-        _boot_log_file = open(os.path.join(d, 'coreframe.log'), 'a', encoding='utf-8')
-        _boot_log_file.write('\n===== %s launch =====\n' % time.strftime('%H:%M:%S'))
-        _boot_log_file.flush()
-        # Single-shot boot net only. NEVER repeat=True: every dump walks all
-        # threads through traceback printing, and our segfault site IS the
-        # traceback printer (python313.dll PyTraceBack_Print, same offset in
-        # every crash). Repeating dumps = rolling those dice every 15s.
-        # Ongoing forensics live in _start_snapshotter (5-min cadence).
-        faulthandler.dump_traceback_later(15, file=_boot_log_file)
-    except Exception:
-        pass
+_start_stack_dumper = lambda: _diag.start_stack_dumper(DATA_DIR_EARLY)
+_start_snapshotter = lambda: _diag.start_snapshotter(DATA_DIR_EARLY)
+_trace = lambda msg: _boot.trace(log, msg)
+_read_mode_early = lambda: _boot.read_mode_early(os.path.join(DATA_DIR_EARLY, 'coreframe.json'))
+load_config = lambda: _boot.load_config(CONFIG_PATH, SAVED_MODE)
+save_config = lambda cfg: _boot.save_config(CONFIG_PATH, DATA_DIR, cfg)
+_wait_for_server = lambda timeout=20: _boot.wait_for_server(HOST, PORT, timeout)
+_splash_text = _boot.splash_text
+_close_boot_splash = _boot.close_boot_splash
+_destroy_splash = _boot.destroy_splash
+_show_error = _boot.show_error
+_ensure_persistent_runner = lambda: _boot.ensure_persistent_runner(DATA_DIR_EARLY)
 
 # Serialized UI-worker: EVERY WinForms/pythonnet touch goes through this single
 # thread. Concurrent Invoke/enumeration from multiple threads was causing
@@ -716,48 +682,6 @@ _start_stack_dumper()
 _start_snapshotter()
 
 
-def _ensure_persistent_runner():
-    """Extract the lightweight ext_runner once (stamp-guarded).
-    Skipped for --ext-runner children and dev mode. Old children keep
-    running from the previous dir until the next boot; extraction only
-    ever happens here, before any child spawns."""
-    try:
-        if '--ext-runner' in sys.argv or not getattr(sys, 'frozen', False):
-            return
-        meipass = getattr(sys, '_MEIPASS', None)
-        if not meipass:
-            return
-        zpath = os.path.join(meipass, 'runner.zip')
-        if not os.path.isfile(zpath):
-            return
-        dest = os.path.join(DATA_DIR_EARLY, 'bin', 'runner')
-        stamp = os.path.join(dest, 'runner.stamp')
-        sig = '%d-%d' % (os.path.getsize(zpath), int(os.path.getmtime(zpath)))
-        try:
-            if os.path.isfile(stamp) and open(stamp, encoding='utf-8').read().strip() == sig \
-                    and os.path.isfile(os.path.join(dest, 'CoreFrame.exe')):
-                return
-        except Exception:
-            pass
-        import shutil
-        import zipfile
-        tmp = dest + '.new'
-        shutil.rmtree(tmp, ignore_errors=True)
-        os.makedirs(tmp, exist_ok=True)
-        with zipfile.ZipFile(zpath) as z:
-            z.extractall(tmp)
-        cur = dest + '.old'
-        shutil.rmtree(cur, ignore_errors=True)
-        if os.path.isdir(dest):
-            os.rename(dest, cur)
-        os.rename(tmp, dest)
-        shutil.rmtree(cur, ignore_errors=True)
-        with open(stamp, 'w', encoding='utf-8') as f:
-            f.write(sig)
-    except Exception:
-        pass
-
-
 _ensure_persistent_runner()
 
 import logging
@@ -769,21 +693,11 @@ logging.basicConfig(
 )
 log = logging.getLogger('CoreFrame')
 
-def _trace(msg):
-    log.info('[boot] %s', msg)
-
 _trace('--- launch ---')
 
 # Flags BEFORE importing heavy modules
 AUTOSTART_FLAG = '--autostart' in sys.argv or '--minimized' in sys.argv
 MINIMIZED_FLAG = '--minimized' in sys.argv
-
-def _read_mode_early():
-    try:
-        with open(os.path.join(DATA_DIR_EARLY, 'coreframe.json'), encoding='utf-8') as f:
-            return json.load(f).get('window_mode', 'windowed')
-    except Exception:
-        return 'windowed'
 
 SAVED_MODE = _read_mode_early()
 
@@ -793,31 +707,7 @@ SAVED_MODE = _read_mode_early()
 # Progress lines are pushed via pyi_splash.update_text() for loading feel;
 # the splash closes exactly once the main window reveals (or earlier on
 # autostart/exit paths). pyi_splash exists only in frozen builds.
-_splash_closed = False
-
-def _splash_text(msg):
-    """Push a status line to the boot splash. Silent no-op in dev mode."""
-    try:
-        import pyi_splash
-        pyi_splash.update_text(msg)
-    except Exception:
-        pass
-
-def _close_boot_splash():
-    """Close the boot splash exactly once. Safe to call from anywhere."""
-    global _splash_closed
-    if _splash_closed:
-        return
-    _splash_closed = True
-    try:
-        import pyi_splash
-        pyi_splash.close()
-    except Exception:
-        pass
-
-def _destroy_splash():
-    # Legacy name kept for existing call sites (reveal, watchdog, errors).
-    _close_boot_splash()
+# Handlers live in coreframe/host/boot.py.
 
 import urllib.request  # deferred: keep pre-splash boot minimal
 
@@ -921,36 +811,6 @@ def _patched_bv_move(self, x, y):
                       getattr(self, 'Handle', 'N/A').ToInt32() if hasattr(getattr(self, 'Handle', None), 'ToInt32') else 'N/A',
                       x, y, getattr(self, '_scale', 'N/A'))
 _wf.BrowserView.BrowserForm.move = _patched_bv_move
-
-def load_config():
-    try:
-        with open(CONFIG_PATH, encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {'window_mode': SAVED_MODE}
-
-def save_config(cfg):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-        json.dump(cfg, f, indent=2)
-
-def _wait_for_server(timeout=20):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            r = urllib.request.urlopen(f'http://{HOST}:{PORT}/api/health', timeout=1)
-            if r.status == 200:
-                return True
-        except Exception:
-            pass
-        time.sleep(0.08)
-    return False
-
-def _show_error(title, msg):
-    try:
-        ctypes.windll.user32.MessageBoxW(0, msg, title, 0x10)
-    except Exception:
-        pass
 
 # At login the disk is thrashed (HDD + AV + login storm): the server needs
 # more chances in hidden mode instead of dying on the first timeout.
