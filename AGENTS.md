@@ -31,6 +31,9 @@ CoreFrame/
 │   ├── app.py                 # Flask app factory, /api/quit, /api/restart, socketio wiring
 │   ├── config.py              # Paths: BASE_DIR, DATA_DIR, STATIC_DIR, EXTENSIONS_DIR, ports
 │   ├── auth.py                # SHA-256 token, before_request guard for /api/*
+│   ├── host/                  # Launcher support: imported before webview, no Flask
+│   │   ├── boot.py            # config, splash, server wait, runner extract
+│   │   └── diagnostics.py     # Single-shot boot dump + 5-min rotating snapshots
 │   ├── websocket.py           # SocketIO events, realtime_update
 │   ├── utils.py               # Shared helpers
 │   ├── routes/
@@ -212,6 +215,7 @@ All `/api/*` routes require the `X-CoreFrame-Token` header (fetch it from `/api/
 
 39. **`coreframe/__init__.py` is lazy on purpose (PEP 562):** it resolves `app` / `socketio` / `start_server` on first attribute access. Importing a leaf module such as `coreframe.config` used to drag in Flask and cost 4.9 s, which is why the launcher carried its own copy of the `DATA_DIR` resolution. It is 275 ms now. Two copies of that path once risked the launcher and the server writing to different directories; `DATA_DIR` has exactly one source, `coreframe/config.py`.
 40. **The embedded runner block is generated:** `_EXT_RUNNER_SOURCE` in `run_coreframe.pyw` is rewritten by `tools/sync_ext_runner_source.py`. Editing it by hand is lost on the next run, and CI's `--check` fails the build. Edit `coreframe/extensions/ext_runner.py` instead (pitfall 20, [Process model](#process-model)).
+41. **The window-management core stays in `run_coreframe.pyw` on purpose:** its functions share live state (`window`, `_current_mode`, `_boot_mode_applied`) through module globals, so splitting it means a state-namespace refactor that would have to be verified against the frozen exe, not just the source tree. The self-contained helpers moved to `coreframe/host/` instead and are bound under their original names, so all 43 `_trace` call sites are unchanged. Split the rest only behind a cold-boot test of the built exe.
 
 ## Related documents
 
