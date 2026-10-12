@@ -16,8 +16,7 @@ from coreframe.extensions.permissions import get_permission_manager, PERMISSION_
 
 # Global state — set by app.py
 extensions = {}
-# Disabled extensions: on disk and in the registry, but not loaded. Kept apart
-# from failed_extensions because nothing is wrong with them.
+# Disabled extensions: on disk and registered, but not loaded and not failed.
 disabled_extensions = {}
 failed_extensions = {}
 pending_consent = {}  # Extensions waiting for user consent
@@ -197,9 +196,7 @@ def _check_permissions(ext_id: str, config: dict, ext_path: str) -> tuple:
         if granted >= level:
             return True, 'ok', {}
         else:
-            # Insufficient level (e.g. extension bumped 3 -> 4): re-ask
-            # consent at the new level instead of hard-denying, otherwise
-            # the modal never appears and the user can't grant it.
+# Level bumped: re-ask consent at the new level instead of hard-denying.
             log.warning("Extension %s: consent level %d < required %d, re-asking",
                         ext_id, granted, level)
             pending_consent[ext_id] = {
@@ -291,10 +288,8 @@ def _load_extension_core(ext_id: str, ext_path: str) -> tuple[bool, str]:
         config['data_dir'] = os.path.join(DATA_DATA_DIR, ext_id)
         lang = config.get('language', 'python')
 
-        # Subprocess isolation for ALL Python extensions.
-        # A malicious extension could declare level 0 to bypass level-based
-        # isolation, so ALL Python extensions go through SubprocessBridge + ext_runner.py.
-        # OS-level restrictions are applied by ext_runner based on the declared level.
+# ALL Python extensions run out of process: a level-0 declaration must not buy
+    # in-process execution. ext_runner applies the OS restrictions per level.
         perms = config.get('permissions', {})
         level_val = perms.get('level', 0)
         if isinstance(level_val, int):
@@ -333,9 +328,7 @@ def pollers_status():
     import time as _t
     now = _t.time()
     from coreframe.websocket import latest_update
-# Transport truth: a poller can be alive and updating the cache while the emit goes nowhere.
-# The bound server lives on the isolation object; there is no module-level `si` here,
-# which made this endpoint raise NameError on every call and 500 unconditionally.
+# The bound server lives on the isolation object; there is no module-level `si` here.
     _si = getattr(_ext_isolation, '_socketio', None)
     transport = {
         'socketio_bound': _si is not None,
@@ -400,8 +393,7 @@ def load_extensions():
     registry = _read_registry()
     for ext_id, ext_path in candidates:
         if registry.get(ext_id, {}).get('disabled'):
-            # Installed and registered, but switched off. No process, no widget,
-            # no polling, and it does not count as a load failure.
+# Registered but switched off: no process, no widget, and not a load failure.
             _remember_disabled(ext_id, ext_path)
             log.info("Extension %s is disabled, skipping", ext_id)
             continue
@@ -469,8 +461,7 @@ def pending_manifests():
                 continue
             if isinstance(cfg, dict) and cfg.get('widgets'):
                 _pending_scan_cache[cfg.get('id', name)] = cfg
-    # Drop whatever has since loaded, failed, been disabled or asked consent:
-    # the caller only wants what is still outstanding.
+    # Drop whatever has since loaded, failed or been disabled: only the outstanding remain.
     return {eid: cfg for eid, cfg in _pending_scan_cache.items()
             if eid not in extensions and eid not in failed_extensions
             and eid not in disabled_extensions and eid not in pending_consent
