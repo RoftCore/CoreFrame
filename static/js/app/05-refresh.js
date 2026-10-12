@@ -35,24 +35,13 @@ function cfMarkExtensionLive(extId) { cfExtensionLive[extId] = true; }
 // Grace before the first prime, so js extensions can claim their cards first.
 var CF_PRIME_DEFER_MS = 1200;
 
-// Does the core still own this extension's widget values?
-// The core owns them unless the extension's JS paints the card body itself.
-// A registered repaint handler is exactly that signal: it means the extension
-// draws the values into the DOM. network_monitor has JS but no handler — it
-// relies on the core clock to feed its VPN/ports badge, so it stays core-owned
-// even though it declares realtime:true.
+// The core owns the values unless a repaint handler means the JS draws them itself.
 function cfCoreOwnsWidgets(ext, extId) {
   if (!ext.js_modules || !ext.js_modules.length) return true;   // no JS: core owns
   return !cfHasRerenderHandler(extId);                          // JS paints => extension owns
 }
 
-// Does the core have to prime this extension's widgets?
-// Extensions with js_modules own their content. Two exceptions, both safety
-// nets so a card is never left blank:
-//   - the extension registered a repaint handler: it paints the card itself,
-//     so the core stays out of its DOM entirely (no raw text / "[2]" markers);
-//   - the extension declares no refresh_interval and is not realtime: with
-//     interval 0 there is no polling, so nobody would fill the widget.
+// JS extensions own their content, except when nothing would ever fill the card.
 function cfNeedsWidgetPriming(ext, extId) {
   if (cfCoreOwnsWidgets(ext, extId)) {
     // Core-owned: prime it. Unless it declares no interval and is not realtime,
@@ -76,11 +65,7 @@ function refreshAllWidgets(data) {
   const primeOne = function (extId, ext) {
     if (ext.disabled) return;
     if (!cfNeedsWidgetPriming(ext, extId)) return;
-    // If the extension already painted its card (hook registered, or the DOM is
-    // no longer the host's), the core must not write a payload over it. This is
-    // the check that survives a slow boot: a late hook still means "the
-    // extension owns this card", and writing here is what showed "[6]" on
-    // metadata_stripper when its heavy assets arrived after the prime.
+    // A late hook still means the extension owns this card; writing here is the bug.
     for (const wDef of (ext.widgets || [])) {
       const card = document.querySelector(`.widget-extension.ext-${extId}`);
       if (card && cfCardBodyClaimed(card)) continue;
@@ -142,14 +127,7 @@ async function refreshWidget(extId, wDef) {
     widgetInflight[key] = true;
     try {
       const response = await apiFetch(`/api/extension/${extId}/${wDef.action}`);
-      // A js-driven extension paints its own body. Its script mounts
-      // asynchronously, so writing the payload immediately left the card
-      // showing the serialized response until the extension took over. Give
-      // that script a moment to claim the body, and write nothing if it did.
-      // Core-owned widgets have no script to wait for, and delaying them only
-      // left system_monitor and process_manager sitting on --. Ownership is
-      // decided by a repaint handler, not by "has JS": network_monitor has JS
-      // but is still core-fed, so it must not wait or bail.
+      // Give a JS-painted body a moment to mount, and write nothing if it claimed it.
       const ownsBody = !cfCoreOwnsWidgets(window.extensionsData[extId] || {}, extId);
       if (ownsBody) {
         await new Promise(r => setTimeout(r, 900));
@@ -184,9 +162,7 @@ function startWidgetIntervals(data) {
   for (const timer in widgetTimers) clearInterval(widgetTimers[timer]);
   for (const [extId, ext] of Object.entries(data)) {
     if (ext.disabled) continue;   // no polling for a disabled extension
-    // Keep the refresh clock wherever the core still owns the widget values.
-    // realtime alone is not a reason to skip: network_monitor is realtime:true
-    // with JS and still depends on this clock (see cfCoreOwnsWidgets).
+    // Keep the clock wherever the core still owns the values, realtime or not.
     if (!cfCoreOwnsWidgets(ext, extId)) continue;
     const interval = cfRefreshInterval(ext);
     if (interval <= 0) continue;

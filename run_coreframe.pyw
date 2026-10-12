@@ -115,6 +115,8 @@ if '--ext-runner' not in sys.argv:
         pass
 
 # ── Embedded ext_runner source (compiled into exe, no MEIPASS files) ───
+# GENERATED BLOCK — DO NOT EDIT BY HAND. Edit coreframe/extensions/ext_runner.py
+# and run: python tools/sync_ext_runner_source.py. CI fails on drift (--check).
 _EXT_RUNNER_SOURCE = r'''
 """
 CoreFrame Extension Runner — Subprocess-isolated Python extension executor.
@@ -615,7 +617,7 @@ _snap_idx = [0]
 
 def _start_snapshotter():
     try:
-        d = os.path.join(_real_docs_dir(), 'CoreFrame')
+        d = DATA_DIR_EARLY
         for i in (1, 2):
             _snap_files.append(open(os.path.join(d, 'stacksnap%d.log' % i), 'w', encoding='utf-8'))
         def _snap():
@@ -642,7 +644,7 @@ def _start_snapshotter():
 def _start_stack_dumper():
     global _boot_log_file
     try:
-        d = os.path.join(_real_docs_dir(), 'CoreFrame')
+        d = DATA_DIR_EARLY
         os.makedirs(d, exist_ok=True)
         _boot_log_file = open(os.path.join(d, 'coreframe.log'), 'a', encoding='utf-8')
         _boot_log_file.write('\n===== %s launch =====\n' % time.strftime('%H:%M:%S'))
@@ -699,18 +701,16 @@ if _SINGLE_INSTANCE_MUTEX and kernel32.GetLastError() == 183:  # ERROR_ALREADY_E
         pass
     sys.exit(0)
 
-def _real_docs_dir():
-    """Same API as app.py (SHGetFolderPath) — handles redirected Documents."""
-    try:
-        buf = ctypes.create_unicode_buffer(260)
-        ctypes.windll.shell32.SHGetFolderPathW(None, 0x0005, None, 0, buf)
-        if buf.value:
-            return buf.value
-    except Exception:
-        pass
-    return os.path.join(os.path.expanduser('~'), 'Documents')
+# DATA_DIR lives in coreframe.config; coreframe/__init__ is lazy so this is cheap.
+# Kept in sync by AGENTS.md: two copies here once made the launcher and the
+# server resolve different data dirs.
+try:
+    from coreframe.config import DATA_DIR as DATA_DIR_EARLY
+except Exception:
+    _buf = ctypes.create_unicode_buffer(260)
+    ctypes.windll.shell32.SHGetFolderPathW(None, 0x0005, None, 0, _buf)
+    DATA_DIR_EARLY = os.path.join(_buf.value or os.path.join(os.path.expanduser('~'), 'Documents'), 'CoreFrame')
 
-DATA_DIR_EARLY = os.path.join(_real_docs_dir(), 'CoreFrame')
 os.makedirs(DATA_DIR_EARLY, exist_ok=True)
 _start_stack_dumper()
 _start_snapshotter()
