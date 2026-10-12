@@ -6,13 +6,7 @@ from typing import Optional
 
 from coreframe.config import log, DATA_DIR
 
-# ── Permission Levels ───────────────────────────────────────────────
-# 0 = basic    : UI only, no access
-# 1 = storage  : own data_dir only
-# 2 = user_files: mediated by user (file dialogs, whitelists)
-# 3 = network  : outbound HTTP/HTTPS
-# 4 = system   : read system info, processes, registry read
-# 5 = admin    : full control, registry write, services, filesystem
+# Levels 0-5, basic to admin; the table and enforcement live in AGENTS.md.
 
 PERMISSION_LEVELS = {
     'basic': 0,
@@ -47,8 +41,7 @@ PERMISSION_LABELS = {
     5: 'Admin',
 }
 
-# ── Escalation method groups ───────────────────────────────────────
-# Methods that require elevated permissions beyond the base level
+# Methods needing elevation beyond the base level.
 
 ESCALATION_METHODS = {
     'bash': 5,
@@ -251,9 +244,7 @@ class ExtensionPermissionManager:
     def revoke(self, ext_id: str):
         """Revoke all permissions from an extension."""
         from coreframe.extensions.security import restore_consent_files
-        # The consent file is kept read-only on purpose, so every writer has to
-        # unlock it first. Without this the revocation was dropped silently and
-        # the permission came back on the next start.
+        # The consent file is read-only, so every writer must unlock it or the revocation is dropped.
         restore_consent_files()
         with self._lock:
             self._consents.pop(ext_id, None)

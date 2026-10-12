@@ -25,10 +25,7 @@ def _ext_payload(ext_id, cfg, perm_info, **extra):
         'main': cfg.get('main', 'main.py'),
         'scroll': cfg.get('scroll'),
         'hideScrollbar': cfg.get('hideScrollbar', False),
-        # Core-owned appearance animation. Absent means "use the core default",
-        # which is the whole point: extensions should not each ship their own
-        # entrance animation, they only get the chance to opt out or pick
-        # another one from the palette the core defines.
+# Core-owned entrance animation: absent means "use the default", so extensions only pick or opt out.
         'appear_animation': cfg.get('appear_animation'),
         'permissions': perm_info,
     }
@@ -75,8 +72,7 @@ def register_status_routes(app, socketio):
                                    consent_granted=perm.has_consent(ext_id))
             payload['pending'] = True
             result[ext_id] = payload
-        # Disabled extensions: installed and registered, but not running. They
-        # are listed with widgets emptied so the host renders no card for them.
+# Disabled extensions are registered but not running, listed with empty widgets.
         from coreframe.extensions.loader import disabled_extensions as _disabled
         for ext_id, info in _disabled.items():
             if ext_id in result:
@@ -146,11 +142,8 @@ def register_status_routes(app, socketio):
 
     @app.route('/api/window/focus', methods=['POST'])
     def api_window_focus():
-        # Server-level emit (works from plain HTTP context — the bare
-        # flask_socketio.emit() shortcut only works inside socket handlers
-        # and 500s here). No room => delivered to all clients.
-        # Frontend core.js relays it to pywebview focus.
-        # NOTE: no broadcast= kwarg — this python-socketio version rejects it.
+# Server-level emit: the bare flask_socketio shortcut only works inside handlers, and this
+    # python-socketio version rejects broadcast=. core.js relays focus to pywebview.
         socketio.emit('focus_window')
         return jsonify({'ok': True})
 

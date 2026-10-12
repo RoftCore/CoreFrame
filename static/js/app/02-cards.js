@@ -27,8 +27,7 @@ function cfWatchForFirstPaint(card, extId) {
       for (let i = 0; i < r.addedNodes.length; i++) touched.push(r.addedNodes[i]);
       for (let i = 0; i < r.removedNodes.length; i++) touched.push(r.removedNodes[i]);
       if (r.type === 'characterData' && r.target) { cfClearLoadingState(card); mo.disconnect(); return; }
-      // Ignore the shimmer bars themselves appearing; anything else is the
-      // extension painting.
+      // Ignore the shimmer bars appearing; anything else is the extension painting.
       if (touched.length && !touched.every(isBarNode)) {
         cfClearLoadingState(card);
         mo.disconnect();
@@ -47,8 +46,7 @@ function cfWatchForFirstPaint(card, extId) {
 // Start the refresh clock and the deferred prime once an extension's card exists.
 function cfStartExtensionClocks(extId, ext, card) {
   const interval = cfRefreshInterval(ext);
-  // The clock belongs to the core only while it owns the values: a repaint
-  // handler redraws on demand, it does not poll.
+// The clock belongs to the core only while it owns the values; a handler redraws on demand.
   if (interval > 0 && cfCoreOwnsWidgets(ext, extId)) {
     (ext.widgets || []).forEach(wDef => {
       const key = `${extId}-${wDef.id}`;
@@ -169,8 +167,7 @@ function createSidebarExtensionItem(ext, extId) {
     </span>
   `;
   item.addEventListener('click', () => {
-    // A disabled extension has no card, so there is nothing to scroll to. Its
-    // Enable button lives in Settings -> Extensions.
+    // A disabled extension has no card; its Enable button lives in Settings.
     if (ext.disabled) return;
     const widget = document.querySelector(`.widget-extension.ext-${extId}`);
     if (widget) {
