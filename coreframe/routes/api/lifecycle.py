@@ -66,20 +66,7 @@ def register_lifecycle_routes(app, socketio):
             except Exception:
                 pass
         _ext_isolation.mark_dead(ext_id, 'Unloaded (hidden in all scenes)')
-        # Move to deferred for later reload via unhideWidget
-        try:
-            from coreframe.extensions.loader import _deferred_candidates
-            from coreframe.config import EXTENSIONS_DIR
-            import os
-            # Keep path for reload
-            cfg = ext_data.get('config', {})
-            # Store for reload (use original ext_path if available)
-            # We don't have ext_path here, but loader's _deferred_candidates expects it
-            # So we keep a minimal entry: will be re-discovered via EXTENSIONS_DIR on next load
-            # For now, just remove from extensions so it can be reloaded via load_deferred or load_after_consent
-            pass
-        except Exception:
-            pass
+        # Dropped from the live set only: unhideWidget re-discovers it from disk.
         _exts.pop(ext_id, None)
         return jsonify({'ok': True, 'unloaded': True})
 

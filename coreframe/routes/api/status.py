@@ -142,8 +142,7 @@ def register_status_routes(app, socketio):
 
     @app.route('/api/window/focus', methods=['POST'])
     def api_window_focus():
-# Server-level emit: the bare flask_socketio shortcut only works inside handlers, and this
-    # python-socketio version rejects broadcast=. core.js relays focus to pywebview.
+# Server-level emit; this python-socketio rejects broadcast=. core.js relays focus to pywebview.
         socketio.emit('focus_window')
         return jsonify({'ok': True})
 

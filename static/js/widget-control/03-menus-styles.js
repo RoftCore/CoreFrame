@@ -167,8 +167,7 @@
         if (ext.consent_granted) {
           html += '<button class="ext-card-btn ext-card-btn-revoke ext-settings-revoke" data-ext="' + id + '">Revoke</button>';
         }
-        // Disable keeps the files and the registry entry, just stops it running.
-        // Delete stays separate: that one really removes it.
+// Disable keeps files and registry; delete is separate and really removes it.
         html += '<button class="ext-card-btn ext-settings-toggle" data-ext="' + id + '"' +
                 ' title="' + (ext.disabled
                   ? 'Activate: start it again and restore its widget'
@@ -215,9 +214,7 @@
               s.showToast('Error: ' + res.error);
               return;
             }
-            // What is loaded and what gets polled both changed on the host, so
-            // reload and let it rebuild from the server rather than patching
-            // the DOM here and hoping it matches.
+// Loaded and polled state both changed: reload rather than patch the DOM here.
             location.reload();
           }).catch(function () {
             btn.disabled = false;

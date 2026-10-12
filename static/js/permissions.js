@@ -1,5 +1,4 @@
-// ── CoreFrame Permission System ─────────────────────────────────────
-// Handles consent modals, escalation requests, and legacy migration.
+// Consent modals, escalation requests and legacy migration.
 
 (function () {
   'use strict';

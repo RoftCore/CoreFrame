@@ -29,11 +29,7 @@ def register_serving_routes(app, socketio):
             resp = send_from_directory(static_dir, path)
         except FileNotFoundError:
             return Response('', 204)
-        # Long-cache immutable media: extension images/thumbs use content-stable
-        # filenames (timestamp/hash names, never edited in place), so repeat
-        # scene switches cost zero requests. JS/CSS/HTML must NEVER cache:
-        # extensions iterate in place and a stale bundle looks exactly like
-        # "the fix didn't work" (12h ghost otherwise).
+# Long-cache only content-stable media (timestamped images); JS/CSS/HTML must never cache.
         lp = path.lower().replace('\\', '/')
         if lp.startswith('thumbs/') or lp.endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico')):
             resp.headers['Cache-Control'] = 'public, max-age=86400'

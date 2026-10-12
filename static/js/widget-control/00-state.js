@@ -46,14 +46,7 @@
     if (typeof showToast !== 'undefined') showToast(msg);
   };
 
-  // ── Widget visibility contract ──────────────────────────────────
-  // Two ways to be off-scene, both answer true here:
-  //   display:none  -> destroyed (opt-out via keep_alive:false, or a widget
-  //                    that genuinely must not hold resources)
-  //   .cf-offscene  -> kept in the render tree, moved off-viewport, so the
-  //                    decoded images survive (see widget-control.css)
-  // Everything that asks "is this widget showing?" must use cfHidden(), never
-  // read style.display directly: a heavy widget is hidden without it.
+  // Visibility contract: ask cfHidden(), never read style.display (pitfall 29).
   function keepAlive(extId) {
     var ext = (window.extensionsData || {})[extId] || {};
     return ext.keep_alive !== false;

@@ -288,8 +288,7 @@ def _load_extension_core(ext_id: str, ext_path: str) -> tuple[bool, str]:
         config['data_dir'] = os.path.join(DATA_DATA_DIR, ext_id)
         lang = config.get('language', 'python')
 
-# ALL Python extensions run out of process: a level-0 declaration must not buy
-    # in-process execution. ext_runner applies the OS restrictions per level.
+# ALL Python extensions run out of process; a level-0 declaration buys nothing.
         perms = config.get('permissions', {})
         level_val = perms.get('level', 0)
         if isinstance(level_val, int):

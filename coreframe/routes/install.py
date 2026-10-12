@@ -162,7 +162,6 @@ def register_install_routes(app, socketio):
                 _install_dbg(ext_id, 'thread-start')
                 def _fail(msg):
 # Roll back files + registry so a failed install leaves no invisible ghost.
-    # If rollback itself fails, record a visible failed entry as a last resort.
                     rolled_back = _rollback_install(ext_id, ext_path)
                     if not rolled_back:
                         from coreframe.extensions import failed_extensions as _failed

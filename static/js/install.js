@@ -155,8 +155,7 @@ function showInstallConfirm(extName, extId) {
           document.querySelectorAll('script[src*="/ext-static/' + extId + '/"]').forEach(function (s) { s.remove(); });
           ext.js_modules.forEach(function (mod) {
             var script = document.createElement('script');
-            // Same ordering contract as loadExtensionAssets: modules must run
-            // in declaration order, not in fetch-completion order.
+// Same ordering contract as loadExtensionAssets (pitfall 34).
             script.async = false;
             script.src = '/ext-static/' + extId + '/' + mod;
             document.body.appendChild(script);

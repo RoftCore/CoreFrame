@@ -24,9 +24,7 @@ def get_token():
 
 AUTOSTART_KEY = 'CoreFrame'
 AUTOSTART_MODES = ('off', 'on', 'minimized')
-# The host reads these flags in run_coreframe.pyw: --autostart boots the window
-# visible, --minimized leaves it hidden with only the tray icon. Minimized is
-# the background-services mode: extensions load, nothing is shown.
+# --autostart boots visible, --minimized is tray-only background services.
 _MODE_FLAG = {'on': '--autostart', 'minimized': '--minimized'}
 
 
@@ -37,8 +35,7 @@ def _parse_autostart_value(val):
         p = p[1:].split('"', 1)[0]
     else:
         p = p.split()[0] if p.split() else ''
-    # isfile() on the whole string (quotes + args) is always False, so the exe
-    # path has to be pulled out first. A stale path counts as off.
+    # isfile() on quotes+args is always False, so the exe path comes out first.
     if not p or not os.path.isfile(p):
         return 'off'
     low = (val or '').lower()

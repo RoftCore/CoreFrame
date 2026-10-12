@@ -464,12 +464,10 @@ class SubprocessBridge:
             self._proc.stdin.write(req)
             self._proc.stdin.flush()
 
-        # Budgets from measured latency, not guesses. get_entries (~4s full Autoruns scan)
-        # is deliberately absent: heavy legitimate work, not a lightweight poll.
+# Budgets from measured latency; get_entries (~4s Autoruns scan) is deliberately absent.
         _FAST = ('get_config', 'get_status', 'get_cpu', 'get_ram', 'get_gpu',
                  'get_disk', 'get_fortune', 'get_notes', 'get_ping')
-        # 4s because get_ip median is 1.46s cold and exceeds 2.0s in 15% of calls;
-        # a 2s budget truncated work the method was still legitimately doing.
+# 4s because get_ip median is 1.46s cold and exceeds 2.0s in 15% of calls.
         _MEDIUM = ('get_ip', 'check_vpn', 'get_open_ports', 'get_processes')
         if method in _FAST:
             timeout = 2.0
@@ -490,8 +488,7 @@ class SubprocessBridge:
                 return {'value': result}
             time.sleep(0.01)
 
-        # A strike needs a stale heartbeat: a live-but-busy child times out slow, not dead,
-        # and restarting it wipes warm caches into a degrade/restart spiral (pitfall 26).
+        # A strike needs a stale heartbeat: restarting a busy child wipes warm caches (pitfall 26).
         try:
             h = self._ext_isolation.health.get(self.ext_id) if hasattr(self, '_ext_isolation') and self._ext_isolation else None
             if h:
