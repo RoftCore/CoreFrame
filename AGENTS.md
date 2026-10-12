@@ -7,7 +7,7 @@
 - **`main`**: ONLY tested, released versions (tagged `vX.Y.Z`). No direct pushes.
 - **`development`**: all feature work, bug fixes, experiments. PRs target `development`.
 - **Release flow**: `development` → tested → merge to `main` → tag `vX.Y.Z` → GitHub Actions builds the release.
-- **CI** (`.github/workflows/build.yml`) runs on push to `main` and on `v*` tags, on Python 3.13, and fails if the ext_runner mirror is out of sync (see [Process model](#process-model)). There is no CI build for `development`: build locally with `py -3.13 -m PyInstaller --noconfirm CoreFrame.spec`.
+- **CI** (`.github/workflows/build.yml`) runs on push to `main`, push to `development` and on `v*` tags, on Python 3.13 and Windows + Linux. It always verifies the ext_runner mirror (see [Process model](#process-model)) and builds the exe; only the release job is tag-gated. So `development` is already built on every push: a local `py -3.13 -m PyInstaller --noconfirm CoreFrame.spec` is only needed to test a change before pushing.
 
 ## Identity
 
@@ -27,6 +27,7 @@ A personal control center with a widget grid, scenes, and self-contained extensi
 CoreFrame/
 ├── run_coreframe.pyw          # Windows host: single-instance check, splash, tray, frameless
 ├── app.py                     # 6-line back-compat shim re-exporting coreframe.app
+├── coreframe_helper.py        # UAC-elevated helper, launched via ShellExecuteW("runas")
 ├── coreframe/                 # All server code
 │   ├── app.py                 # Flask app factory, /api/quit, /api/restart, socketio wiring
 │   ├── config.py              # Paths: BASE_DIR, DATA_DIR, STATIC_DIR, EXTENSIONS_DIR, ports
@@ -95,6 +96,8 @@ CoreFrame/
 │   ├── build_runner.py        # Builds the lightweight runner into runner.zip
 │   └── sync_ext_runner_source.py  # Mirrors ext_runner.py into run_coreframe.pyw
 ├── runner.spec, runner.zip, runner_version_info.txt   # The child-process build
+├── coreframe_helper.spec       # The elevated helper build
+├── hooks/                      # PyInstaller hooks for gi.repository.WebKit2
 ├── CoreFrame.spec, version_info.txt, CoreFrame.ico, splash.png
 ├── docs/                      # EXTENSIONS.md, BRIDGE.md, EXTENSION_NOTES.md
 ├── requirements.txt, extensions.json (generated), coreframe.json, widget_state.json
@@ -127,7 +130,7 @@ CoreFrame/
 Every extension gets its own process. `bridge.py` supervises them; the child is `runner.zip`'s `CoreFrame.exe`, or the main exe with `--ext-runner <config>` when the runner is absent.
 
 - The child reads a temp JSON config (`config`, `ext_path`, `restrictions`, `coreframe_config`), applies its restrictions **before** importing extension code, sends `{"result": "ready", "id": 0}`, then serves JSON-RPC on stdio.
-- **The child source is mirrored, not imported.** `coreframe/extensions/ext_runner.py` is the only editable copy; `run_coreframe.pyw` embeds a byte-identical copy because `--ext-runner` must run before any heavy import (`coreframe/__init__.py` pulls in Flask). After editing the runner, run `python tools/sync_ext_runner_source.py`; CI runs it with `--check` and fails on drift.
+- **The child source is mirrored, not imported.** `coreframe/extensions/ext_runner.py` is the only editable copy; `run_coreframe.pyw` embeds a byte-identical copy because `--ext-runner` must run before any heavy import. (`coreframe/__init__.py` is lazy now — pitfall 39 — so importing `coreframe.config` is cheap, but the child still must not import `coreframe` at all: it runs before `webview`, `WinForms` and the server exist, and inside the exe `sys.path` is not the repo.) After editing the runner, run `python tools/sync_ext_runner_source.py`; CI runs it with `--check` and fails on drift.
 - Full protocol, config format and examples: `docs/BRIDGE.md`.
 
 ## Permissions
