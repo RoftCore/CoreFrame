@@ -161,10 +161,8 @@ def register_install_routes(app, socketio):
             def _bg_install(ext_id, ext_path):
                 _install_dbg(ext_id, 'thread-start')
                 def _fail(msg):
-                    # Roll back files + registry so a failed install never
-                    # leaves a ghost that is "installed" but invisible.
-                    # If rollback itself fails, record a visible failed entry
-                    # (with Delete button) as a last resort.
+# Roll back files + registry so a failed install leaves no invisible ghost.
+    # If rollback itself fails, record a visible failed entry as a last resort.
                     rolled_back = _rollback_install(ext_id, ext_path)
                     if not rolled_back:
                         from coreframe.extensions import failed_extensions as _failed
@@ -206,9 +204,7 @@ def register_install_routes(app, socketio):
                     _install_dbg(ext_id, f'except-Exception {type(e).__name__}: {e}'[:200])
                     _fail(f"Install failed: {e}")
                 except BaseException as e:
-                    # SystemExit/KeyboardInterrupt and friends bypass
-                    # `except Exception` and kill threads SILENTLY (no log,
-                    # no traceback in frozen GUI apps). Loud rollback instead.
+# SystemExit/KeyboardInterrupt bypass `except Exception` and kill threads silently.
                     try:
                         log.error("Background install aborted for %s: %s %s", ext_id, type(e).__name__, e)
                     except Exception:
@@ -233,11 +229,7 @@ def register_install_routes(app, socketio):
         if not os.path.isdir(ext_path):
             return jsonify({'error': 'Extension not found'}), 404
 
-        # Stop polling and the child process BEFORE touching its files. On
-        # Windows any open handle under the folder makes rmtree fail, and a live
-        # child can rewrite files after they are gone. The bridge's on_stop()
-        # waits for the process, so by the time it returns the handles are
-        # released (or the process is dying, which the retry loop absorbs).
+# Stop the child before touching its files: Windows rmtree fails on an open handle.
         from coreframe.extensions.loader import _poll_stop_events
         stop_evt = _poll_stop_events.pop(ext_id, None)
         if stop_evt:
@@ -253,8 +245,7 @@ def register_install_routes(app, socketio):
 
         inst = (ext_data or {}).get('instance')
         if inst is not None:
-            # cleanup() first: it may want the child alive to flush. on_stop()
-            # then kills it, and the folder is only touched after both.
+# cleanup() first: it may need the child alive to flush; on_stop() then kills it.
             cleanup = getattr(inst, 'cleanup', None)
             if cleanup:
                 try:
@@ -267,8 +258,7 @@ def register_install_routes(app, socketio):
                     stop()
                 except Exception as e:
                     log.warning("Stop failed for %s: %s", ext_id, e)
-        # Without this the isolation monitor keeps heartbeating and restarting a
-        # folder that no longer exists.
+# Without this the isolation monitor keeps heartbeating and restarting a gone folder.
         _ext_isolation.mark_dead(ext_id, 'Deleted')
 
         last_err = None
@@ -282,8 +272,7 @@ def register_install_routes(app, socketio):
                 if attempt < 7:
                     time.sleep(0.4)
         if last_err:
-            # Silent failures here are why this looked like "it just errors":
-            # nothing reached the log, only the toast.
+# Silent failures here only reached the toast, never the log.
             log.error("Delete failed for %s (%s): %s", ext_id, ext_path, last_err)
             return jsonify({'error': f'Failed to delete extension files: {last_err}'}), 500
 

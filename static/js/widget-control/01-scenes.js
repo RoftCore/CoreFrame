@@ -99,14 +99,10 @@
     if (typeof feather !== 'undefined') feather.replace();
   };
 
-  // Core immunity guarantee: switching scenes commits synchronously with
-  // zero network, zero awaits and zero extension invocation. All widget
-  // content (including a hanging or endlessly-loading extension) fills in
-  // afterwards at its own pace and can never hold the switch hostage.
-  // Rapid toggles coalesce: only the latest switch does apply work, so N
-  // fast toggles cost one apply pass + one persist POST, not N.
-  // The reveal itself is staged in small batches per frame: a heavy widget
-  // only ever delays its own paint, never the switch commit or other widgets.
+// Switching scenes commits synchronously: zero network, zero awaits, zero extension
+    // calls. Content fills in afterwards at its own pace, so nothing holds the switch
+    // hostage. Rapid toggles coalesce into one apply pass plus one POST, and the reveal
+    // is staged in per-frame batches so a heavy widget only delays its own paint.
   s._switchGen = 0;
   // Widgets revealed per animation frame during staged reveal.
   s._revealPerFrame = 4;
@@ -146,8 +142,7 @@
       s.persistScenes();
       var commitMs = Math.round((now() - t0) * 10) / 10;
       if (t0 && commitMs > 50) console.warn('[CoreFrame] slow scene-switch commit: ' + commitMs + 'ms (budget 50ms)');
-      // 2. Reveal visible widgets in small batches so one heavy widget can
-      // never block the switch frame or starve input; each batch yields.
+// Reveal in small batches: one heavy widget must not block the frame or starve input.
       var ids = Object.keys(sw).filter(function (id) { return sw[id] && !sw[id].hidden; });
       var i = 0;
       (function revealBatch(){
@@ -158,8 +153,7 @@
           if (w) { cfShow(w); n++; }
         }
         if (i < ids.length) { requestAnimationFrame(revealBatch); return; }
-        // Reveal complete: one fresh refresh for newly-visible core-driven
-        // widgets (intervals skip hidden ones, so values may be stale).
+// Reveal complete: refresh newly-visible core widgets, since intervals skip hidden ones.
         try {
           ids.forEach(function (eid) {
             var ext = window.extensionsData && window.extensionsData[eid];
@@ -479,11 +473,7 @@
     );
   };
 
-  // Start on boot has three states, not a toggle. 'minimized' boots CoreFrame
-  // with the window hidden (tray icon only), which is the background-services
-  // mode: extensions load and nothing takes the screen. Mirrors the
-  // window-settings submenu: Back, separator, one row per option, check on the
-  // active one.
+  // Start-on-boot has three states, not a toggle; 'minimized' is tray-only background mode.
   s._autostartModes = [
     ['off', 'square', 'Off'],
     ['on', 'monitor', 'On'],
@@ -565,9 +555,7 @@
   s._autostartMode = 'off';
   s._autostartAvailable = true;
 
-  // Paint from the cached state, no request. Anything that restores the static
-  // _settingsMainHTML has to call this: that string says "Loading...", so the
-  // label would stay stuck on it until the menu was reopened and refetched.
+// Paint from cached state: the static HTML says "Loading..." and would stick.
   s._renderAutostartItem = function () {
     var item = document.getElementById('autostart-item');
     if (!item) return;
@@ -582,8 +570,7 @@
         ' <span class="autostart-state' + (mode === 'off' ? '' : ' on') + '">' + badge + '</span>';
       item.style.opacity = '1';
     }
-    // Re-render icons: this runs after innerHTML, long after the initial
-    // feather.replace() — without it the <i> tags stay raw and invisible.
+    // Re-render icons: this runs long after the initial feather.replace().
     if (typeof feather !== 'undefined') feather.replace();
   };
 

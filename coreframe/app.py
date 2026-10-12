@@ -63,10 +63,7 @@ from coreframe.extensions import extensions
 
 
 def _save_registry():
-    # Merge, never overwrite blindly: this runs at boot/restart while
-    # extensions still load async, so rebuilding from in-memory state alone
-    # used to wipe extensions.json to {} on every start. Entries are only
-    # ever removed by api_delete_extension.
+    # Merge, never overwrite: rebuilding from memory alone wiped extensions.json on boot.
     import json
     try:
         with open(REGISTRY_PATH, encoding='utf-8') as f:
@@ -77,26 +74,14 @@ def _save_registry():
         registry = {}
     for ext_id, ext_data in extensions.items():
         cfg = ext_data['config']
+        was_disabled = registry.get(ext_id, {}).get('disabled')
         registry[ext_id] = {
             'name': cfg.get('name', ext_id),
             'version': cfg.get('version', '1.0'),
             'author': cfg.get('author', ''),
-            'category': cfg.get('category', 'general')
+            'category': cfg.get('category', 'general'),
+            'disabled': bool(was_disabled),
         }
-        # Carry the disabled flag across: this file is rebuilt from the in-memory
-        # dict every boot, so without this a disabled extension would come back
-        # on its own after a restart.
-        if registry[ext_id].get('disabled'):
-            pass
-        else:
-            registry[ext_id]['disabled'] = False
-        # Carry the disabled flag across: this file is rebuilt from the in-memory
-        # dict every boot, so without this a disabled extension would come back
-        # on its own after a restart.
-        if registry[ext_id].get('disabled'):
-            pass
-        else:
-            registry[ext_id]['disabled'] = False
     # Heal: adopt extension dirs present on disk but missing from registry.
     try:
         for name in os.listdir(EXTENSIONS_DIR):
@@ -163,8 +148,7 @@ def _do_restart():
     except Exception:
         pass
 
-    # 2. Drain old children synchronously (parallel, bounded) — no overlap storm.
-    # Includes orphans whose bridge never registered (slow ready-handshake).
+    # Drain old children first: parallel and bounded, so restarts never overlap.
     def _stop_one(ext_data):
         inst = ext_data.get('instance')
         if hasattr(inst, 'on_stop'):
@@ -183,8 +167,7 @@ def _do_restart():
         if remaining <= 0:
             break
         t.join(timeout=remaining)
-    # Grace so dying threads unwind past their frames before sys.modules
-    # surgery below: printing a torn-down frame segfaults in PyTraceBack_Print.
+    # Grace so dying threads unwind: printing a torn-down frame segfaults (pitfall 28).
     _time.sleep(2.0)
     try:
         from coreframe.extensions.bridge import SubprocessBridge
@@ -225,8 +208,7 @@ def api_quit():
     try:
         socketio.stop()
     except RuntimeError as e:
-        # The frozen host owns the web server, so socketio has nothing to stop.
-        # Uncaught, this 500'd and the shutdown below never ran.
+# The frozen host owns the server, so socketio has nothing to stop; uncaught it 500'd.
         log.debug("socketio.stop skipped: %s", e)
     time.sleep(0.5)
     for ext in extensions.values():
