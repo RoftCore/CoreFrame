@@ -153,25 +153,18 @@ function cfWatchForFirstPaint(card, extId) {
   }, 8000);
 }
 
-// Start the core's refresh clock and the deferred prime for an extension, once
-// its card exists (built or promoted in place). Extracted so both creation
-// paths do exactly the same thing.
+// Start the refresh clock and the deferred prime once an extension's card exists.
 function cfStartExtensionClocks(extId, ext, card) {
   const interval = cfRefreshInterval(ext);
-  // The core keeps the refresh clock for any extension whose widget values it
-  // still owns. A repaint handler only redraws on demand; it does not poll.
-  // network_monitor relies on this clock for its VPN/ports badge and declares
-  // realtime:true with JS, so it must not be skipped here.
+  // The clock belongs to the core only while it owns the values: a repaint
+  // handler redraws on demand, it does not poll.
   if (interval > 0 && cfCoreOwnsWidgets(ext, extId)) {
     (ext.widgets || []).forEach(wDef => {
       const key = `${extId}-${wDef.id}`;
       widgetTimers[key] = setInterval(() => refreshWidget(extId, wDef), interval);
     });
   }
-  // Prime widgets the core owns, including js-driven ones that have no
-  // refresh_interval of their own; see cfNeedsWidgetPriming. A js extension is
-  // deferred so its script can claim the fresh card first, otherwise the core
-  // writes the raw payload and the card flashes "[6]" style text.
+  // Deferred for js extensions so their script claims the card before the core writes.
   const isJs = (ext.js_modules || []).length > 0;
   if (cfNeedsWidgetPriming(ext, extId)) {
     if (isJs) {
@@ -184,8 +177,6 @@ function cfStartExtensionClocks(extId, ext, card) {
       (ext.widgets || []).forEach(wDef => refreshWidget(extId, wDef));
     }
   }
-  // The card just became real. Any extension that paints the card itself is
-  // told to repaint into the current DOM.
   cfNotifyCardRerender(extId);
 }
 
@@ -199,8 +190,7 @@ function addExtensionToUI(extId, ext) {
       if (typeof feather !== 'undefined') feather.replace();
     }
   }
-  // Disabled: listed, but no card, no assets and no polling. Nothing of it is
-  // allowed to touch the grid.
+  // Disabled: listed, but no card, no assets and no polling.
   if (ext.disabled) {
     if (window.__wc) { window.__wc.exitEditMode && window.__wc.editMode && window.__wc.exitEditMode(); }
     return;
@@ -223,26 +213,16 @@ function addExtensionToUI(extId, ext) {
         }
         const card = createExtensionCard({ ...ext, id: extId });
         if (existing) {
-          // Promote the skeleton in place instead of replacing the node.
-          // replaceChild() tore the card down and rebuilt it, which is what
-          // made extensions appear to reload several times on a cold start and
-          // threw away anything an extension had painted. The entrance
-          // animation belongs to the skeleton, so the reveal does not need a
-          // new node: fill the existing body's children and drop the flag.
+          // Promote the skeleton in place: replacing the node read as a reload.
           const oldBody = existing.querySelector('.widget-body');
           const newBody = card.querySelector('.widget-body');
           if (oldBody && newBody) oldBody.replaceChildren(...newBody.childNodes);
           delete existing.dataset.placeholder;
           delete existing.dataset.cfDeferred;
           existing.classList.remove('cf-placeholder');
-          // The skeleton is inert; promoting it in place has to hand the card
-          // back to the user. Without this the whole card kept swallowing
-          // clicks and nothing in it was pressable.
-          existing.style.pointerEvents = '';
+          existing.style.pointerEvents = '';  // the skeleton is inert
           if ((ext.js_modules || []).length) cfMarkLoadingState(existing, (ext.widgets || []).length);
-          // No entrance animation here: the skeleton already played it when it
-          // took its slot, so replaying it a second later re-animated a card
-          // that had been visible for seconds (the duplicated-reveal flicker).
+          // No entrance animation: the skeleton already played it on arrival.
           cfWatchForFirstPaint(existing, extId);
           loadExtensionAssets({ [extId]: ext });
           cfMarkExtensionLive(extId);
@@ -404,12 +384,8 @@ function renderWidgets(data) {
 }
 
 // ── Repaint registry ──────────────────────────────────────────────
-// The placeholder→real swap (addExtensionToUI) replaces the card DOM an
-// extension may have already painted into, and loadExtensionAssets dedupes
-// the script tag so it never re-runs. An extension that paints the card
-// registers a repaint callback here so the core can tell it "card replaced,
-// repaint". Without this the extension's own paint is destroyed by the swap
-// and never restored, and the card keeps whatever the core wrote.
+// Extensions that paint their own card register here so the core can ask them
+// to repaint after the card is rebuilt.
 const cfRerenderHandlers = {};
 function cfHasRerenderHandler(extId) { return !!cfRerenderHandlers[extId]; }
 function cfNotifyCardRerender(extId) {
@@ -420,15 +396,9 @@ function cfNotifyCardRerender(extId) {
 window.cfOnCardRerender = function (extId, fn) {
   if (typeof fn !== 'function') return;
   cfMarkExtensionLive(extId);
-  // Deliberately NOT clearing the loading shimmer here: registering a hook
-  // happens before the extension actually paints, so clearing on registration
-  // revealed the raw core-written value underneath (metadata_stripper showed
-  // "[6]"). The shimmer is dropped by cfWatchForFirstPaint on the real paint,
-  // or by the 8s fallback.
   cfRerenderHandlers[extId] = fn;
-  // The extension now paints its own body, so the core must stop polling it.
-  // At first card build no handler existed yet, so a core clock may have been
-  // started for it; clear it here so the two do not fight over the same DOM.
+  // Registration precedes the paint, so the shimmer stays until cfWatchForFirstPaint.
+  // Drop any core clock: the extension owns the DOM from now on.
   const meta = (window.extensionsData || {})[extId];
   for (const w of ((meta && meta.widgets) || [])) {
     const k = `${extId}-${w.id}`;
@@ -436,28 +406,18 @@ window.cfOnCardRerender = function (extId, fn) {
   }
 };
 
-// The declared refresh interval in ms. A declared 0 means "do not poll me", so
-// it must not fall through to the default the way `refresh_interval || 5000`
-// did: that handed fortune_cookie (interval:0) a 5s clock, so the core re-primed
-// it every 5s, the card reloaded itself and the fortune changed phrase on its
-// own. Only a missing value takes the 5000 default.
+// A declared 0 means "do not poll me" and must not fall through to the default.
 function cfRefreshInterval(ext) {
   const ri = ext && ext.refresh_interval;
   if (ri === undefined || ri === null) return 5000;
   return ri;
 }
 
-// An extension is "live" once its script has run. Until then the core must not
-// write a value into its card: the raw payload shows as a flash of unformatted
-// text before the extension paints over it.
+// "Live" means the script has run; before that the core leaves the card alone.
 const cfExtensionLive = {};
 function cfIsExtensionLive(extId) { return !!cfExtensionLive[extId]; }
 function cfMarkExtensionLive(extId) { cfExtensionLive[extId] = true; }
-// How long the first mass-prime waits for js extensions to boot and claim their
-// cards before the core writes into them. Heavy assets load 500ms after light
-// ones, so this sits past both. After the wait the repaint-hook list is
-// authoritative: extensions that painted registered a hook (or kept their DOM),
-// so cfNeedsWidgetPriming no longer mistakes them for core-owned.
+// Grace before the first prime, so js extensions can claim their cards first.
 var CF_PRIME_DEFER_MS = 1200;
 
 // Does the core still own this extension's widget values?
