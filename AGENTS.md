@@ -34,7 +34,13 @@ CoreFrame/
 │   ├── websocket.py           # SocketIO events, realtime_update
 │   ├── utils.py               # Shared helpers
 │   ├── routes/
-│   │   ├── api.py             # /api/extensions, /api/extension/<id>/<action>, health, debug
+│   │   ├── api/                # /api/extensions, /api/extension/<id>/<action>, health, debug
+│   │   │   ├── status.py       # registry, health, heartbeat, window focus
+│   │   │   ├── actions.py      # /api/extension/<id>/<action>
+│   │   │   ├── permissions.py  # consent, escalation, whitelist, enable/disable
+│   │   │   ├── lifecycle.py    # migrate, load, unload
+│   │   │   ├── serving.py      # /ext-static/<id>/<path> and /ext-data/<id>/<path>
+│   │   │   └── debug.py        # /api/debug/*
 │   │   ├── widgets.py         # /api/widget-state, scene widget layout
 │   │   ├── scenes.py          # /api/scenes CRUD, activate, backgrounds
 │   │   ├── static.py          # /ext-static/<id>/<path> and /ext-data/<id>/<path>
@@ -143,7 +149,7 @@ The initial extension load waits on a gate opened by the first `GET /api/extensi
 
 ## Widgets
 
-Generic sub-widget types: `text`, `badge`, `list`, `chart`, `terminal`, `button`. Data arrives through `updateWidgetValue(el, response)` in `widgets.js`. Per-type payload shapes, the full `extension.json` reference and the HTTP API are in `docs/EXTENSIONS.md`.
+Generic sub-widget types: `text`, `badge`, `list`, `chart`, `terminal`, `button`. Data arrives through `updateWidgetValue(el, response)` in `widgets/05-value.js`. Per-type payload shapes, the full `extension.json` reference and the HTTP API are in `docs/EXTENSIONS.md`.
 
 ## API
 
@@ -200,7 +206,7 @@ All `/api/*` routes require the `X-CoreFrame-Token` header (fetch it from `/api/
 33. **`extension_restart` had no listener:** `_schedule_restart` only emitted an event, so a degraded extension sat in `loading` forever — `_check_health` inspects healthy/degraded/dead, so it was never retried and never quarantined. The reload now happens server-side, and `start_load` takes `restart_count`/`quarantined` so a fresh `ExtensionHealth` cannot reset the `MAX_RESTARTS` budget.
 34. **Dynamic `<script>` injection has no order:** `document.body.appendChild(script)` makes a classic script async by default, so `js_modules` ran in fetch-completion order and cross-file references hit `ReferenceError` depending on timing. `script.async = false` in `loadExtensionAssets` and the install path restores declaration order.
 35. **Exit reasons are matched by prefix:** a poller stopped by a hidden widget records `hidden in every scene`; an equality test against `hidden` never matched and the supervisor resumed nothing, leaving the widget frozen while looking correct.
-36. **The core must not drive a `js_modules` widget:** `refreshAllWidgets` and `startWidgetIntervals` both skip extensions whose JS owns the content. The guard existed in the first and was missing in the second, so `process_manager` had its rendered table overwritten with the raw action payload every 3 s.
+36. **The core must not drive a `js_modules` widget:** `refreshAllWidgets` and `startWidgetIntervals` both skip extensions whose JS owns the content. The guard existed in the first and was missing in the second, so a JS extension had its rendered table overwritten with the raw action payload every refresh.
 37. **Split frontend files, but keep every symbol global:** `app.js` and `widgets.js` are now directories of numbered modules loaded by `index.html` in order. They stay classic scripts sharing one global scope, so each top-level `let`/`const`/`function` must be declared in exactly one module — a name declared twice is a `SyntaxError` that kills the whole page, and the modules never define anything as `window.*` except the hooks extensions call. Renaming a symbol means editing every consumer, so prefer splitting over renaming.
 38. **A cached `index.html` outlives the file layout it names:** after splitting, a window that still holds the old shell requests the removed `app.js` and gets a 404 with no visible error. Reload the window once after any change to the script tags.
 
