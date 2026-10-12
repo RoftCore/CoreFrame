@@ -104,11 +104,11 @@ CoreFrame/
 └── AGENTS.md, README.md, CHANGELOG.md
 ```
 
-`extensions.json` and `widget_state.json` are generated at runtime: never edit them by hand.
+`extensions.json` and `widget_state.json` are generated at runtime: never edit them by hand. Both live in `DATA_DIR`, and since neither is tracked any more, a copy at the repo root is a leftover from an older layout — not the live one.
 
 ## Architecture rules (IMPORTANT)
 
-1. **The core contains NO code or CSS of any specific extension.** Zero references to extension names, specific classes, or per-extension if/else. If an extension is deleted, no trace should remain in the core — this includes this guide (extension internals belong in the extension, or `docs/EXTENSION_NOTES.md`).
+1. **The core contains NO code or CSS of any specific extension.** Zero references to extension names, specific classes, or per-extension if/else. If an extension is deleted, no trace should remain in the core — this includes this guide (extension internals belong in the extension, or `docs/EXTENSION_NOTES.md`). The one exception is `extensions/fortune_cookie`, the demo extension force-added past `extensions/*` in `.gitignore` and bundled by `CoreFrame.spec` and the Linux CI job so a fresh checkout is not empty; nothing under `coreframe/` or `static/` refers to it, which is what keeps it an exception rather than a precedent.
 2. **Each extension is self-contained.** Backend (`main.py`), frontend (`static/*.js`) and styles (`static/*.css`) live in its own directory, declared via `js_modules` / `css_modules` in `extension.json`.
 3. **The core provides generic mechanisms:** 12-column grid, extension card, sub-widgets, realtime transport, menu hooks, scenes, permission levels, process supervision. No per-extension knowledge.
 4. **Extensions run out of process.** In-process execution is not an option: a crash, hang or native fault in one extension must never take the host down (pitfalls 21, 26, 28).
@@ -131,6 +131,7 @@ Every extension gets its own process. `bridge.py` supervises them; the child is 
 
 - The child reads a temp JSON config (`config`, `ext_path`, `restrictions`, `coreframe_config`), applies its restrictions **before** importing extension code, sends `{"result": "ready", "id": 0}`, then serves JSON-RPC on stdio.
 - **The child source is mirrored, not imported.** `coreframe/extensions/ext_runner.py` is the only editable copy; `run_coreframe.pyw` embeds a byte-identical copy because `--ext-runner` must run before any heavy import. (`coreframe/__init__.py` is lazy now — pitfall 39 — so importing `coreframe.config` is cheap, but the child still must not import `coreframe` at all: it runs before `webview`, `WinForms` and the server exist, and inside the exe `sys.path` is not the repo.) After editing the runner, run `python tools/sync_ext_runner_source.py`; CI runs it with `--check` and fails on drift.
+- **The pipes are UTF-8 on both ends.** `bridge.py` passes `encoding='utf-8', errors='replace'` to `Popen`, and the runner reconfigures `sys.stdin` / `sys.stdout` the same way before its first write — otherwise every non-ASCII character in a widget value arrives as `U+FFFD` (pitfall 42).
 - Full protocol, config format and examples: `docs/BRIDGE.md`.
 
 ## Permissions
@@ -219,6 +220,10 @@ All `/api/*` routes require the `X-CoreFrame-Token` header (fetch it from `/api/
 39. **`coreframe/__init__.py` is lazy on purpose (PEP 562):** it resolves `app` / `socketio` / `start_server` on first attribute access. Importing a leaf module such as `coreframe.config` used to drag in Flask and cost 4.9 s, which is why the launcher carried its own copy of the `DATA_DIR` resolution. It is 275 ms now. Two copies of that path once risked the launcher and the server writing to different directories; `DATA_DIR` has exactly one source, `coreframe/config.py`.
 40. **The embedded runner block is generated:** `_EXT_RUNNER_SOURCE` in `run_coreframe.pyw` is rewritten by `tools/sync_ext_runner_source.py`. Editing it by hand is lost on the next run, and CI's `--check` fails the build. Edit `coreframe/extensions/ext_runner.py` instead (pitfall 20, [Process model](#process-model)).
 41. **The window-management core stays in `run_coreframe.pyw` on purpose:** its functions share live state (`window`, `_current_mode`, `_boot_mode_applied`) through module globals, so splitting it means a state-namespace refactor that would have to be verified against the frozen exe, not just the source tree. The self-contained helpers moved to `coreframe/host/` instead and are bound under their original names, so all 43 `_trace` call sites are unchanged. Split the rest only behind a cold-boot test of the built exe.
+
+42. **The child pipes had no encoding pinned, so `·` became `�`:** the child's `sys.stdout` encodes with the ANSI codepage (cp1252, measured) while `Popen(text=True)` without `encoding=` decodes as UTF-8 with `errors='replace'`. Every non-ASCII character an extension returned was replaced by `U+FFFD` — `100% � 3200 DPI`, `MSD-ONE � Main` — with no error logged anywhere, and the extensions were blameless. Measured with a three-line `Popen` probe: the raw byte on the wire was `\xb7`, decoded back as `\ufffd`. Pin UTF-8 on both ends; the child half is mirrored, so re-run the sync tool.
+43. **`--` does not always mean "no value":** `formatValue` collapsed any object without a `label` to the empty marker, so a widget whose action answered with a real payload (`get_config` returning a settings dict) looked exactly like a timeout or a dead extension. A structure in a `text` widget now renders as key/value rows — `.list-item` markup, 12 rows max then `+N more`, every value HTML-escaped, nested objects as truncated JSON — and `chart` keeps its single line. An object with `label` is unchanged. Test it with a node stub against the real file: `node --check` passes a module whose global is simply missing.
+44. **A `stderr=subprocess.PIPE` with no reader is a deadlock, not a log:** `bridge.py` only reads the child's stderr after the process has exited, and a Windows pipe buffer is finite. An extension that writes more than it (a library printing warnings in a loop) blocks on the write and dies as "unresponsive" instead of "noisy" — same failure shape as the poller leaks in pitfall 26, and it will read as an extension bug. Not fixed yet: drain it on a daemon thread into a bounded buffer and log the tail.
 
 ## Related documents
 

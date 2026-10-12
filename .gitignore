@@ -1,4 +1,5 @@
-venv/
+venv*/
+.venv*/
 __pycache__/
 *.pyc
 *.pyo
@@ -28,8 +29,11 @@ pyproject.toml
 
 # User data
 logs/
-widget_state.json
 *.log
+
+# Generated at runtime: DATA_DIR owns the live copies, these are stale leftovers
+extensions.json
+widget_state.json
 
 # Extensions (users install their own)
 extensions/*
