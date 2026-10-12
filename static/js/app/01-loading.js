@@ -1,10 +1,5 @@
-// ── Extension loading ─────────────────────────────────────────────
-
 async function loadExtensionsAsync(tries) {
-  // Called once from core.js. A single attempt was the entire recovery story:
-  // if the host was still restarting and that call failed, the dashboard stayed
-  // empty for the rest of the session, so a manual page reload was the only way
-  // back. A cold start only worked because the timing happened to line up.
+  // Retries: one failed call during a host restart used to leave the dashboard empty for good.
   tries = tries || 8;
   for (let attempt = 1; attempt <= tries; attempt++) {
     try {
@@ -21,8 +16,7 @@ async function loadExtensionsAsync(tries) {
         buildSidebar(data);
         renderWidgets(data);
         loadExtensionAssets(data);
-        // Disabled extensions are installed and registered, but not running.
-        // They are listed with widgets emptied so the host renders no card.
+// Disabled extensions are installed and registered, but not running.
         for (const [extId, ext] of Object.entries(data)) {
           if (ext.disabled) addExtensionToUI(extId, ext);
         }
@@ -39,10 +33,7 @@ async function loadExtensionsAsync(tries) {
 
 async function pollExtensionUpdates() {
   try {
-    // Self-heal: an empty dashboard means the extension list never landed.
-    // This poll runs every second, so it is the natural place to notice
-    // and retry, instead of leaving a manual page reload as the only way
-    // out.
+    // Self-heal: an empty dashboard means the list never landed, and this poll runs every second.
     if (!Object.keys(extensionsData || {}).length && !pollExtensionUpdates._healing) {
       pollExtensionUpdates._healing = true;
       loadExtensionsAsync(3).finally(() => { pollExtensionUpdates._healing = false; });

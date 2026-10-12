@@ -1,13 +1,5 @@
-// ── CoreFrame Bootstrap ───────────────────────────────────────────
-// This file initializes the app. All logic lives in:
-//   app/         — extension lifecycle: 00 state, 01 loading, 02 cards,
-//                  03 assets, 04 render, 05 refresh and repaint registry
-//   install.js   — marketplace, providers, package, install from file
-//   window.js    — window mode, F11, minimize, settings
-//   widgets/    — 00 state, 01 history, 02 appearance, 03 cards,
-//                  04 sub-widget, 05 value updates, 06 formatting and charts
-//   menu.js      — sidebar menu actions
-//   utils.js     — API helpers, formatting
+// CoreFrame Bootstrap. Logic lives in app/ (lifecycle), widgets/ (construction and
+// value updates), and install.js, window.js, menu.js, utils.js.
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.add('booting');
@@ -43,10 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setInterval(pollExtensionUpdates, 1000);
   applyStartupMode();
 
-  // ── Page error bridge ───────────────────────────────────────────
-  // Extension JS runs in this page. A throw in its boot script is invisible
-  // to the host: the card just never renders. The remote-debugging port is
-  // ignored when the host is elevated, so the page reports its own errors.
+// Extension JS runs here, so a throw in its boot script would only show as a missing card.
   try {
     var _errBuf = [];
     var _errTimer = null;
@@ -89,9 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 } catch (e) {}
 
-  // ── Freeze attribution: any main-thread block (>200ms) is reported
-  // with the culprit script URL to the backend log. Proves whether a
-  // freeze comes from core files or an extension script.
+// Any main-thread block over 200ms is reported with its culprit URL (pitfall 27).
   try {
     if (typeof PerformanceObserver !== 'undefined') {
       var _ltBuf = [];
@@ -184,9 +171,7 @@ function initWebSocket() {
   socket.on('realtime_update', (data) => {
     if (!data.ext || !data.values) return;
     if (!window.extensionsData) return;
-    // Host immunity: no DOM writes mid-drag. Queue latest values only;
-    // they flush on 'coreframe-dragend'. A heavy widget updating at 2s
-    // can never jank a drag this way.
+    // No DOM writes mid-drag: values queue and flush on coreframe-dragend (pitfall 19).
     if (window.__coreframeDragging) {
       window.__pendingWidgetUpdates = window.__pendingWidgetUpdates || {};
       Object.keys(data.values).forEach(id => {
@@ -224,9 +209,7 @@ function initWebSocket() {
     });
   }
 
-  // Flush queued realtime values once the gesture ends, time-sliced
-  // (8ms budget per frame): applying every heavy redraw in a single
-  // frame would be its own drop jolt.
+  // Flush queued values on an 8ms per-frame budget: one big redraw would jolt the drop.
   window.addEventListener('coreframe-dragend', () => {
     const pending = window.__pendingWidgetUpdates;
     window.__pendingWidgetUpdates = {};
