@@ -485,13 +485,7 @@
     return parseFloat(cs.gridAutoRows) + gap || 93;
   }
 
-  // Real geometry of the grid, read from the computed tracks: the same numbers
-  // the overlay lines are drawn from, gaps included. Deriving it from
-  // width / cols instead drifts, because gap removes (cols - 1) * gap px and
-  // the error accumulates to ~80px by the last column.
-  // Only a used length counts as a track size. parseFloat('1fr') is 1, not
-  // NaN, so a fr token would silently turn into a 1px track and every row
-  // would collapse on top of the first one.
+  // Track sizes from the computed value: only px counts, since parseFloat('1fr') is 1.
   function pxTracks(value) {
     var out = [];
     (value || '').split(' ').forEach(function (tok) {
@@ -501,8 +495,7 @@
     return out;
   }
 
-  // This grid is always repeat(n, 1fr), so uniform tracks can be derived
-  // exactly from the box and the gap when the computed value is not a length.
+  // Fallback when the computed value is not a length: this grid is always repeat(n, 1fr).
   function uniformTracks(size, gap, n) {
     if (!(n > 0)) return [];
     var t = (size - gap * (n - 1)) / n;
@@ -726,10 +719,7 @@
       } catch (e) {}
     }
 
-    // Pitch/gap survive across gestures (grid CSS is static); keyed by
-    // grid height + row count so scene/window changes invalidate. Kills
-    // the per-grab getComputedStyle (full-document recalc) in the common
-    // case: only a height/rows change pays for a fresh style read.
+    // Pitch/gap cached per grid height + row count, so only a resize pays a style read.
     let _pitchCache = null;
     let _dragCache = null;
     let _geomMid = false;
@@ -1062,13 +1052,8 @@
       return best;
     }
 
-    // Two elements, on purpose. The spacer is a real grid item that keeps the
-    // source cell occupied, so siblings do not reflow when the dragged widget
-    // leaves the flow; it is empty and unstyled, so it adds nothing to track
-    // sizing. The projection is absolute and painted, so it can neither create
-    // an implicit row nor squeeze the 1fr tracks, which is exactly what a
-    // bordered grid item did: one extra row split the fixed height between more
-    // tracks and every cell shrank under the cursor.
+    // The spacer is a real grid item that holds the source cell; the projection is
+    // absolute, so neither adds a row or shrinks the 1fr tracks.
     function ensureDragEl(metrics, startCol, startRow) {
       if (!spacer) {
         spacer = document.createElement('div');
@@ -1291,12 +1276,7 @@
         ghostW = wr.width;
         ghostH = wr.height;
 
-        // Live drag: the widget itself follows the mouse (full visuals,
-        // zero clone cost). A placeholder holds its source cell so no
-        // sibling reflows. Moved via transform = compositor only, no
-        // layout per frame no matter how heavy the widget content is.
-        // Core live updates stay paused during the gesture (see core.js),
-        // so the widget also looks frozen while dragged.
+        // Live drag: the widget follows the mouse via transform, so no layout per frame.
         ensureDragEl(metrics, startCol, startRow);
         grabLeft = wr.left; grabTop = wr.top;
         ghostX = e.clientX - grabDX; ghostY = e.clientY - grabDY;

@@ -263,10 +263,7 @@ function _createExtensionCardInner(ext) {
   return el;
 }
 
-// Mark a freshly built card as "loading": its widgets still hold their raw
-// initial state ("--", "[6]", "Loading...") until the extension script mounts.
-// cfClearLoadingState() removes the class and the bars once real content lands.
-// Always pair this with cfWatchForFirstPaint(), which is what clears it.
+// Mark a fresh card as loading; cfClearLoadingState() lifts it.
 function cfMarkLoadingState(card, widgetCount) {
   if (!card || card.classList.contains('cf-loading')) return;
   card.classList.add('cf-loading');
@@ -282,9 +279,7 @@ function cfMarkLoadingState(card, widgetCount) {
   card.appendChild(bars);
 }
 
-// Stop showing a freshly built card as "loading" once it has real content.
-// Called when the extension paints into the body, or when the core writes a
-// value. Removes the shimmer bars and reveals the widgets underneath.
+// Reveal a loading card once it has real content.
 function cfClearLoadingState(card) {
   if (!card || !card.classList.contains('cf-loading')) return;
   card.classList.remove('cf-loading');
@@ -309,10 +304,7 @@ function createSubWidget(widgetDef, extId) {
 
   const body = document.createElement('div');
   body.className = 'widget-sub-body';
-  // Marks the node this widget type paints into. The ownership guard in
-  // updateWidgetValue used to test for ".widget-value", which only type:text
-  // ever creates, so chart/badge/list always looked "stolen" and never got
-  // painted (they sat on "--" / "Loading..." forever).
+  // Each type overwrites this with the node it actually paints into.
   body.dataset.cfValueSel = '.widget-value';
 
   switch (type) {
@@ -611,9 +603,7 @@ function createSubWidget(widgetDef, extId) {
   return el;
 }
 
-// Which node inside a sub-widget its type paints into. Read from the marker
-// written at construction (see createSubWidget). Shared by widgets.js and
-// app.js so the ownership check never drifts per-type again.
+// The node this sub-widget type paints into, read from the construction marker.
 function cfValueSelector(widgetEl) {
   var bodyEl = widgetEl && widgetEl.querySelector('.widget-sub-body');
   return (bodyEl && bodyEl.dataset.cfValueSel) || '.widget-value';
@@ -624,23 +614,11 @@ function updateWidgetValue(widgetEl, response) {
   // Core wrote a value: the card has content, stop the loading shimmer.
   const ownerCard = widgetEl.closest('.widget-extension');
   if (ownerCard) cfClearLoadingState(ownerCard);
-  // Ownership, detected: an extension that renders its own DOM removes the
-  // value node the core created, and with it gone the core must not paint over
-  // content it does not own. Which node counts as "the value" depends on the
-  // widget type (text->.widget-value, badge->.badge-label, list->.widget-list-items,
-  // chart->.chart-value), so read it from the marker instead of hardcoding
-  // .widget-value, which made every non-text type look stolen.
+  // A missing value node means the extension renders this card itself.
   var valueSel = cfValueSelector(widgetEl);
   if (!widgetEl.querySelector(valueSel) && widgetEl.closest('.widget-body')) return;
   if (response && response.error) {
-    // A host-side timeout is not the widget's content. Painting it as such made
-    // the card show "Timeout: get_ip no responde (2.0s)" where the IP belongs, and
-    // because that branch never touched _widgetHash, an unchanged value on the
-    // next tick hit the hash guard and left the error stuck for the whole
-    // session (a page reload cleared it, which is why F5 looked like a fix).
-    // Restore the type's empty marker instead, so app.js's existing retry test
-    // (-- / Loading... / empty) schedules another attempt and the real value
-    // repaints on top.
+    // A timeout is not content: restore the empty marker so app.js retries it.
     var valEl = widgetEl.querySelector('.widget-value, .widget-list-items, .widget-terminal-output, .badge-label');
     if (valEl) {
       var isBadge = valEl.classList.contains('badge-label');
@@ -792,12 +770,7 @@ function formatValue(el, format, val) {
       break;
     default:
       if (typeof val === 'object') {
-        // A text widget cannot show a structure. An extension that returns an
-        // array or an object paints it in its own DOM, so there is nothing to
-        // display here. Writing "[6]" (an item count) was the "old error" the
-        // cards kept showing: it looked like a rendering fault and, for a
-        // widget the extension never paints, it stayed forever. Stay on the
-        // empty marker instead and let the extension own the card.
+        // A text widget cannot display a structure; the extension paints it itself.
         if (val.label !== undefined) {
           el.textContent = val.label;
         } else {
