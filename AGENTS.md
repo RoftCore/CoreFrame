@@ -210,6 +210,9 @@ All `/api/*` routes require the `X-CoreFrame-Token` header (fetch it from `/api/
 37. **Split frontend files, but keep every symbol global:** `app.js` and `widgets.js` are now directories of numbered modules loaded by `index.html` in order. They stay classic scripts sharing one global scope, so each top-level `let`/`const`/`function` must be declared in exactly one module — a name declared twice is a `SyntaxError` that kills the whole page, and the modules never define anything as `window.*` except the hooks extensions call. Renaming a symbol means editing every consumer, so prefer splitting over renaming.
 38. **A cached `index.html` outlives the file layout it names:** after splitting, a window that still holds the old shell requests the removed `app.js` and gets a 404 with no visible error. Reload the window once after any change to the script tags.
 
+39. **`coreframe/__init__.py` is lazy on purpose (PEP 562):** it resolves `app` / `socketio` / `start_server` on first attribute access. Importing a leaf module such as `coreframe.config` used to drag in Flask and cost 4.9 s, which is why the launcher carried its own copy of the `DATA_DIR` resolution. It is 275 ms now. Two copies of that path once risked the launcher and the server writing to different directories; `DATA_DIR` has exactly one source, `coreframe/config.py`.
+40. **The embedded runner block is generated:** `_EXT_RUNNER_SOURCE` in `run_coreframe.pyw` is rewritten by `tools/sync_ext_runner_source.py`. Editing it by hand is lost on the next run, and CI's `--check` fails the build. Edit `coreframe/extensions/ext_runner.py` instead (pitfall 20, [Process model](#process-model)).
+
 ## Related documents
 
 - `docs/EXTENSIONS.md` — authoring reference: manifest, widget types, permissions, HTTP API, publishing.
