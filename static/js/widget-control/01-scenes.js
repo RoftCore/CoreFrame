@@ -99,10 +99,7 @@
     if (typeof feather !== 'undefined') feather.replace();
   };
 
-// Switching scenes commits synchronously: zero network, zero awaits, zero extension
-    // calls. Content fills in afterwards at its own pace, so nothing holds the switch
-    // hostage. Rapid toggles coalesce into one apply pass plus one POST, and the reveal
-    // is staged in per-frame batches so a heavy widget only delays its own paint.
+// Switching scenes commits synchronously with zero network or extension calls.
   s._switchGen = 0;
   // Widgets revealed per animation frame during staged reveal.
   s._revealPerFrame = 4;

@@ -1,5 +1,4 @@
-// CoreFrame Bootstrap. Logic lives in app/ (lifecycle), widgets/ (construction and
-// value updates), and install.js, window.js, menu.js, utils.js.
+// CoreFrame Bootstrap. Logic lives in app/ (lifecycle) and widgets/ (construction).
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.add('booting');

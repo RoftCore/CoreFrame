@@ -124,8 +124,7 @@ async function refreshWidget(extId, wDef) {
       try { updateWidgetValue(el, { error: 'Connection error' }); } catch (e2) {}
     } finally {
       delete widgetInflight[key];
-      // A widget still on its empty marker is retried: the host asks once, and a slow
-      // first attempt left it on "--" for the rest of the session.
+// A widget still on its empty marker is retried: a slow first attempt used to strand it.
       if (el && el.isConnected && !widgetInflight[key]) {
         const valEl = el.querySelector(cfValueSelector(el));
         const cur = (valEl && (valEl.textContent || '').trim()) || '';

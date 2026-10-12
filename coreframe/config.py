@@ -73,8 +73,7 @@ if getattr(sys, 'frozen', False):
 
 # ── Logging ────────────────────────────────────────────────────────
 
-# Rotating: an unbounded FileHandler grew this to 138 MB, almost all of it
-# faulthandler thread dumps from before the repeat-dump fix. Capped at 8 MB x 4.
+# Rotating and capped: an unbounded handler grew this to 138 MB of thread dumps (pitfall 28).
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',

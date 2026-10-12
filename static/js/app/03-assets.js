@@ -12,9 +12,7 @@ function loadExtensionAssets(data) {
     if (isHeavy) heavy.push([extId, ext]);
     else light.push([extId, ext]);
   }
-  // Cache-buster: one stamp per page load so extension JS/CSS can never
-  // go stale in the webview disk cache (a stale bundle looks exactly like
-  // "the fix didn't work"). Localhost: zero real cost.
+// Cache-buster per page load: a stale bundle looks exactly like a failed fix (pitfall 4).
   var assetV = (typeof window.__cfAssetV !== 'undefined' && window.__cfAssetV) ||
     (window.__cfAssetV = Date.now());
   function loadExtAssets(extId, ext) {

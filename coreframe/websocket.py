@@ -120,14 +120,12 @@ def _poll_extension(ext_id, ext_data, interval_ms):
                 _exit("extension unloaded")
                 break
             if not _is_visible():
-                # Hidden in all scenes -> suspend polling to save CPU/RAM, will
-                # be resumed on unhideWidget -> _start_polling.
+# Hidden everywhere -> suspend polling; unhideWidget resumes it.
                 _exit("hidden in every scene")
                 break
             tick = time.monotonic()
             values = {}
-            # Actions run concurrently: serial execution let the slowest widget
-            # hold the whole tick, leaving fast ones on "--" for seconds.
+# Actions run concurrently: serially the slowest widget held the whole tick.
             wdefs = [w for w in cfg.get('widgets', []) if w.get('action')]
             if wdefs:
                 if len(wdefs) == 1:

@@ -55,8 +55,7 @@
           try { s.applyStyleToWidget(entry.extId); } catch (e) {}
         }
       }
-      // A drop leaves a spacer and a projection behind; both would otherwise
-      // keep the old cell occupied and make the restored layout look wrong.
+// A drop leaves a spacer and projection behind that would keep the old cell occupied.
       document.querySelectorAll('.widget-drag-placeholder, .widget-drag-spacer')
         .forEach(function (n) { n.remove(); });
       if (typeof s.applyHiddenState === 'function') {
@@ -92,8 +91,7 @@
       var entry = past.pop();
       future.push(entry);
       if (!restore(entry, 'before')) {
-        // Nothing to restore (the scene is gone); put it back so the stack
-        // stays consistent instead of silently swallowing the step.
+// Scene is gone: put it back so the stack stays consistent.
         future.pop();
         past.push(entry);
         return false;

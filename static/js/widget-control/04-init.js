@@ -116,9 +116,7 @@
     if (!window.extensionsData || !Object.keys(window.extensionsData).length) return;
     if (!document.querySelector('.widget')) return;
     _applyPending = true;
-    // Snapshot which extensions exist at page load — autoAddExtensions
-    // will skip these (unless first run), preventing all widgets from
-    // appearing when only a subset was saved in the scene.
+    // Snapshot at page load so autoAddExtensions skips them and only saved widgets appear.
     if (_knownExtensions === null) {
       _knownExtensions = {};
       for (var extId in window.extensionsData) {

@@ -26,8 +26,7 @@ def register_actions_routes(app, socketio):
     @app.route('/api/extension/<ext_id>/<action>', methods=['GET', 'POST'])
     def api_extension_action(ext_id, action):
         if ext_id not in extensions:
-            # Not registered yet. If it exists on disk it is still booting, so
-            # wait briefly for it instead of failing the caller's first attempt.
+# On disk but not registered yet: it is booting, so wait rather than fail the caller.
             if _ext_is_booting(ext_id):
                 deadline = time.time() + 3.0
                 while time.time() < deadline and ext_id not in extensions:
