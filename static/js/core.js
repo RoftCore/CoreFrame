@@ -1,11 +1,12 @@
 // ── CoreFrame Bootstrap ───────────────────────────────────────────
 // This file initializes the app. All logic lives in:
-//   app.js      — extension loading, polling, sidebar, widget rendering
-//   install.js  — marketplace, providers, package, install from file
-//   window.js   — window mode, F11, minimize, settings
-//   widgets.js  — widget creation, updates, charts
-//   menu.js     — sidebar menu actions
-//   utils.js    — API helpers, formatting
+//   app/         — extension lifecycle: 00 state, 01 loading, 02 cards,
+//                  03 assets, 04 render, 05 refresh and repaint registry
+//   install.js   — marketplace, providers, package, install from file
+//   window.js    — window mode, F11, minimize, settings
+//   widgets.js   — widget creation, updates, charts
+//   menu.js      — sidebar menu actions
+//   utils.js     — API helpers, formatting
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.add('booting');
