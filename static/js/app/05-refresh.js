@@ -1,6 +1,4 @@
-// ── Repaint registry ──────────────────────────────────────────────
-// Extensions that paint their own card register here so the core can ask them
-// to repaint after the card is rebuilt.
+// Extensions that paint their own card register here so the core can ask for a repaint.
 const cfRerenderHandlers = {};
 function cfHasRerenderHandler(extId) { return !!cfRerenderHandlers[extId]; }
 function cfNotifyCardRerender(extId) {
@@ -12,8 +10,7 @@ window.cfOnCardRerender = function (extId, fn) {
   if (typeof fn !== 'function') return;
   cfMarkExtensionLive(extId);
   cfRerenderHandlers[extId] = fn;
-  // Registration precedes the paint, so the shimmer stays until cfWatchForFirstPaint.
-  // Drop any core clock: the extension owns the DOM from now on.
+  // Registration precedes the paint, so the shimmer stays; the extension now owns the DOM.
   const meta = (window.extensionsData || {})[extId];
   for (const w of ((meta && meta.widgets) || [])) {
     const k = `${extId}-${w.id}`;
@@ -44,8 +41,7 @@ function cfCoreOwnsWidgets(ext, extId) {
 // JS extensions own their content, except when nothing would ever fill the card.
 function cfNeedsWidgetPriming(ext, extId) {
   if (cfCoreOwnsWidgets(ext, extId)) {
-    // Core-owned: prime it. Unless it declares no interval and is not realtime,
-    // in which case there is no clock and one priming call fills it for good.
+// Core-owned: prime it, unless it has no clock at all (one call then fills it for good).
     const interval = ext.refresh_interval || 0;
     return !(ext.realtime === true || interval > 0);
   }
@@ -54,14 +50,7 @@ function cfNeedsWidgetPriming(ext, extId) {
 }
 
 function refreshAllWidgets(data) {
-  // Prime core-owned widgets immediately, but give js extensions a beat to boot
-  // and claim their cards first. At this point in the page (renderWidgets runs
-  // before loadExtensionAssets) no extension script has executed yet, so every
-  // js extension would look "core-owned" and the core would write the raw
-  // payload onto cards the extension is about to paint — the "[6]" / raw-text
-  // flash on entry. Waiting lets the scripts register their repaint hooks (or,
-  // for hookless painters, whose DOM is preserved by cfCardIsPainted) so the ownership
-  // check below is accurate.
+  // Prime core-owned widgets, but let js extensions boot and claim their cards first.
   const primeOne = function (extId, ext) {
     if (ext.disabled) return;
     if (!cfNeedsWidgetPriming(ext, extId)) return;
@@ -83,8 +72,7 @@ function refreshAllWidgets(data) {
   }
 }
 
-// Core immunity: hidden widgets cost zero backend calls and zero DOM work.
-// A slow/hanging widget that nobody sees can never slow the UI.
+// Hidden widgets cost zero backend calls and zero DOM work.
 const widgetInflight = {};
 // How many times a widget has been retried after coming back empty.
 const retryCount = {};
@@ -114,11 +102,9 @@ function isWidgetActive(extId, widgetId) {
 
 async function refreshWidget(extId, wDef) {
   const key = `${extId}-${wDef.id}`;
-  // Host immunity: no backend calls and no DOM writes mid-drag. The
-  // interval fires again after drop and catches up by itself.
+  // No backend calls and no DOM writes mid-drag; the next tick catches up.
   if (window.__coreframeDragging) return;
-  // Anti pile-up: a previous call still running (e.g. 3s backend on a 3s
-  // interval) skips instead of stacking overlapping requests.
+  // Anti pile-up: a still-running call skips instead of stacking requests.
   if (widgetInflight[key]) return;
   if (!isWidgetActive(extId, wDef.id)) return;
   const el = document.querySelector(`[data-widget-id="${wDef.id}"][data-ext-id="${extId}"]`);
@@ -138,12 +124,8 @@ async function refreshWidget(extId, wDef) {
       try { updateWidgetValue(el, { error: 'Connection error' }); } catch (e2) {}
     } finally {
       delete widgetInflight[key];
-      // A widget that never received a value used to stay on "--" for the rest
-      // of the session: the host asks once at start, and an extension that owns
-      // its own DOM polls by itself from then on. get_processes sits right at
-      // the 0.8s budget, so on a loaded machine the first attempt misses and
-      // nothing ever asked again. The empty-node test is per type: a badge sits
-      // on "Loading..." and a list on "", so "--" is only the text/chart marker.
+      // A widget still on its empty marker is retried: the host asks once, and a slow
+      // first attempt left it on "--" for the rest of the session.
       if (el && el.isConnected && !widgetInflight[key]) {
         const valEl = el.querySelector(cfValueSelector(el));
         const cur = (valEl && (valEl.textContent || '').trim()) || '';

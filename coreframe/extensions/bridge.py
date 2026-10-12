@@ -34,10 +34,7 @@ if sys.platform.startswith('win'):
 subprocess = _subprocess
 
 
-# ── UAC Elevation ─────────────────────────────────────────────────
-# Methods that INHERENTLY require admin (always need elevation).
-# bash/exec/system_command are NOT here — they run at user level and only
-# need elevation if the specific command fails (the extension handles that).
+# Methods that inherently require admin; bash/exec elevate only when they fail.
 _ADMIN_METHODS = {
     'registry_write', 'service_control', 'adapter_control',
     'delete_file',
@@ -181,9 +178,7 @@ _BRIDGE_ESCALATION_METHODS = {
 class SubprocessBridge:
     """JSON-RPC bridge for multi-language extensions (node, python subprocess)."""
 
-    # Every spawned child registers here so the restart drain can reap even
-    # orphans whose bridge object never made it into the extensions dict
-    # (e.g. constructor raising after spawn on slow ready-handshake).
+    # Every spawned child registers here so the drain can reap orphans (pitfall 26).
     _live_children = set()
     _live_lock = threading.Lock()
 
@@ -204,10 +199,7 @@ class SubprocessBridge:
         self._lock = threading.Lock()
         self._reader_lock = threading.Lock()
         self._read_buffer = {}
-        # Monotonic request ids. The previous time-derived id repeated whenever two
-        # calls to the same method landed in the same millisecond, and both
-        # responses then collided on one _read_buffer key. Concurrency makes that
-        # far likelier, because short calls no longer queue behind long ones.
+        # Monotonic request ids: time-derived ones collided in _read_buffer under concurrency.
         self._rid_seq = 0
         self._running = True
         self._started = False
@@ -472,23 +464,12 @@ class SubprocessBridge:
             self._proc.stdin.write(req)
             self._proc.stdin.flush()
 
-        # NOTE: get_entries (Autoruns full scan, ~4s) is NOT here on purpose —
-        # it is heavy legitimate work, not a lightweight poll.
-        #
-        # Measured on a loaded machine: get_processes 0.83-1.23s, get_open_ports
-        # 0.61s. Both are widget reads that belong to the short budget, and
-        # both sat right on the 0.8s edge, so they missed it and the widget was
-        # left on -- with nothing asking again. 2s covers the observed range with
-        # room to spare and is still far below the 30s heavy budget.
+        # Budgets from measured latency, not guesses. get_entries (~4s full Autoruns scan)
+        # is deliberately absent: heavy legitimate work, not a lightweight poll.
         _FAST = ('get_config', 'get_status', 'get_cpu', 'get_ram', 'get_gpu',
                  'get_disk', 'get_fortune', 'get_notes', 'get_ping')
-        # Measured cold, one call at a time on an idle machine: get_ip median
-        # 1.461s, max 3.268s, and it is over 2.0s in 15.6% of calls. get_ip has
-        # its own internal deadline of 6.5s (IP_TIMEOUT 3.5 + slack 3.0), so a
-        # 2s host budget truncated work the method was still legitimately doing,
-        # and the truncation showed up on screen as "Timeout: get_ip no
-        # responde". get_processes measured 2609ms cold (845-1008ms hot), so it
-        # needs the same headroom. 4s covers both; the heavy budget is 30s.
+        # 4s because get_ip median is 1.46s cold and exceeds 2.0s in 15% of calls;
+        # a 2s budget truncated work the method was still legitimately doing.
         _MEDIUM = ('get_ip', 'check_vpn', 'get_open_ports', 'get_processes')
         if method in _FAST:
             timeout = 2.0
@@ -509,13 +490,8 @@ class SubprocessBridge:
                 return {'value': result}
             time.sleep(0.01)
 
-        # Timeout: the caller gets an error, but a strike is only counted when
-        # the child may actually be dead (no fresh heartbeat). A live child
-        # serves heartbeats from its reader thread even while every worker is
-        # busy; timing out against it means slow, not dead. Restarting a slow
-        # child wipes its warm caches and guarantees the next round is slow
-        # too — the degraded/restart/quarantine spiral. Heartbeats prove
-        # liveness, so they veto the strike.
+        # A strike needs a stale heartbeat: a live-but-busy child times out slow, not dead,
+        # and restarting it wipes warm caches into a degrade/restart spiral (pitfall 26).
         try:
             h = self._ext_isolation.health.get(self.ext_id) if hasattr(self, '_ext_isolation') and self._ext_isolation else None
             if h:
