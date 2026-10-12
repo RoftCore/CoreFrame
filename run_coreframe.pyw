@@ -8,15 +8,13 @@ import queue as _queue
 import ctypes
 from ctypes import wintypes
 import tempfile
-# Earliest possible boot marker (logging not set up yet) — splits
-# bootloader/MEIPASS extraction time from Python import time.
+# Earliest possible boot marker: splits bootloader extraction from Python import time.
 try:
     with open(os.path.join(tempfile.gettempdir(), 'cf_boot_mark.txt'), 'w') as _bf:
         _bf.write('py %.3f\n' % time.time())
 except Exception:
     pass
-# Child extension runners must not flash the bootloader splash: kill it
-# immediately (pyi_splash exists only in frozen builds).
+# Child runners must never flash the bootloader splash (pyi_splash is frozen-only).
 if '--ext-runner' in sys.argv:
     try:
         import pyi_splash
@@ -63,8 +61,7 @@ if '--ext-runner' not in sys.argv:
                 except Exception:
                     pass
                 if not _brought:
-                    # Title fallback: any visible top-level window owned by
-                    # another CoreFrame.exe process (ctypes only, no deps).
+# Title fallback: any visible top-level window of another CoreFrame.exe (ctypes only).
                     try:
                         _found = []
                         _WINFUNCTYPE = ctypes.WINFUNCTYPE
@@ -605,9 +602,7 @@ except Exception:
     except Exception:
         pass
 
-# Freeze forensics and early-boot helpers live in coreframe/host/. They are bound
-# here under their original names and signatures so no call site changed; the
-# modules take their paths as arguments and hold no launcher state.
+# Early-boot helpers live in coreframe/host/, bound under their original names.
 from coreframe.host import boot as _boot
 from coreframe.host import diagnostics as _diag
 
@@ -624,9 +619,7 @@ _destroy_splash = _boot.destroy_splash
 _show_error = _boot.show_error
 _ensure_persistent_runner = lambda: _boot.ensure_persistent_runner(DATA_DIR_EARLY)
 
-# Serialized UI-worker: EVERY WinForms/pythonnet touch goes through this single
-# thread. Concurrent Invoke/enumeration from multiple threads was causing
-# intermittent freezes after load.
+# Every WinForms/pythonnet touch goes through this thread; concurrency froze the UI.
 _uiq = _queue.Queue()
 
 def _ui_worker():
@@ -667,9 +660,7 @@ if _SINGLE_INSTANCE_MUTEX and kernel32.GetLastError() == 183:  # ERROR_ALREADY_E
         pass
     sys.exit(0)
 
-# DATA_DIR lives in coreframe.config; coreframe/__init__ is lazy so this is cheap.
-# Kept in sync by AGENTS.md: two copies here once made the launcher and the
-# server resolve different data dirs.
+# Single source of truth: coreframe/config.py, cheap because __init__ is lazy (pitfall 39).
 try:
     from coreframe.config import DATA_DIR as DATA_DIR_EARLY
 except Exception:
@@ -711,9 +702,7 @@ SAVED_MODE = _read_mode_early()
 
 import urllib.request  # deferred: keep pre-splash boot minimal
 
-# WinForms / System imports (via pythonnet) — deferred here (after splash
-# is already painting) because initializing .NET costs ~1s of black screen.
-# Nothing above uses clr/Point/WinFormsTimer; first use is post-webview.
+# Deferred until the splash paints: initializing .NET costs ~1s of black screen.
 try:
     import clr
     clr.AddReference('System.Drawing')
@@ -740,8 +729,7 @@ if getattr(sys, 'frozen', False):
 else:
     STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 
-# Boot Flask in parallel with the heavy webview imports below —
-# _wait_for_server() blocks later until it answers.
+# Boot Flask in parallel with the webview imports below; _wait_for_server needs it up.
 debug_mode = not getattr(sys, 'frozen', False)
 threading.Thread(target=start_server,
                  kwargs={'host': HOST, 'port': PORT, 'debug': debug_mode},
@@ -775,10 +763,7 @@ def _patched_bform_init(self, window, cache_dir):
         raise
 _wf.BrowserView.BrowserForm.__init__ = _patched_bform_init
 
-# Fix: Python 3.14 ctypes rejects None for integer params in SetWindowPos.
-# pywebview's move() passes None for cx/cy (SWP_NOSIZE) — causes
-# ctypes.ArgumentError flood → main thread deadlock → crash.
-# v2: wrapped in try/except with handle validation for native crash diagnostics.
+# Fix: pywebview's move() passes None for cx/cy, which ctypes rejects (pitfall 20).
 _orig_bv_move = _wf.BrowserView.BrowserForm.move
 _MOVE_CALLS = 0
 def _patched_bv_move(self, x, y):
@@ -812,10 +797,7 @@ def _patched_bv_move(self, x, y):
                       x, y, getattr(self, '_scale', 'N/A'))
 _wf.BrowserView.BrowserForm.move = _patched_bv_move
 
-# At login the disk is thrashed (HDD + AV + login storm): the server needs
-# more chances in hidden mode instead of dying on the first timeout.
-# Manual launches keep fast-fail + popup; autostart fails silently
-# (no popup over the login screen) after retries.
+# At login the disk thrashes: hidden mode retries, manual launches fail fast with a popup.
 _server_attempts = 3 if (AUTOSTART_FLAG or MINIMIZED_FLAG) else 1
 _server_timeout = 30 if (AUTOSTART_FLAG or MINIMIZED_FLAG) else 20
 _server_ok = False
@@ -837,8 +819,7 @@ if not _server_ok:
 _trace('server ready')
 print('[BOOT] Flask ready', flush=True)
 if MINIMIZED_FLAG:
-    # Window stays hidden (tray) — nothing else will close the splash.
-    # NOTE: --autostart boots VISIBLE (only --minimized hides).
+    # Hidden (tray) mode: nothing else closes the splash. --autostart boots visible.
     _close_boot_splash()
 else:
     _splash_text('Opening window...')
@@ -847,19 +828,13 @@ config = load_config()
 mode = config.get('window_mode', SAVED_MODE)
 initial_fullscreen = (mode == 'fullscreen')
 initial_frameless = (mode == 'frameless')
-# Live window mode: init from saved config, updated by set_window_mode.
-# _focus_impl uses it to re-assert Maximized after minimize/restore.
+# Live mode; _focus_impl re-asserts Maximized after minimize/restore.
 _current_mode = mode
 
 COREFRAME_BG = '#0d0d1a'
 
 _trace(f'creating window url=.../?mode={mode} hidden=True')
-# NOTE: NEVER create the window with frameless=True. On some PCs the native
-# frameless+hidden creation wedges WebView2: `loaded` never fires, the
-# watchdog force-reveal dies silently and the app hangs on boot (manual
-# switch to frameless later works fine). Always create windowed and let
-# _apply_initial_frameless() (reveal/watchdog/focus-restore paths below) do
-# the frameless switch post-show — that path is proven (same as F11 switch).
+# NEVER frameless=True at creation: it wedges WebView2 so `loaded` never fires (pitfall 23).
 window = webview.create_window(
     'CoreFrame',
     url=f'http://{HOST}:{PORT}/?mode={mode}',
@@ -885,11 +860,7 @@ def _setup_tray():
     global _tray_icon
     if not (AUTOSTART_FLAG or MINIMIZED_FLAG):
         return
-    # CRITICAL: the tray must live on its own STA thread with its own
-    # message loop. Creating ANY WinForms object on the main thread before
-    # webview.start() breaks pywebview's setup_app with
-    # InvalidOperationException (SetCompatibleTextRenderingDefault must run
-    # before the first IWin32Window exists).
+# CRITICAL: the tray needs its own STA thread; WinForms before webview.start() breaks it.
     try:
         import System.Threading as ST
         import System.Windows.Forms as WinForms
@@ -905,8 +876,7 @@ def _setup_tray():
                 ni_local = WinForms.NotifyIcon()
                 ni_local.Icon = icon
                 ni_local.Visible = True
-                # AUTOSTART_FLAG is also true for --minimized, so test that one first
-                # or every hidden boot would claim to be a visible one.
+# AUTOSTART_FLAG is also true for --minimized, so test that one first.
                 if MINIMIZED_FLAG:
                     ni_local.Text = 'CoreFrame \u2014 minimizado'
                 else:
@@ -979,10 +949,7 @@ _setup_tray()
 
 _shown = threading.Event()
 _frameless_ok = False
-# Set once the saved window-mode geometry has been applied at boot
-# (reveal path) or the user took manual control (set_window_mode).
-# focus_window checks it so the first reveal from hidden/autostart mode
-# also maximizes instead of showing a bare 1280x800 frameless window.
+# Geometry applied at boot or by the user; focus_window checks it before maximizing.
 _boot_mode_applied = False
 
 def _ui(i, WinForms, fn):
@@ -1084,14 +1051,10 @@ def _do_reveal():
         _close_boot_splash()
         _trace('reveal: done')
 
-        # Apply frameless bounds at startup AFTER window is visible.
-        # Use Invoke (synchronous) instead of BeginInvoke: we're on a
-        # worker thread so this blocks only this thread while the UI
-        # thread processes the resize synchronously — no race.
+        # Invoke (not BeginInvoke) here: we are on a worker thread, so this blocks only it.
         if initial_frameless:
             _apply_initial_frameless()
-            # Safety-net: re-apply after 1s in case the first pass was
-            # overridden by late WinForms layout processing.
+# Safety-net: re-apply after 1s in case late layout processing overrode it.
             def _frameless_timer():
                 if not _frameless_ok:
                     _apply_initial_frameless()
@@ -1101,15 +1064,13 @@ def _do_reveal():
 
 window.events.loaded += _on_loaded
 
-# WATCHDOG — if `loaded` never fires (pywebview quirk with hidden+url),
-# force-reveal so the app can never hang on the splash forever.
+# WATCHDOG: `loaded` never fires with hidden+url, so force-reveal to avoid a stuck splash.
 def _watchdog():
     if _shown.is_set():
         return
     _shown.set()
     _trace('WATCHDOG: loaded did not fire in 4s — forcing reveal')
-    # Never pop a visible window in minimized (hidden) mode.
-    # _destroy_splash is idempotent, safe to call again here.
+# Never pop a window in minimized mode; _destroy_splash is idempotent.
     if MINIMIZED_FLAG:
         _trace('WATCHDOG: hidden mode, keeping window hidden')
         _destroy_splash()
@@ -1121,12 +1082,7 @@ def _watchdog():
     def _force():
         i, WinForms = _get_winform()
         if i:
-            # NEVER touch the WebView2/STA thread synchronously here: when
-            # `loaded` never fires the STA is usually wedged, and any sync
-            # COM/Invoke call blocks forever, killing the whole force-reveal
-            # (no Opacity restore, no splash kill, no frameless) — the app
-            # then sits dead with the splash stuck ("no responde").
-            # BeginInvoke is fire-and-forget: the reveal always proceeds.
+# NEVER touch the STA synchronously here: it is wedged on this path (pitfall 25).
             try:
                 i.BeginInvoke(WinForms.MethodInvoker(
                     lambda: _try_dark_webview_background(i)))
@@ -1305,9 +1261,7 @@ def _focus_impl():
             return
         def _do():
             try:
-                # _do runs on the real UI thread (Invoke'd if required).
-                # Hidden/autostart windows MUST be shown explicitly:
-                # BringToFront/Focus alone never unhide a Visible=False form.
+# Hidden/autostart windows need an explicit show: BringToFront never unhides them.
                 try:
                     i.Show()
                 except Exception:
@@ -1318,9 +1272,7 @@ def _focus_impl():
                 i.BringToFront()
                 i.TopMost = True; i.TopMost = False
                 i.Focus()
-                # First reveal from hidden/autostart never ran the boot
-                # geometry step: apply the saved mode now (once only;
-                # manual set_window_mode sets the flag and wins).
+# First reveal from hidden/autostart skipped the boot geometry step: apply it once.
                 global _boot_mode_applied
                 if not _boot_mode_applied and (initial_frameless or initial_fullscreen):
                     _boot_mode_applied = True
@@ -1331,10 +1283,7 @@ def _focus_impl():
                             _ui_set_mode(i, WinForms, 'fullscreen')
                         except Exception as _e:
                             _trace(f'focus initial fullscreen error: {_e}')
-                # Minimize/restore resets WindowState to Normal: re-assert
-                # Maximized whenever the live mode is frameless/fullscreen.
-                # Lightweight on purpose (no re-center flicker) and runs on
-                # the UI thread. Windowed mode is left untouched.
+# Minimize/restore resets WindowState to Normal: re-assert the mode on the UI thread.
                 try:
                     _cm = globals().get('_current_mode', '')
                     if _cm == 'fullscreen':
