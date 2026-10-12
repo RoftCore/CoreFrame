@@ -60,8 +60,7 @@ def _apply_restrictions(restrictions):
     _orig_system = None
     _orig_popen = None
 
-    # ── File access restriction ────────────────────────────────────
-    # Build implicit allowlist for runtime internals (exe, MEIPASS, temp, extension dir)
+    # Implicit allowlist for runtime internals (exe, MEIPASS, temp, extension dir).
     _implicit_dirs = []
     # exe dir (CoreFrame.exe) and MEIPASS (frozen libs) must always be readable
     try:
@@ -269,8 +268,7 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
             # Parent process closed the pipe — we're done
             os._exit(0)
 
-    # Bounded on purpose: a child that can spawn 32 threads can multiply that
-    # by every extension. I/O-bound calls still overlap at a handful of workers.
+    # Bounded: a child spawning 32 threads multiplies that by every extension.
     pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix='rpc')
 
     def reply(resp):
@@ -325,14 +323,7 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
                 reply({'method': 'heartbeat', 'id': rid})
                 continue
 
-            # Trivial calls are answered inline in the reader thread, never
-            # queued behind slow work. A single pool means a burst of slow
-            # calls can occupy every worker; a trivial call waiting behind
-            # them then burns its whole budget, the host marks the widget
-            # degraded, and after three of those the extension is quarantined
-            # for the session — all while the child is healthy and the answer
-            # was a dict return away. Only methods that are pure, instant dict
-            # returns belong here; anything doing real work stays on the pool.
+            # Trivial calls answered inline: queued behind slow work they burn their budget (pitfall 26).
             if method in ('get_config', 'get_status'):
                 try:
                     fn = getattr(instance, method, None)
@@ -354,13 +345,9 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
         # Parent process exited, pipes closed
         pass
     finally:
-        # Let in-flight calls finish before on_stop, so a worker is not still
-        # inside extension code while the extension tears itself down.
+        # Let in-flight calls finish so no worker sits in extension code during teardown.
         pool.shutdown(wait=True)
-        # Graceful extension shutdown BEFORE interpreter teardown: lets
-        # backends stop threads and close handles (e.g. HID) while every
-        # module is still alive. Skipping this segfaults C extensions
-        # (hid.dll_unloaded) when a daemon thread is inside a C call.
+        # on_stop runs BEFORE interpreter teardown: skipping it segfaults C extensions (pitfall 21).
         try:
             stop = getattr(instance, 'on_stop', None)
             if callable(stop):
@@ -393,9 +380,7 @@ def main():
     restrictions['ext_path'] = ext_path
     _apply_restrictions(restrictions)
 
-    # Inject coreframe config values into config dict (for extensions that
-    # normally import from coreframe.config — in subprocess mode, those
-    # modules may not be importable, especially in frozen exe mode)
+    # Inject coreframe config for extensions that cannot import it in subprocess/frozen mode.
     coreframe_config = params.get('coreframe_config', {})
     if coreframe_config:
         config['_coreframe'] = coreframe_config
@@ -417,8 +402,7 @@ def main():
         if os.path.isdir(site_pkgs_unix) and site_pkgs_unix not in sys.path:
             sys.path.insert(0, site_pkgs_unix)
 
-    # Try to add coreframe parent dir for modules that import coreframe
-    # This works in dev mode but not in frozen exe
+    # Helps extensions import coreframe in dev mode; does not work in a frozen exe.
     coreframe_parent = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
     if os.path.isdir(os.path.join(coreframe_parent, 'coreframe')):
         if coreframe_parent not in sys.path:

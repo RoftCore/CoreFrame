@@ -294,8 +294,7 @@
       wEl.style.gridRow = spot.row + ' / span ' + spot.h;
       s.applyStyleToWidget(extId);
     }
-    // Fresh values on show (intervals skip hidden widgets, so content may
-    // be stale). Mirrors refreshAllWidgets: skips extension-driven widgets.
+    // Fresh values on show; skips extension-driven widgets like refreshAllWidgets.
     try {
       var extData = window.extensionsData && window.extensionsData[extId];
       if (extData && !(extData.js_modules && extData.js_modules.length) &&
@@ -344,13 +343,10 @@
     s.persistScenes();
   };
 
-  // Core immunity: scene switches must never wait on widgets. saveAllLayouts
-  // only touches in-memory positions; persistence is opt-out so rapid
-  // switches can coalesce into a single POST (see switchScene).
+  // Scene switches must never wait on widgets; persistence is opt-out so they coalesce.
   s.saveAllLayouts = function (skipPersist) {
     if (!s.currentScene()) return;
-    // Simple: only update positions for currently visible widgets in DOM, keep hidden as is
-    // Do NOT reconstruct hidden from DOM — widget_state.json is source of truth for hidden
+    // Hidden widgets keep their position: widget_state.json is the source of truth.
     var maxCols = s.sceneCols();
     var sc = s.currentScene();
     var maxRows = (sc && sc.rows) || 6;
@@ -536,9 +532,7 @@
     return { start: start, size: size };
   }
 
-  // Pixel box of a cell span in the grid's padding box. Explicit tracks only:
-  // it never invents an implicit row, which is what used to shrink every 1fr
-  // track when the projection landed past the last one.
+  // Pixel box of a cell span; explicit tracks only, so no implicit row shrinks the 1fr tracks.
   function gridCellBox(tracks, col, row, w, h) {
     var c = spanBox(tracks.cols, tracks.gap, Math.max(0, col - 1), w);
     var r = spanBox(tracks.rows, tracks.gap, Math.max(0, row - 1), h);
@@ -572,9 +566,7 @@
   function gridPosFromPixel(el, grid, maxCols, maxRows) {
     var gridRect = grid.getBoundingClientRect();
     var elRect = el.getBoundingClientRect();
-    // maxCols / maxRows are kept for the call signature but no longer used:
-    // dividing the grid by a column count ignores the gap, so the answer drifts
-    // along the row. Read the tracks instead, as the overlay does.
+    // maxCols/maxRows are unused: dividing by a column count ignores the gap, so it drifts.
     return {
       col: colAtLocal(grid, elRect.left - gridRect.left),
       row: pixelToRow(grid, elRect.top - gridRect.top)
@@ -700,8 +692,7 @@
     let swapTarget = null;
     let _mode = null; // 'move' or 'resize' — set on mousedown
 
-    // --- resize state ---
-    // Undo: the widget's layout as it was when the gesture started.
+// Undo: the layout as it was when the gesture started.
     let _historyBefore = null;
     let _historyLabel = 'move ';
     let resizeEdges = {};
@@ -709,9 +700,7 @@
 
     const BORDER = 12;
 
-    // Host immunity: while a drag/resize gesture runs, the core freezes
-    // every live widget DOM write (see core.js/app.js). Extensions must
-    // also pause heavy renders via window.__coreframeDragging.
+// During a gesture the core freezes widget DOM writes; extensions must pause too (window.__coreframeDragging).
     function setDragActive(on) {
       try {
         window.__coreframeDragging = !!on;
@@ -727,9 +716,7 @@
     function buildDragCache() {
       var g = document.querySelector('.widget-grid');
       if (!g) return null;
-      // Sweep leftovers from an aborted drag: a stale spacer keeps its cell
-      // occupied, so the whole scene lays out differently until the next drag
-      // happens to clean it.
+      // Sweep leftovers from an aborted drag: a stale spacer keeps its cell occupied.
       document.querySelectorAll('.widget-drag-placeholder, .widget-drag-spacer').forEach(function (el) { el.remove(); });
       placeholder = null;
       spacer = null;
@@ -765,9 +752,7 @@
       return _dragCache;
     }
 
-    // One-shot geometry dump to the app log. Drag geometry has been wrong
-    // three times in a row and every guess was wrong too: this reports what the
-    // browser actually resolved, so the next round starts from data.
+// One-shot geometry dump to the app log, so the next round starts from data not guesses.
     function dumpDragGeometry(tag) {
       var g = document.querySelector('.widget-grid');
       if (!g) return;
@@ -797,8 +782,7 @@
       });
     }
 
-    // Track-walking row lookup over the cached tracks: same result as
-    // pixelToRow, zero style reads.
+// Track-walking row lookup over the cached tracks: same result, zero style reads.
     function pixelToRowFromCache(y) {
       var pc = _pitchCache;
       if (!pc || !pc.tracks.length) return Math.max(1, Math.round(y / 100));
@@ -817,10 +801,7 @@
       return _dragCache;
     }
 
-    // Single-pass occupancy snapshot: cell key -> widget element. One DOM
-    // query per frame no matter how many overlap tests that frame needs.
-    // Same exclusion semantics as getOverlappingWidgets (hidden and
-    // overlayable widgets never block; the drag ghost is not a widget).
+// One occupancy snapshot per frame, shared by every overlap test in it.
     function buildOccupancy() {
       var occ = {};
       document.querySelectorAll('.widget-extension').forEach(function (el) {
@@ -907,8 +888,7 @@
       return bestRow;
     }
 
-    // Cached twin of pixelToRowClamped: same math, zero style recalc.
-    // Uses the per-gesture snapshot instead of getComputedStyle.
+// Cached twin of pixelToRowClamped: same math, reads the per-gesture snapshot.
     function pixelToRowCached(metrics, py) {
       var ghostTop = py - ghostH / 2;
       var ghostBottom = py + ghostH / 2;
@@ -968,9 +948,7 @@
       return result;
     }
 
-    // Map-based twin of findFreeSpot: identical placement result, zero
-    // DOM queries. `occ` is a single buildOccupancy() snapshot; bounds
-    // come from the per-gesture cache (grid size can't change mid-gesture).
+// Map-based twin of findFreeSpot: same placement, zero DOM queries.
     function findFreeSpotOnMap(el, avoidEl, targetCol, targetRow, targetW, targetH, occ) {
       var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
@@ -1052,8 +1030,7 @@
       return best;
     }
 
-    // The spacer is a real grid item that holds the source cell; the projection is
-    // absolute, so neither adds a row or shrinks the 1fr tracks.
+    // Spacer holds the source cell and the projection is absolute: neither adds a row.
     function ensureDragEl(metrics, startCol, startRow) {
       if (!spacer) {
         spacer = document.createElement('div');
@@ -1080,9 +1057,7 @@
       return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     }
 
-    // Perf badge in the EDIT bar: shows last grab/drop phase timings so drag
-    // jank can be diagnosed without devtools (user reads numbers, we attack
-    // the biggest phase).
+    // Perf badge in the EDIT bar: last grab/drop phase timings, readable without devtools.
     function dragTimingReport(text) {
       var bar = document.getElementById('mode-indicator-bar');
       if (!bar) return;
@@ -1103,9 +1078,7 @@
       placeholder.style.top = box.top + 'px';
       placeholder.style.width = box.width + 'px';
       placeholder.style.height = box.height + 'px';
-      // Three meanings, three colours: free = nothing in the way (blue),
-      // drop = it collides but the placement is still valid (green),
-      // occupied = cannot be dropped here (red).
+// Three colours: free (blue), valid-but-colliding (green), occupied (red).
       placeholder.classList.remove('widget-drag-placeholder-occupied', 'widget-drag-placeholder-drop');
       if (state === 'occupied') placeholder.classList.add('widget-drag-placeholder-occupied');
       else if (state === 'drop') placeholder.classList.add('widget-drag-placeholder-drop');
@@ -1126,8 +1099,7 @@
       el.style.pointerEvents = '';
       el.classList.remove('widget-dragging');
       var metrics = getGridMetrics();
-      // Skip the DOM move when already inside the grid: re-inserting the
-      // same child forces a gratuitous grid re-layout on drop.
+      // Skip the DOM move when already inside the grid: re-inserting forces a re-layout.
       if (metrics && metrics.grid && el.parentNode !== metrics.grid) metrics.grid.appendChild(el);
       el.style.gridColumn = col + ' / span ' + w;
       el.style.gridRow = row + ' / span ' + h;
@@ -1212,8 +1184,7 @@
       var edges = detectEdges(widget, e.clientX, e.clientY);
       var isEdge = edges.top || edges.bottom || edges.left || edges.right;
 
-      // Undo needs the layout as it was when the gesture started, and by the end
-      // the resolver has already rewritten it several times.
+      // Undo snapshot: the resolver rewrites the layout several times before the drop ends.
       if (window.cfHistory && widget.dataset.extId) {
         _historyBefore = window.cfHistory.snapshot(widget.dataset.extId, s._activeScene);
         _historyLabel = isEdge ? 'resize ' : 'move ';
@@ -1242,15 +1213,12 @@
         var _dt0 = nowMs();
         var metrics = getGridMetrics();
         if (!metrics) { dragEl = null; return; }
-        // Reads first: snapshot geometry BEFORE any write below dirties
-        // layout, so the grab pays at most one clean layout + (rarely) one
-        // style recalc instead of a dirty one per step.
+// Snapshot geometry before any write dirties layout: one clean layout per grab.
         buildDragCache();
 
         var wr = dragEl.getBoundingClientRect();
 
-        // Inline styles are always frozen ("N / span M") after enterEditMode,
-        // so parse them first: zero style reads at grab time.
+// Inline styles are frozen after enterEditMode, so parse them: zero style reads.
         var gc = dragEl.style.gridColumn || '';
         var gr = dragEl.style.gridRow || '';
         var gcm = gc.match(/span\s+(\d+)/), grm = gr.match(/span\s+(\d+)/);
@@ -1303,8 +1271,7 @@
       }
     }
 
-    // --- MOVE (rAF-throttled: at most one collision pass per frame,
-    // no matter how fast mousemove fires or how heavy widgets are) ---
+// MOVE: rAF-throttled, at most one collision pass per frame.
 
     let _moveRaf = 0, _pendingMoveEvent = null;
 
@@ -1333,9 +1300,7 @@
       var newLeft = Math.max(metrics.rect.left, Math.min(metrics.rect.right - ghostW, e.clientX - grabDX));
       var newTop = Math.max(metrics.rect.top, Math.min(metrics.rect.bottom - ghostH, e.clientY - grabDY));
       ghostX = newLeft; ghostY = newTop;
-      // Transform = compositor-only move. left/top would force a full
-      // layout of the heavy subtree every frame. scale() preserves the
-      // .widget-dragging look (inline style beats the class rule).
+      // Transform only: left/top would lay out the heavy subtree every frame.
       dragEl.style.transform = 'translate(' + (newLeft - grabLeft) + 'px,' + (newTop - grabTop) + 'px) scale(1.02)';
 
       var tCol = pixelToCol(metrics, newLeft + ghostW / 2);
@@ -1412,8 +1377,7 @@
 
       clearSwapTarget();
       removePlaceholder();
-      // One DOM query for the whole drop; every placement test below
-      // is a map lookup, no matter how heavy the widgets are.
+      // One DOM query for the whole drop; every placement test is a map lookup.
       var occ = buildOccupancy();
       var _etCleanup = nowMs();
 
@@ -1665,8 +1629,7 @@
     if (document._editCleanup) { document._editCleanup(); document._editCleanup = null; }
     const bar = document.getElementById('mode-indicator-bar');
     if (bar) bar.remove();
-    // Restore orphaned dragged widgets back to grid (covers Exit pressed
-    // mid-drag: the live floater goes back to its gesture-start cell).
+// Restore widgets orphaned by an Exit pressed mid-drag to their gesture-start cell.
     document.querySelectorAll('[data-drag-ghost]').forEach(function (el) { el.remove(); });
     document.querySelectorAll('.widget-extension').forEach(function (el) {
       if (!el.dataset.dragGhost && el.style.visibility === 'hidden') el.style.visibility = '';
