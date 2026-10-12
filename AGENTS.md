@@ -52,9 +52,22 @@ CoreFrame/
 │   ├── index.html             # SPA shell
 │   ├── css/                   # palette, layout, components, utilities, reset, widget-control, core-effects
 │   └── js/
-│       ├── app.js             # Boot, extension loading, asset loading
+│       ├── app/                # Extension lifecycle, numbered by load order
+│       │   ├── 00-state.js     # extensionsData, widgetTimers, extensionLoadState
+│       │   ├── 01-loading.js   # loadExtensionsAsync, pollExtensionUpdates
+│       │   ├── 02-cards.js     # Card build, placeholder promotion, first-paint watcher, sidebar
+│       │   ├── 03-assets.js    # loadExtensionAssets (light then heavy)
+│       │   ├── 04-render.js    # renderWidgets
+│       │   └── 05-refresh.js   # Repaint registry, priming, refreshWidget, intervals
+│       ├── widgets/            # Widget construction and value updates, by load order
+│       │   ├── 00-state.js     # widgetHistory, _widgetHash, global dropdown closer
+│       │   ├── 01-history.js   # persistWidgetHistory, startProgressPoll
+│       │   ├── 02-appearance.js # Entrance animations, createPlaceholderCard
+│       │   ├── 03-cards.js     # createExtensionCard, loading state
+│       │   ├── 04-subwidget.js # createSubWidget, one branch per widget type
+│       │   ├── 05-value.js     # updateWidgetValue, type-aware ownership
+│       │   └── 06-format.js    # formatValue, drawMiniChart
 │       ├── core.js            # Realtime intake, widget updates, generic WebSocket
-│       ├── widgets.js         # createExtensionCard, createSubWidget, updateWidgetValue
 │       ├── menu.js            # Sidebar, registerMenuHook, executeMenuAction
 │       ├── window.js          # Window mode (windowed/frameless/fullscreen)
 │       ├── permissions.js     # Consent modals and escalation prompts
@@ -65,7 +78,8 @@ CoreFrame/
 │           ├── 01-scenes.js   # Scene switching
 │           ├── 02-layout.js   # Grid layout, placement, drag/drop
 │           ├── 03-menus-styles.js
-│           └── 04-init.js     # Bootstrap
+│           ├── 04-init.js     # Bootstrap
+│           └── 05-history.js  # Undo/redo for layout changes
 ├── extensions/                # Dev copy of extensions only; runtime loads from DATA_DIR
 ├── scaffolds/template-extension/
 ├── tools/
@@ -187,6 +201,8 @@ All `/api/*` routes require the `X-CoreFrame-Token` header (fetch it from `/api/
 34. **Dynamic `<script>` injection has no order:** `document.body.appendChild(script)` makes a classic script async by default, so `js_modules` ran in fetch-completion order and cross-file references hit `ReferenceError` depending on timing. `script.async = false` in `loadExtensionAssets` and the install path restores declaration order.
 35. **Exit reasons are matched by prefix:** a poller stopped by a hidden widget records `hidden in every scene`; an equality test against `hidden` never matched and the supervisor resumed nothing, leaving the widget frozen while looking correct.
 36. **The core must not drive a `js_modules` widget:** `refreshAllWidgets` and `startWidgetIntervals` both skip extensions whose JS owns the content. The guard existed in the first and was missing in the second, so `process_manager` had its rendered table overwritten with the raw action payload every 3 s.
+37. **Split frontend files, but keep every symbol global:** `app.js` and `widgets.js` are now directories of numbered modules loaded by `index.html` in order. They stay classic scripts sharing one global scope, so each top-level `let`/`const`/`function` must be declared in exactly one module — a name declared twice is a `SyntaxError` that kills the whole page, and the modules never define anything as `window.*` except the hooks extensions call. Renaming a symbol means editing every consumer, so prefer splitting over renaming.
+38. **A cached `index.html` outlives the file layout it names:** after splitting, a window that still holds the old shell requests the removed `app.js` and gets a 404 with no visible error. Reload the window once after any change to the script tags.
 
 ## Related documents
 
