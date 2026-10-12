@@ -4,7 +4,8 @@
 //                  03 assets, 04 render, 05 refresh and repaint registry
 //   install.js   — marketplace, providers, package, install from file
 //   window.js    — window mode, F11, minimize, settings
-//   widgets.js   — widget creation, updates, charts
+//   widgets/    — 00 state, 01 history, 02 appearance, 03 cards,
+//                  04 sub-widget, 05 value updates, 06 formatting and charts
 //   menu.js      — sidebar menu actions
 //   utils.js     — API helpers, formatting
 
