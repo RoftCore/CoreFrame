@@ -237,6 +237,7 @@ class SubprocessBridge:
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = subprocess.SW_HIDE
 
+        # Pin UTF-8 on both ends: the child writes the ANSI codepage, so every non-ASCII char arrived as U+FFFD.
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -244,6 +245,8 @@ class SubprocessBridge:
             stderr=subprocess.PIPE,
             cwd=ext_path,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             bufsize=1,
             startupinfo=startupinfo,
         )

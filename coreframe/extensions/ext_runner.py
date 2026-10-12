@@ -363,6 +363,13 @@ def _run_rpc_loop(instance, ext_id, hb_interval=10):
 # ── Main ───────────────────────────────────────────────────────────
 
 def main():
+    # Pin the pipes to UTF-8: stdout defaults to the ANSI codepage and the parent decodes as UTF-8.
+    for _stream in (sys.stdin, sys.stdout):
+        try:
+            _stream.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError, OSError):
+            pass
+
     if len(sys.argv) < 2:
         print("Usage: ext_runner.py <config_file>", file=sys.stderr)
         sys.exit(1)

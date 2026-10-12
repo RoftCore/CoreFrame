@@ -290,6 +290,16 @@ def get_ping(self):
     return {"value": "23 ms"}
 ```
 
+The value may also be a structure. With `label` the widget shows that; without it, the core renders the
+fields as key/value rows (max 12, then `+N more`), so a payload is never dropped on the floor:
+
+```python
+def get_ping(self):
+    return {"value": {"avg": "23 ms", "jitter": "4 ms"}}
+```
+
+A scalar string stays the better answer when one number is all the widget has room for.
+
 ### badge
 
 Status indicator with color dot.
