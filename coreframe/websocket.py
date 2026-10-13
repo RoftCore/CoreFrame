@@ -21,7 +21,7 @@ def register_websocket_handlers(socketio, ext_isolation):
         global _client_count
         _client_count += 1
         log.info("WS client connected (%d)", _client_count)
-        for update in latest_update.values():
+        for update in list(latest_update.values()):
             emit('realtime_update', update)
 
     @socketio.on('disconnect')

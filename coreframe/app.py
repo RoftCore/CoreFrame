@@ -72,7 +72,7 @@ def _save_registry():
             registry = {}
     except (FileNotFoundError, OSError, ValueError):
         registry = {}
-    for ext_id, ext_data in extensions.items():
+    for ext_id, ext_data in list(extensions.items()):
         cfg = ext_data['config']
         was_disabled = registry.get(ext_id, {}).get('disabled')
         registry[ext_id] = {

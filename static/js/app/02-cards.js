@@ -102,10 +102,13 @@ function addExtensionToUI(extId, ext) {
         }
         const card = createExtensionCard({ ...ext, id: extId });
         if (existing) {
-          // Promote the skeleton in place: replacing the node read as a reload.
+          // Promote the skeleton in place: replacing the card node read as a reload.
+          // The body node is swapped, not refilled: the skeleton carries the same
+          // ext-<id> class, so an extension that painted it and set a "done" marker
+          // would keep that marker while its paint was discarded, and refuse to redraw.
           const oldBody = existing.querySelector('.widget-body');
           const newBody = card.querySelector('.widget-body');
-          if (oldBody && newBody) oldBody.replaceChildren(...newBody.childNodes);
+          if (oldBody && newBody) oldBody.replaceWith(newBody);
           delete existing.dataset.placeholder;
           delete existing.dataset.cfDeferred;
           existing.classList.remove('cf-placeholder');

@@ -265,7 +265,7 @@ def register_permissions_routes(app, socketio):
         from coreframe.extensions.loader import pending_consent, pending_migration
         perm = get_permission_manager()
         result = {}
-        for ext_id, info in pending_consent.items():
+        for ext_id, info in list(pending_consent.items()):
             if perm.is_denied(ext_id):
                 continue
             config = info.get('config', {})
@@ -277,7 +277,7 @@ def register_permissions_routes(app, socketio):
                 'permissions': perm_info,
                 'type': 'consent',
             }
-        for ext_id, info in pending_migration.items():
+        for ext_id, info in list(pending_migration.items()):
             config = info.get('config', {})
             result[ext_id] = {
                 'id': ext_id,
