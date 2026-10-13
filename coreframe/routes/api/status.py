@@ -46,12 +46,14 @@ def register_status_routes(app, socketio):
             pass
         perm = get_permission_manager()
         result = {}
-        for ext_id, ext_data in extensions.items():
+        # Snapshots: loader threads add to these dicts while this request reads them,
+        # and iterating live raised "dictionary changed size during iteration" -> 500.
+        for ext_id, ext_data in list(extensions.items()):
             cfg = ext_data['config']
             result[ext_id] = _ext_payload(
                 ext_id, cfg, perm.get_permission_info(cfg),
                 consent_granted=perm.has_consent(ext_id))
-        for ext_id, ext_data in failed_extensions.items():
+        for ext_id, ext_data in list(failed_extensions.items()):
             cfg = ext_data.get('config', {})
             perm_info = perm.get_permission_info(cfg) if cfg else {'level': -1, 'level_name': 'unknown'}
             result[ext_id] = {
@@ -74,7 +76,7 @@ def register_status_routes(app, socketio):
             result[ext_id] = payload
 # Disabled extensions are registered but not running, listed with empty widgets.
         from coreframe.extensions.loader import disabled_extensions as _disabled
-        for ext_id, info in _disabled.items():
+        for ext_id, info in list(_disabled.items()):
             if ext_id in result:
                 continue
             cfg = info.get('config', {})

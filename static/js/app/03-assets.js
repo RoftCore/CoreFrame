@@ -24,6 +24,11 @@ function loadExtensionAssets(data) {
         // async=false restores declaration order: dynamic classic scripts default to async=true.
         script.async = false;
         script.src = src;
+        // Ask for a repaint once the code has actually run: a notification sent at
+        // append time races the script, and the handler is registered while it loads.
+        script.onload = function () {
+          if (typeof cfNotifyCardRerender === 'function') cfNotifyCardRerender(extId);
+        };
         script.onerror = function () { console.warn('[EXT] Failed to load ' + mod); };
         document.body.appendChild(script);
       })(ext.js_modules[i]);
