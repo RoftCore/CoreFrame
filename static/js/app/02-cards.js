@@ -1,12 +1,16 @@
 // ── Extension UI ──────────────────────────────────────────────────
 
 // True when the card body is no longer the host's bare widget scaffold.
+// Skeleton and shimmer bars do not count: they are host paint, not extension paint.
 function cfCardBodyClaimed(card) {
   if (!card) return false;
   const body = card.querySelector('.widget-body');
   if (!body) return card.children.length > 1;      // extension replaced the card
   for (const child of body.children) {
-    if (!child.classList.contains('widget-sub')) return true;  // non-scaffold child
+    if (child.classList.contains('widget-sub')) continue;
+    if (child.classList.contains('cf-placeholder-bar')) continue;
+    if (child.classList.contains('cf-loading-bars')) continue;
+    return true;  // non-scaffold child
   }
   return false;
 }
