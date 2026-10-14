@@ -102,13 +102,11 @@ function addExtensionToUI(extId, ext) {
         }
         const card = createExtensionCard({ ...ext, id: extId });
         if (existing) {
-          // Promote the skeleton in place: replacing the card node read as a reload.
-          // The body node is swapped, not refilled: the skeleton carries the same
-          // ext-<id> class, so an extension that painted it and set a "done" marker
-          // would keep that marker while its paint was discarded, and refuse to redraw.
+          // Keep an extension-painted body: its boot ran once and will not repaint.
+          const claimed = cfCardBodyClaimed(existing);
           const oldBody = existing.querySelector('.widget-body');
           const newBody = card.querySelector('.widget-body');
-          if (oldBody && newBody) oldBody.replaceWith(newBody);
+          if (!claimed && oldBody && newBody) oldBody.replaceWith(newBody);
           delete existing.dataset.placeholder;
           delete existing.dataset.cfDeferred;
           existing.classList.remove('cf-placeholder');
@@ -116,7 +114,7 @@ function addExtensionToUI(extId, ext) {
           if ((ext.js_modules || []).length) cfMarkLoadingState(existing, (ext.widgets || []).length);
           // No entrance animation: the skeleton already played it on arrival.
           cfWatchForFirstPaint(existing, extId);
-          loadExtensionAssets({ [extId]: ext });
+          if (!claimed) loadExtensionAssets({ [extId]: ext });
           cfMarkExtensionLive(extId);
           cfStartExtensionClocks(extId, ext, existing);
           return;
