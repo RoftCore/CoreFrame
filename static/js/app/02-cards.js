@@ -106,6 +106,14 @@ function addExtensionToUI(extId, ext) {
         }
         const card = createExtensionCard({ ...ext, id: extId });
         if (existing) {
+          // The placeholder element survives the swap, so everything the real card was
+          // built with (scroll, overlayable, grid size) is lost unless copied over.
+          existing.className = card.className;
+          existing.style.gridColumn = card.style.gridColumn;
+          existing.style.gridRow = card.style.gridRow;
+          existing.style.minWidth = card.style.minWidth;
+          existing.style.minHeight = card.style.minHeight;
+          existing.dataset.overlayable = card.dataset.overlayable;
           // Keep an extension-painted body: its boot ran once and will not repaint.
           const claimed = cfCardBodyClaimed(existing);
           const oldBody = existing.querySelector('.widget-body');
