@@ -195,7 +195,32 @@ def _bg_install_mkt(ext_id, target, ext_name, version, backup, socketio):
             return
         socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'loading'})
         if not _load_single_extension(ext_id):
-            _fail(str(failed_extensions.get(ext_id, {}).get('loadError', 'Unknown error')))
+            # A refusal to load is not always a broken build. A legacy manifest
+            # (published before the permissions field existed) or a level bump
+            # parks the extension in pending_* waiting for the user. Rolling the
+            # files back there would silently undo the version switch the user
+            # just asked for, which is exactly how a downgrade "installed" and
+            # still reported 1.1.
+            from coreframe.extensions.loader import (
+                pending_consent, pending_migration, denied_consent)
+            if ext_id in pending_migration or ext_id in pending_consent:
+                _record_version(ext_id, ext_name, version)
+                if backup:
+                    shutil.rmtree(backup, ignore_errors=True)
+                legacy = ext_id in pending_migration
+                level = (pending_consent.get(ext_id) or {}).get('level', 3)
+                socketio.emit('extension_install_progress',
+                              {'id': ext_id, 'name': ext_name,
+                               'step': 'needs_migration' if legacy else 'needs_consent',
+                               'level': level, 'version': version})
+                log.info("Install of %s %s waits for %s", ext_id, version,
+                         'migration' if legacy else 'consent')
+                return
+            if ext_id in denied_consent:
+                _fail('Consent was denied for this extension: grant it in Settings > Extensions')
+                return
+            _fail(str(failed_extensions.get(ext_id, {}).get('loadError')
+                      or 'The extension did not load (see Settings > Extensions for details)'))
             return
         ext_data = extensions.get(ext_id)
         if ext_data:
@@ -301,21 +326,22 @@ def register_marketplace_routes(app, socketio):
         try:
             zf = zipfile.ZipFile(io.BytesIO(data))
             names = zf.namelist()
-            prefix = ''
-            for n in names:
-                if n.endswith('/'):
-                    continue
-                parts = n.split('/')
-                if len(parts) >= 2:
-                    prefix = parts[0] + '/'
-                    break
-            mi_config = None
             mi_ext_config_path = None
             for n in names:
                 base = n.split('/')[-1]
                 if base == 'extension.json':
                     mi_ext_config_path = n
                     break
+            # The wrapper folder is the directory holding extension.json, not the
+            # first path segment. A flat archive whose first entry is
+            # static/script.js used to be read as "everything lives under
+            # static/", which mangled the tree of older published builds.
+            prefix = ''
+            if mi_ext_config_path and '/' in mi_ext_config_path:
+                candidate = mi_ext_config_path.rsplit('/', 1)[0] + '/'
+                if all(n.endswith('/') or n.startswith(candidate) for n in names):
+                    prefix = candidate
+            mi_config = None
             if mi_ext_config_path:
                 mi_config = json.loads(zf.read(mi_ext_config_path))
             mi_static_assets = set(mi_config.get('js_modules', []) + mi_config.get('css_modules', [])) if mi_config else set()
@@ -337,6 +363,10 @@ def register_marketplace_routes(app, socketio):
                 if n.endswith('/'):
                     continue
                 rel = n[len(prefix):] if prefix and n.startswith(prefix) else n
+                if not rel:
+                    continue
+                if '..' in rel.split('/') or rel.startswith('/') or os.path.isabs(rel):
+                    raise ValueError(f'unsafe path in archive: {n}')
                 if rel in mi_static_assets and not rel.startswith('static/'):
                     rel = os.path.join('static', rel)
                 dest = os.path.join(target, rel)

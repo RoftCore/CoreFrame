@@ -229,8 +229,13 @@ function showMarketplaceList(choiceOverlay) {
               if (ev.id !== installId) return;
               if (ev.step === 'syncing') showInstallToast('Syncing ' + target.name + '...');
               else if (ev.step === 'deps') showInstallToast('Installing deps for ' + target.name + '...');
-              else if (ev.step === 'needs_consent') showInstallToast('Waiting for consent: ' + target.name + '...');
-              else if (ev.step === 'loading') showInstallToast('Loading ' + target.name + '...');
+              else if (ev.step === 'needs_consent' || ev.step === 'needs_migration') {
+                // permissions.js owns the modal from here; keeping this toast up
+                // would leave it hanging if the user cancels, and "waiting for
+                // consent" is not the same as installed.
+                hideInstallToast();
+                if (sock) sock.off('extension_install_progress', progressHandler);
+              } else if (ev.step === 'loading') showInstallToast('Loading ' + target.name + '...');
               else if (ev.step === 'done') {
                 hideInstallToast();
                 if (sock) sock.off('extension_install_progress', progressHandler);
