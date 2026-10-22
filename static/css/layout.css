@@ -492,3 +492,39 @@
   border-color: var(--accent-red, #ff3355) !important;
   box-shadow: 0 0 12px rgba(255,51,85,0.08) !important;
 }
+
+.mkt-version-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.mkt-version-select {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+}
+
+.mkt-version-select:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+}
+
+.mkt-update-btn {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.mkt-version-current {
+  color: var(--accent-green, #00e676);
+}

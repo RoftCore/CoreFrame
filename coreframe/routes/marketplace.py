@@ -8,14 +8,208 @@ import urllib.request
 import threading
 from flask import request, jsonify
 
-from coreframe.config import log, EXTENSIONS_DIR, MARKETPLACE_URL, PROVIDERS_PATH
+from coreframe.config import log, EXTENSIONS_DIR, DATA_DIR, REGISTRY_PATH, MARKETPLACE_URL, PROVIDERS_PATH
 from coreframe.utils import _is_safe_url
-from coreframe.extensions import extensions, _ext_isolation
+from coreframe.extensions import extensions, failed_extensions, _ext_isolation
 from coreframe.extensions.loader import _load_single_extension, _sync_extension_lib
-from coreframe.extensions.deps import _ensure_extension_deps_async
+from coreframe.extensions.deps import _ensure_extension_deps_async, _ensure_extension_deps_sync
 
 MARKETPLACE_CACHE = None
 MARKETPLACE_CACHE_TIME = 0
+
+# Previous version parked outside EXTENSIONS_DIR: a backup left inside it would
+# be discovered as an extension by _scan_candidates (it has extension.json + main.py).
+BACKUP_DIR = os.path.join(DATA_DIR, '.ext_backup')
+
+
+def _ext_versions(ext_info):
+    """Published versions newest-first; falls back to the flat version/URL pair."""
+    versions = []
+    for item in ext_info.get('versions') or []:
+        version = str(item.get('version') or '').strip()
+        url = item.get('download_url') or ''
+        if version and url:
+            versions.append((version, url))
+    if not versions and ext_info.get('download_url'):
+        versions.append((str(ext_info.get('version') or '1.0'), ext_info['download_url']))
+    return versions
+
+
+def _stop_for_replace(ext_id):
+    """Stop the poller and the child process before its files change."""
+    from coreframe.extensions.loader import extensions as _exts, _poll_stop_events
+    stop_event = _poll_stop_events.get(ext_id)
+    if stop_event:
+        stop_event.set()
+    ext_data = _exts.get(ext_id)
+    if ext_data:
+        instance = ext_data.get('instance')
+        if instance:
+            try:
+                if hasattr(instance, 'on_stop'):
+                    instance.on_stop()
+                elif hasattr(instance, 'stop'):
+                    instance.stop()
+            except Exception:
+                pass
+    _ext_isolation.mark_dead(ext_id, 'Unloaded for version change')
+    _exts.pop(ext_id, None)
+    failed_extensions.pop(ext_id, None)
+
+
+def _kill_locks(target, ext_id):
+    """Kill bridge runners whose cwd is inside target.
+
+    A load_extensions() racing with an install leaves an orphan runner whose cwd
+    is the extension dir, and Windows refuses to rename a directory in that
+    state (WinError 32). The tracked instance is already stopped; this catches
+    the orphans nobody owns any more.
+    """
+    try:
+        import psutil
+        from coreframe.extensions.bridge import SubprocessBridge
+    except Exception:
+        return 0
+    killed = 0
+    root = os.path.normcase(os.path.abspath(target))
+    with SubprocessBridge._live_lock:
+        procs = list(SubprocessBridge._live_children)
+    for proc in procs:
+        try:
+            if proc.poll() is not None:
+                continue
+            cwd = os.path.normcase(os.path.abspath(psutil.Process(proc.pid).cwd()))
+        except Exception:
+            continue
+        if cwd == root or cwd.startswith(root + os.sep):
+            try:
+                proc.kill()
+                proc.wait(timeout=3)
+                killed += 1
+                log.info("Killed runner pid=%d locking %s", proc.pid, ext_id)
+            except Exception:
+                pass
+    return killed
+
+
+def _backup_target(ext_id):
+    """A free slot under BACKUP_DIR; never inside EXTENSIONS_DIR."""
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    path = os.path.join(BACKUP_DIR, ext_id)
+    shutil.rmtree(path, ignore_errors=True)
+    if os.path.exists(path):
+        path = os.path.join(BACKUP_DIR, f"{ext_id}-{int(time.time())}")
+    return path
+
+
+def _restore_backup(target, backup, ext_id=None):
+    """Put the previous version back after a failed replace.
+
+    A runner may still hold files inside target and Windows refuses to delete
+    those, so move the directory aside instead of fighting the lock and rename
+    the backup into place.
+    """
+    if not backup or not os.path.isdir(backup):
+        return False
+    for _ in range(3):
+        try:
+            shutil.rmtree(target)
+            break
+        except OSError:
+            time.sleep(0.5)
+    if os.path.isdir(target):
+        trash = os.path.join(BACKUP_DIR, f"{ext_id or 'ext'}-{int(time.time())}.failed")
+        shutil.rmtree(trash, ignore_errors=True)
+        try:
+            os.replace(target, trash)
+        except OSError as e:
+            log.error("Could not move failed install aside (%s): %s", target, e)
+            return False
+    try:
+        os.replace(backup, target)
+        return True
+    except OSError as e:
+        log.error("Restore failed for %s: %s", target, e)
+        return False
+
+
+def _record_version(ext_id, ext_name, version):
+    """Keep extensions.json in step with the manifest after a version change."""
+    try:
+        try:
+            with open(REGISTRY_PATH, encoding='utf-8') as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        entry = data.get(ext_id) or {'name': ext_name, 'author': '', 'category': 'general'}
+        if entry.get('version') == version:
+            return
+        entry['version'] = version
+        entry.setdefault('name', ext_name)
+        data[ext_id] = entry
+        with open(REGISTRY_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+    except OSError as e:
+        log.warning("Could not record version for %s: %s", ext_id, e)
+
+
+def _bg_install_mkt(ext_id, target, ext_name, version, backup, socketio):
+    """Files are already extracted: deps, load, and roll back to backup on failure."""
+    def _fail(reason):
+        log.error("Install of %s %s failed: %s", ext_id, version, reason)
+        restored = _restore_backup(target, backup, ext_id)
+        if not restored:
+            try:
+                from coreframe.routes.install import _rollback_install
+                _rollback_install(ext_id, target)
+            except Exception as e:
+                log.error("Rollback failed for %s: %s", ext_id, e)
+        failed_extensions.pop(ext_id, None)
+        if restored:
+            # The files are back but nothing loaded them: without this the user is
+            # left with a dead extension after a failed update.
+            try:
+                if _load_single_extension(ext_id):
+                    ext_data = extensions.get(ext_id)
+                    if ext_data:
+                        from coreframe.extensions.loader import _start_polling
+                        _start_polling(ext_id, ext_data)
+                    log.info("Rolled back %s to the previous version", ext_id)
+                else:
+                    log.error("Rolled back files for %s but it did not load again", ext_id)
+            except Exception as e:
+                log.error("Reload after rollback failed for %s: %s", ext_id, e)
+        socketio.emit('extension_install_progress',
+                      {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': reason})
+
+    try:
+        socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'syncing'})
+        _sync_extension_lib(target)
+        socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'deps'})
+        # Synchronous: loading before pip finishes is how console died on winpty.
+        deps_ok, deps_err = _ensure_extension_deps_sync(target, ext_id)
+        if not deps_ok:
+            log.error("Marketplace deps failed for %s: %s", ext_id, deps_err)
+            _fail(f"Failed to install dependencies: {deps_err}")
+            return
+        socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'loading'})
+        if not _load_single_extension(ext_id):
+            _fail(str(failed_extensions.get(ext_id, {}).get('loadError', 'Unknown error')))
+            return
+        ext_data = extensions.get(ext_id)
+        if ext_data:
+            from coreframe.extensions.loader import _start_polling
+            _start_polling(ext_id, ext_data)
+        if backup:
+            shutil.rmtree(backup, ignore_errors=True)
+        _record_version(ext_id, ext_name, version)
+        socketio.emit('extension_install_progress',
+                      {'id': ext_id, 'name': ext_name, 'step': 'done', 'version': version})
+    except Exception as e:
+        log.error("Background install failed for %s: %s", ext_id, e)
+        _fail(str(e))
 
 
 def _load_providers():
@@ -67,23 +261,35 @@ def register_marketplace_routes(app, socketio):
         if not ext_info:
             return jsonify({'error': f'Extension "{ext_id}" not found in marketplace'}), 404
 
+        ext_name = ext_info.get('name', ext_id)
+        wanted = (request.args.get('version') or '').strip()
+        if not wanted:
+            body = request.get_json(silent=True) or {}
+            wanted = str(body.get('version') or '').strip()
+        versions = _ext_versions(ext_info)
+        if not versions:
+            return jsonify({'error': 'No download URL for this extension'}), 404
+        if wanted:
+            picked = next((v for v in versions if v[0] == wanted), None)
+            if not picked:
+                return jsonify({'error': f'Version "{wanted}" is not published for {ext_id}'}), 404
+        else:
+            picked = versions[0]
+        version, url = picked
+
         target = os.path.join(EXTENSIONS_DIR, ext_id)
         existing_cfg = os.path.join(target, 'extension.json')
+        installed_version = ''
         if os.path.exists(existing_cfg):
             try:
                 with open(existing_cfg, encoding='utf-8-sig') as _f:
-                    _existing = json.load(_f)
-                if _existing.get('id') == ext_id:
-                    return jsonify({'exists': True, 'message': f'Extension "{ext_info.get("name", ext_id)}" has already been imported before and cannot be imported again.'})
+                    installed_version = str(json.load(_f).get('version') or '')
             except Exception:
-                pass
-            shutil.rmtree(target, ignore_errors=True)
-        elif os.path.exists(target):
-            shutil.rmtree(target, ignore_errors=True)
-
-        url = ext_info.get('download_url')
-        if not url:
-            return jsonify({'error': 'No download URL for this extension'}), 404
+                installed_version = ''
+            if installed_version == version:
+                return jsonify({'exists': True,
+                                'message': f'Extension "{ext_name}" {version} is already installed.'})
+            _stop_for_replace(ext_id)
 
         try:
             req = urllib.request.Request(url)
@@ -92,6 +298,7 @@ def register_marketplace_routes(app, socketio):
         except Exception as e:
             return jsonify({'error': f'Download failed: {e}'}), 502
 
+        backup = None
         try:
             zf = zipfile.ZipFile(io.BytesIO(data))
             names = zf.namelist()
@@ -113,6 +320,19 @@ def register_marketplace_routes(app, socketio):
             if mi_ext_config_path:
                 mi_config = json.loads(zf.read(mi_ext_config_path))
             mi_static_assets = set(mi_config.get('js_modules', []) + mi_config.get('css_modules', [])) if mi_config else set()
+
+            if os.path.isdir(target):
+                backup = _backup_target(ext_id)
+                for attempt in range(6):
+                    try:
+                        os.replace(target, backup)
+                        break
+                    except OSError:
+                        _kill_locks(target, ext_id)
+                        if attempt == 5:
+                            raise
+                        time.sleep(0.5)
+
             os.makedirs(target, exist_ok=True)
             for n in names:
                 if n.endswith('/'):
@@ -125,34 +345,17 @@ def register_marketplace_routes(app, socketio):
                 with open(dest, 'wb') as out:
                     out.write(zf.read(n))
             zf.close()
-
-            def _bg_install_mkt(ext_id, target, ext_name):
-                try:
-                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'syncing'})
-                    _sync_extension_lib(target)
-                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'deps'})
-                    _ensure_extension_deps_async(target, ext_id)
-                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'loading'})
-                    if _load_single_extension(ext_id):
-                        ext_data = extensions.get(ext_id)
-                        if ext_data:
-                            from coreframe.extensions.loader import _start_polling
-                            _start_polling(ext_id, ext_data)
-                        socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'done'})
-                    else:
-                        err = failed_extensions.get(ext_id, {}).get('loadError', 'Unknown error')
-                        socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': str(err)})
-                except Exception as e:
-                    log.error("Background install failed for %s: %s", ext_id, e)
-                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': str(e)})
-
-            t = threading.Thread(target=_bg_install_mkt, args=(ext_id, target, ext_info.get('name', ext_id)), daemon=True)
-            t.start()
-            log.info("Marketplace installing: %s (background)", ext_id)
-            return jsonify({'status': 'installing', 'id': ext_id, 'name': ext_info.get('name', ext_id)})
         except Exception as e:
-            shutil.rmtree(target, ignore_errors=True)
+            _restore_backup(target, backup, ext_id)
             return jsonify({'error': f'Install failed: {e}'}), 500
+
+        t = threading.Thread(target=_bg_install_mkt,
+                             args=(ext_id, target, ext_name, version, backup, socketio),
+                             daemon=True)
+        t.start()
+        log.info("Marketplace installing: %s %s (background)", ext_id, version)
+        return jsonify({'status': 'installing', 'id': ext_id, 'name': ext_name,
+                        'version': version, 'previous': installed_version})
 
     # ── Providers ──────────────────────────────────────────────────
 
