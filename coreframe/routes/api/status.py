@@ -98,6 +98,18 @@ def register_status_routes(app, socketio):
                     ext_id, cfg, perm.get_permission_info(cfg),
                     consent_granted=False, consent_denied=True,
                     loadError='Consent denied by user')
+
+        # Installed but impossible to load (no main.py, broken manifest). These
+        # were invisible everywhere; a red card that can be deleted is better.
+        from coreframe.extensions.loader import unloadable_candidates
+        for ext_id, cfg, reason in unloadable_candidates():
+            if ext_id in result:
+                continue
+            payload = _ext_payload(ext_id, cfg,
+                                   perm.get_permission_info(cfg) if cfg else {'level': -1, 'level_name': 'unknown'})
+            payload['widgets'] = []
+            payload['loadError'] = reason
+            result[ext_id] = payload
         return jsonify(result)
 
     @app.route('/api/health')

@@ -135,7 +135,7 @@
     searchDiv.innerHTML = '<input type="text" id="ext-settings-search" placeholder="Search extensions...">';
     panel.querySelector('.result-panel-header').insertAdjacentElement('afterend', searchDiv);
 
-    body.innerHTML = '<div id="ext-settings-list"></div>';
+    body.innerHTML = '<div id="ext-settings-count" class="ext-settings-count"></div><div id="ext-settings-list"></div>';
 
     function renderExtList(filter) {
       var list = document.getElementById('ext-settings-list');
@@ -181,6 +181,17 @@
       if (!count) html = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">No extensions found.</div>';
       list.innerHTML = html;
 
+      // Count first: "N installed" is the answer to "is something missing?".
+      var countEl = document.getElementById('ext-settings-count');
+      if (countEl) {
+        var allIds = Object.keys(data);
+        var off = allIds.filter(function (k) { return data[k].disabled; }).length;
+        var bad = allIds.filter(function (k) { return data[k].loadError; }).length;
+        countEl.textContent = allIds.length + ' installed \u00b7 ' + (allIds.length - off) + ' active' +
+          (off ? ' \u00b7 ' + off + ' disabled' : '') +
+          (bad ? ' \u00b7 ' + bad + ' with errors' : '');
+      }
+
       if (window.feather) window.feather.replace();
 
       list.querySelectorAll('.ext-settings-del').forEach(function (btn) {
@@ -225,6 +236,19 @@
     }
 
     renderExtList('');
+
+    // The panel used to render whatever /api/extensions returned at boot, so an
+    // extension that finished loading later was missing until a full reload.
+    // Fetch on open: the list has to describe the app as it is now.
+    apiFetch('/api/extensions').then(function (fresh) {
+      if (!fresh || fresh.error) return;
+      window.extensionsData = fresh;
+      if (typeof extensionsData !== 'undefined') extensionsData = fresh;
+      var listEl = document.getElementById('ext-settings-list');
+      if (!listEl) return;      // panel closed while the request was in flight
+      var searchEl = document.getElementById('ext-settings-search');
+      renderExtList(searchEl ? searchEl.value : '');
+    });
 
     document.getElementById('ext-settings-search').addEventListener('input', function () {
       renderExtList(this.value);
