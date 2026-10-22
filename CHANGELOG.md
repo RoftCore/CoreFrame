@@ -13,6 +13,7 @@
 
 ### Features
 
+- **The widget context menu names the build it belongs to.** The header showed the extension name and its permission level but not the version, which is the only thing that tells two installed builds apart. It now renders `Name  v1.1  [LEVEL]`; a long name ellipsises instead of pushing the version out.
 - **`keep_alive` reaches the frontend.** The manifest flag documented in `AGENTS.md` was never emitted by the API, so the opt-out could not actually take effect.
 - **`serve_data` and `keep_alive` are documented** in `docs/EXTENSIONS.md`, along with the `/ext-data/<id>/<path>` route.
 
