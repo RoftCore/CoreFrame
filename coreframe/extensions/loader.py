@@ -624,4 +624,14 @@ def load_after_consent(ext_id: str):
 
     thread = _ext_isolation.start_load(ext_id, loader)
     thread.join(timeout=15.0)
-    return ext_id in extensions
+    loaded = ext_id in extensions
+    # A terminal event, or the install toast waits forever: this path runs after
+    # consent, when the install job has already emitted 'needs_consent' and returned.
+    _si = getattr(_ext_isolation, '_socketio', None)
+    if _si:
+        if loaded:
+            _si.emit('extension_install_progress', {'id': ext_id, 'step': 'done'})
+        else:
+            error = failed_extensions.get(ext_id, {}).get('loadError', 'Load failed after consent')
+            _si.emit('extension_install_progress', {'id': ext_id, 'step': 'error', 'error': error})
+    return loaded

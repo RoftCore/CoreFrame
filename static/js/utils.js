@@ -67,6 +67,18 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+function cfCompareVersions(a, b) {
+  const pa = String(a || '0').split(/[.\-+]/).map(function (x) { return parseInt(x, 10) || 0; });
+  const pb = String(b || '0').split(/[.\-+]/).map(function (x) { return parseInt(x, 10) || 0; });
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na !== nb) return na > nb ? 1 : -1;
+  }
+  return 0;
+}
+
 function getProcessIcon(name) {
   const n = (name || '').toLowerCase();
   if (/chrome|edge|firefox|opera|safari|brave|vivaldi|msedge|iexplore|navigator/.test(n)) return '🌐';

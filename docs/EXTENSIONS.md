@@ -743,6 +743,22 @@ The server polls at the same `refresh_interval` and emits via WebSocket to all c
 3. Upload to GitHub or any host
 4. Add to the marketplace registry (PR in the extensions-coreframe repo)
 
+The registry entry takes an optional `versions` array, newest first. It is what feeds the version dropdown and the **Update** button in the marketplace:
+
+```json
+{
+  "id": "console",
+  "version": "3.1",
+  "versions": [
+    {"version": "3.1", "download_url": ".../console-3.1/console.zip"},
+    {"version": "3.0", "download_url": ".../console-1.1/console.zip"}
+  ],
+  "download_url": ".../console-3.1/console.zip"
+}
+```
+
+Keep the flat `version` / `download_url` pair equal to the first array entry: older clients read only those two, and the card header shows that version. An extension without `versions` still installs, but the card offers a single version and no dropdown.
+
 ---
 
 ## Multi-language
