@@ -17,6 +17,7 @@ from coreframe.extensions import (
 from coreframe.extensions.deps import _ensure_extension_deps_sync
 from coreframe.extensions.loader import _load_extension_core, pending_consent, pending_migration
 from coreframe.extensions.permissions import get_permission_manager, PERMISSION_LEVELS
+from coreframe.extensions import state as ext_state
 
 
 def _install_dbg(ext_id, msg):
@@ -56,12 +57,12 @@ def _rollback_install(ext_id, ext_path):
         log.error("Rollback rmtree failed for %s: %s", ext_id, e)
         clean = False
     try:
-        with open(REGISTRY_PATH, encoding='utf-8') as rf:
-            registry = json.load(rf)
+        registry = ext_state.read_json(REGISTRY_PATH)
         if ext_id in registry:
             del registry[ext_id]
-            with open(REGISTRY_PATH, 'w', encoding='utf-8') as rf:
-                json.dump(registry, rf, indent=2)
+            ext_state.write_json(REGISTRY_PATH, registry)
+        # A leftover flag would silently refuse to load the next install.
+        ext_state.set_disabled(ext_id, False)
     except FileNotFoundError:
         pass
     except Exception as e:
@@ -138,19 +139,19 @@ def register_install_routes(app, socketio):
                 with open(dest, 'wb') as out:
                     out.write(zf.read(n))
             zf.close()
-            try:
-                with open(REGISTRY_PATH, encoding='utf-8') as rf:
-                    registry = json.load(rf)
-            except (FileNotFoundError, json.JSONDecodeError):
-                registry = {}
+            registry = ext_state.read_json(REGISTRY_PATH)
             registry[ext_id] = {
                 'name': ext_name,
                 'version': cfg_data.get('version', '1.0'),
                 'author': cfg_data.get('author', ''),
                 'category': cfg_data.get('category', 'general'),
+                # An explicit install means "run it": clear any flag left from
+                # a previous state, or the loader silently refuses to start it.
+                'disabled': False,
             }
-            with open(REGISTRY_PATH, 'w', encoding='utf-8') as rf:
-                json.dump(registry, rf, indent=2)
+            if not ext_state.write_json(REGISTRY_PATH, registry):
+                raise OSError('Could not write the extension registry')
+            ext_state.set_disabled(ext_id, False)
 
             # ── Check permissions before background load ────────────
             perm = get_permission_manager()
@@ -298,11 +299,11 @@ def register_install_routes(app, socketio):
             log.warning("Failed to clean up widgets for %s: %s", ext_id, e)
 
         try:
-            with open(REGISTRY_PATH, encoding='utf-8') as rf:
-                registry = json.load(rf)
+            registry = ext_state.read_json(REGISTRY_PATH)
             registry.pop(ext_id, None)
-            with open(REGISTRY_PATH, 'w', encoding='utf-8') as rf:
-                json.dump(registry, rf, indent=2)
+            ext_state.write_json(REGISTRY_PATH, registry)
+            # Deleting removes the decision too: nothing to remember.
+            ext_state.set_disabled(ext_id, False)
         except Exception:
             pass
 

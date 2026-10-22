@@ -246,6 +246,12 @@ body.edit-mode .widget > * {
   gap: 10px;
   padding: 4px 0;
 }
+.ext-settings-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 0 0 8px;
+}
 .ext-card {
   display: flex;
   flex-direction: column;

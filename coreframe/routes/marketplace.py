@@ -136,22 +136,21 @@ def _restore_backup(target, backup, ext_id=None):
 def _record_version(ext_id, ext_name, version):
     """Keep extensions.json in step with the manifest after a version change."""
     try:
-        try:
-            with open(REGISTRY_PATH, encoding='utf-8') as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            data = {}
-        if not isinstance(data, dict):
-            data = {}
+        from coreframe.extensions import state as ext_state
+        data = ext_state.read_json(REGISTRY_PATH)
         entry = data.get(ext_id) or {'name': ext_name, 'author': '', 'category': 'general'}
+        if not isinstance(entry, dict):
+            entry = {'name': ext_name, 'author': '', 'category': 'general'}
         if entry.get('version') == version:
             return
         entry['version'] = version
         entry.setdefault('name', ext_name)
+        # A version switch is not an enable: whatever the user decided stands.
+        entry['disabled'] = ext_state.is_disabled(ext_id)
         data[ext_id] = entry
-        with open(REGISTRY_PATH, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-    except OSError as e:
+        if not ext_state.write_json(REGISTRY_PATH, data):
+            log.warning("Could not record version for %s", ext_id)
+    except Exception as e:
         log.warning("Could not record version for %s: %s", ext_id, e)
 
 

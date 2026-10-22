@@ -65,22 +65,18 @@ from coreframe.extensions import extensions
 def _save_registry():
     # Merge, never overwrite: rebuilding from memory alone wiped extensions.json on boot.
     import json
-    try:
-        with open(REGISTRY_PATH, encoding='utf-8') as f:
-            registry = json.load(f)
-        if not isinstance(registry, dict):
-            registry = {}
-    except (FileNotFoundError, OSError, ValueError):
-        registry = {}
+    from coreframe.extensions.state import read_json, write_json, is_disabled
+    registry = read_json(REGISTRY_PATH)
     for ext_id, ext_data in list(extensions.items()):
         cfg = ext_data['config']
-        was_disabled = registry.get(ext_id, {}).get('disabled')
         registry[ext_id] = {
             'name': cfg.get('name', ext_id),
             'version': cfg.get('version', '1.0'),
             'author': cfg.get('author', ''),
             'category': cfg.get('category', 'general'),
-            'disabled': bool(was_disabled),
+            # Truth comes from extensions.state.json. Reading it back from the
+            # file being rewritten is what dropped four flags when the heal ran.
+            'disabled': is_disabled(ext_id),
         }
     # Heal: adopt extension dirs present on disk but missing from registry.
     try:
@@ -95,11 +91,13 @@ def _save_registry():
                 continue
             if not isinstance(cfg, dict):
                 continue
-            registry[cfg.get('id', name)] = {
+            ext_id = cfg.get('id', name)
+            registry[ext_id] = {
                 'name': cfg.get('name', name),
                 'version': cfg.get('version', '1.0'),
                 'author': cfg.get('author', ''),
-                'category': cfg.get('category', 'general')
+                'category': cfg.get('category', 'general'),
+                'disabled': is_disabled(ext_id),
             }
     except OSError:
         pass
@@ -110,8 +108,8 @@ def _save_registry():
     except (FileNotFoundError, OSError):
         old_content = ''
     if new_content != old_content:
-        with open(REGISTRY_PATH, 'w', encoding='utf-8') as f:
-            f.write(new_content)
+        if not write_json(REGISTRY_PATH, registry):
+            return
         log.info("Registry saved: %d extensions", len(registry))
     else:
         log.info("Registry unchanged")

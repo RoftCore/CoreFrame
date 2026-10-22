@@ -13,6 +13,7 @@ from coreframe.extensions.health import ExtensionIsolation
 from coreframe.extensions.bridge import SubprocessBridge
 from coreframe.extensions.deps import _ensure_extension_deps_async
 from coreframe.extensions.permissions import get_permission_manager, PERMISSION_LEVELS, REQUIRES_CONSENT
+from coreframe.extensions import state as ext_state
 
 # Global state — set by app.py
 extensions = {}
@@ -389,9 +390,8 @@ def load_extensions():
 
     log.info("Found %d candidate extensions", len(candidates))
 
-    registry = _read_registry()
     for ext_id, ext_path in candidates:
-        if registry.get(ext_id, {}).get('disabled'):
+        if is_disabled(ext_id):
 # Registered but switched off: no process, no widget, and not a load failure.
             _remember_disabled(ext_id, ext_path)
             log.info("Extension %s is disabled, skipping", ext_id)
@@ -443,6 +443,45 @@ def _scan_candidates():
     return found
 
 
+def unloadable_candidates():
+    """Directories that carry a manifest but can never load, with the reason.
+
+    These used to vanish from every surface at once: the scanner skipped them,
+    so they were neither loaded nor failed, and the Extensions panel (built
+    from /api/extensions) never showed them. An installed extension that
+    cannot run has to be visible and deletable, not silent.
+
+    Returns [(id, config, reason)].
+    """
+    out = []
+    try:
+        names = sorted(os.listdir(EXTENSIONS_DIR))
+    except OSError:
+        return out
+    for name in names:
+        ext_path = os.path.join(EXTENSIONS_DIR, name)
+        if not os.path.isdir(ext_path):
+            continue
+        config_path = os.path.join(ext_path, 'extension.json')
+        if not os.path.exists(config_path) or os.path.exists(os.path.join(ext_path, 'main.py')):
+            continue
+        try:
+            with open(config_path, encoding='utf-8-sig') as f:
+                cfg = json.load(f)
+        except (OSError, ValueError) as e:
+            out.append((name, {'id': name, 'name': name},
+                        'Invalid extension.json: %s' % e))
+            continue
+        if not isinstance(cfg, dict):
+            cfg = {'id': name, 'name': name}
+        lang = cfg.get('language', 'python')
+        main = cfg.get('main', 'main.py')
+        out.append((cfg.get('id', name), cfg,
+                    'No main.py: this is a %s extension (%s) and only Python '
+                    'extensions load' % (lang, main)))
+    return out
+
+
 def pending_manifests():
     """Manifests of extensions installed but not loaded yet.
 
@@ -468,34 +507,20 @@ def pending_manifests():
 
 
 def _read_registry():
-    try:
-        with open(REGISTRY_PATH, encoding='utf-8') as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    # Tolerant by design, and loud when the file is corrupt: state.py owns the
+    # flags that must survive, so an unreadable registry is no longer fatal.
+    return ext_state.read_json(REGISTRY_PATH)
 
 
 def is_disabled(ext_id):
-    return bool(_read_registry().get(ext_id, {}).get('disabled'))
+    # The flag lives in extensions.state.json, not in the generated registry:
+    # see coreframe/extensions/state.py for the boot that lost four of them.
+    return ext_state.is_disabled(ext_id)
 
 
 def set_disabled(ext_id, flag):
-    """Persist the disabled flag, creating the entry if the extension is not
-    installed yet. Never touches the files on disk."""
-    data = _read_registry()
-    entry = data.get(ext_id)
-    if not isinstance(entry, dict):
-        entry = {'name': ext_id, 'version': '1.0', 'author': '', 'category': 'general'}
-    entry['disabled'] = bool(flag)
-    data[ext_id] = entry
-    try:
-        with open(REGISTRY_PATH, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-    except OSError as e:
-        log.error("Could not write disabled flag for %s: %s", ext_id, e)
-        return False
-    return True
+    """Persist the disabled flag. Never touches the files on disk."""
+    return ext_state.set_disabled(ext_id, flag)
 
 
 def _remember_disabled(ext_id, ext_path):

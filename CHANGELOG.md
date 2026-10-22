@@ -23,6 +23,9 @@
 - **The child pipes are UTF-8 on both ends.** The child wrote the ANSI codepage and the parent decoded UTF-8, so every non-ASCII character in a widget value arrived as `U+FFFD` — `100% � 3200 DPI`, `MSD-ONE � Main` — with nothing logged. No extension was involved (pitfall 42).
 - **A `text` widget no longer drops a structured value.** An object without `label` collapsed to `--`, which is indistinguishable from a timeout, so an extension that had answered looked dead. It now renders its fields as key/value rows, capped and escaped (pitfall 43).
 - **The disabled flag survives a registry rebuild.** A disabled extension came back enabled every time the registry was written from memory.
+- **`disabled` now lives outside the generated registry.** On 2026-10-22 an unreadable `extensions.json` was healed from the manifests and four extensions disabled since 2026-10-15 (`audio_recorder`, `msd_deck`, `overlay_windows`, `spotify_player`) started by themselves. The flag moved to `extensions.state.json` (`coreframe/extensions/state.py`), every registry write is atomic and keeps a `.bak`, a corrupt registry is no longer treated as empty when overwriting, and `extensions.json` only mirrors the flag. Verified by deleting the registry and booting: the healed file came back with the five flags intact.
+- **An installed extension can no longer be invisible.** A directory with `extension.json` but no `main.py` (the Node demo) was skipped by the scanner, so it was neither loaded nor failed and never appeared in the Extensions panel. `/api/extensions` now lists it with a `loadError` and the panel shows its Delete button.
+- **The Extensions panel describes the app as it is now.** It rendered the `/api/extensions` snapshot taken at boot, so an extension that finished loading later was missing until a full reload; it now fetches on open and prints `N installed · N active · N disabled · N with errors`.
 
 ### CI / Build
 
