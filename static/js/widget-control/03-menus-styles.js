@@ -18,7 +18,7 @@
     m.id = 'ctx-menu';
     m.className = 'ctx-menu';
     m.innerHTML =
-      '<div class="ctx-menu-header" id="ctx-menu-header" style="display:none"><span id="ctx-menu-ext-name"></span><span class="ctx-menu-level" id="ctx-menu-ext-level"></span></div>' +
+      '<div class="ctx-menu-header" id="ctx-menu-header" style="display:none"><span id="ctx-menu-ext-name"></span><span class="ctx-menu-version" id="ctx-menu-ext-version"></span><span class="ctx-menu-level" id="ctx-menu-ext-level"></span></div>' +
       '<div class="ctx-menu-item" data-action="hide"><i data-feather="trash-2" width="16" height="16"></i>  Hide widget</div>' +
       '<div class="ctx-menu-item" data-action="edit"><i data-feather="edit" width="16" height="16"></i>  Edit widget</div>' +
       '<div class="ctx-menu-item" data-action="style" id="ctx-style-btn" style="display:none"><i data-feather="layers" width="16" height="16"></i> Change Style</div>' +
@@ -65,9 +65,13 @@
     var extData = window.extensionsData && window.extensionsData[extId];
     var headerEl = document.getElementById('ctx-menu-header');
     var nameEl = document.getElementById('ctx-menu-ext-name');
+    var verEl = document.getElementById('ctx-menu-ext-version');
     var levelEl = document.getElementById('ctx-menu-ext-level');
     if (extData && headerEl && nameEl && levelEl) {
       nameEl.textContent = extData.name || extId;
+      // The version decides what the user is looking at: two builds of the same
+      // extension differ only by this number.
+      if (verEl) verEl.textContent = extData.version ? 'v' + extData.version : '';
       if (extData.permissions && extData.permissions.level >= 0 && window.__permissions) {
         var lvl = extData.permissions.level;
         var labels = window.__permissions.LEVEL_LABELS || {};
