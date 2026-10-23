@@ -19,6 +19,7 @@
 
 ### Fixes
 
+- **The bridge no longer spins while it waits for a child.** `_call` re-checked its response buffer every 10 ms, so every action paid up to 10 ms of dead time and the host kept a 100 Hz loop per in-flight call. Responses now arrive through a `Condition` the reader thread notifies. Measured on the i5-8250U: `/api/token` 6.5 ms, an inline child call (`get_status`) 8.3 ms, so the bridge itself costs about 2 ms instead of ~12.
 - **`/api/quit` now uses the shutdown callback** the host registers, instead of signalling the process and leaving the window to be torn down abruptly.
 - **The core is fully English:** splash status lines, tray menu, permission level labels and descriptions, escalation labels, toast and level-fallback text.
 - **The child pipes are UTF-8 on both ends.** The child wrote the ANSI codepage and the parent decoded UTF-8, so every non-ASCII character in a widget value arrived as `U+FFFD` — `100% � 3200 DPI`, `MSD-ONE � Main` — with nothing logged. No extension was involved (pitfall 42).

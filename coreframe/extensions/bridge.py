@@ -198,6 +198,11 @@ class SubprocessBridge:
         self._proc = None
         self._lock = threading.Lock()
         self._reader_lock = threading.Lock()
+        # Responses arrive on the reader thread; the caller waits on this instead
+        # of re-checking the buffer every 10 ms. On a slow machine that spin was
+        # half the cost of a trivial action, and the console pays two actions per
+        # keystroke.
+        self._resp_cv = threading.Condition(self._reader_lock)
         self._read_buffer = {}
         # Monotonic request ids: time-derived ones collided in _read_buffer under concurrency.
         self._rid_seq = 0
@@ -410,8 +415,9 @@ class SubprocessBridge:
                     continue
                 rid = data.get('id')
                 if rid is not None:
-                    with self._reader_lock:
+                    with self._resp_cv:
                         self._read_buffer[rid] = data
+                        self._resp_cv.notify_all()
             except (ValueError, OSError, Exception):
                 pass
         # Process exited — read any remaining stderr
@@ -478,18 +484,24 @@ class SubprocessBridge:
             timeout = 4.0
         else:
             timeout = 30
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            with self._reader_lock:
+        deadline = time.monotonic() + timeout
+        resp = None
+        with self._resp_cv:
+            while True:
                 resp = self._read_buffer.pop(rid, None)
-            if resp is not None:
-                if 'error' in resp:
-                    return {'error': resp['error']}
-                result = resp.get('result', resp)
-                if isinstance(result, dict):
-                    return result
-                return {'value': result}
-            time.sleep(0.01)
+                if resp is not None:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._resp_cv.wait(remaining)
+        if resp is not None:
+            if 'error' in resp:
+                return {'error': resp['error']}
+            result = resp.get('result', resp)
+            if isinstance(result, dict):
+                return result
+            return {'value': result}
 
         # A strike needs a stale heartbeat: restarting a busy child wipes warm caches (pitfall 26).
         try:
