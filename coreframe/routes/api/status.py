@@ -156,7 +156,15 @@ def register_status_routes(app, socketio):
 
     @app.route('/api/window/focus', methods=['POST'])
     def api_window_focus():
-# Server-level emit; this python-socketio rejects broadcast=. core.js relays focus to pywebview.
+# Host-side wake first: while minimized the renderer is suspended and cannot run JS.
+# The socket emit below stays as the relay for the frontend's own focus handling.
+        try:
+            from coreframe import app as _host
+            _cb = getattr(_host, '_focus_callback', None)
+            if _cb:
+                _cb()
+        except Exception:
+            pass
         socketio.emit('focus_window')
         return jsonify({'ok': True})
 

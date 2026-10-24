@@ -38,6 +38,10 @@ if getattr(sys, 'frozen', False):
 # Host window-destroy hook, set by run_coreframe.pyw; called by /api/quit.
 _shutdown_callback = None
 
+# Host window-wake hook, set by run_coreframe.pyw; called by /api/window/focus.
+# A suspended renderer cannot run the JS relay, so the wake must come from the host.
+_focus_callback = None
+
 app = Flask(__name__, static_folder=STATIC_DIR)
 app.config['SECRET_KEY'] = hashlib.sha256(os.urandom(32)).hexdigest()
 socketio = SocketIO(app, async_mode='threading', cors_allowed_origins=["http://127.0.0.1:8420", "http://localhost:8420"])

@@ -13,6 +13,8 @@
 
 ### Features
 
+- **The renderer sleeps while the window is minimized.** `window.minimize()` only changed `WindowState`, so WebView2 kept the whole renderer resident (212 MB private of a 412 MB tree on a fresh boot). The host now hides the controller and calls `TrySuspendAsync()` on minimize, and `Resume()` on restore; the controller is reached through the wrapper's private `_coreWebView2Controller` field because pywebview exposes neither it nor suspend. Measured on the frozen exe: renderer 212 → 93 MB and tree 412 → 248 MB while minimized, 113/360 MB after restore. A 65 s suspend drops the socket (`/api/health` clients 1 → 0) and the client reconnects on resume; extensions never stop. Taskbar restore and tray open both wake it (pitfall 50).
+- **`/api/window/focus` wakes the window from Python.** A suspended renderer runs no JS, so the `focus_window` socket relay could not answer it - and that route is also the second-instance handshake, so launching CoreFrame again while minimized did nothing. The host registers `_focus_callback` on `coreframe.app`, the same pattern as `_shutdown_callback`, and the route calls it before emitting the socket event.
 - **The widget context menu names the build it belongs to.** The header showed the extension name and its permission level but not the version, which is the only thing that tells two installed builds apart. It now renders `Name  v1.1  [LEVEL]`; a long name ellipsises instead of pushing the version out.
 - **`keep_alive` reaches the frontend.** The manifest flag documented in `AGENTS.md` was never emitted by the API, so the opt-out could not actually take effect.
 - **`serve_data` and `keep_alive` are documented** in `docs/EXTENSIONS.md`, along with the `/ext-data/<id>/<path>` route.
