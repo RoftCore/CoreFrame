@@ -1181,6 +1181,7 @@ def _renderer_awake(i):
     if ctl is None or core is None:
         return
     try:
+        was_suspended = bool(core.IsSuspended)
         core.Resume()                           # harmless when it was not suspended
         controller = _core_controller(ctl)
         if controller is not None:
@@ -1188,7 +1189,8 @@ def _renderer_awake(i):
         else:
             ctl.Visible = True
         _renderer['state'] = 'awake'
-        _trace('renderer awake')
+        if was_suspended:
+            _trace('renderer awake')
     except Exception as e:
         _trace(f'renderer awake: {e}')
 
@@ -1209,8 +1211,10 @@ def _on_minimized():
     _post_ui(_run)
 
 
-def _on_restored():
-    # Fires on every resize that ends Normal→Normal too; only undo a real sleep.
+def _on_window_back():
+    # Restoring a maximized window (the normal mode here) lands on Maximized, so the
+    # `restored` event never fires - only `maximized` does. Hook both or the controller
+    # stays hidden and the window comes back blank until something resizes it (pitfall 52).
     if _renderer['state'] == 'awake':
         return
     _renderer['gen'] += 1            # any in-flight suspend is now stale
@@ -1224,7 +1228,8 @@ def _on_restored():
 
 
 window.events.minimized += _on_minimized
-window.events.restored += _on_restored
+window.events.restored += _on_window_back
+window.events.maximized += _on_window_back
 
 
 def set_window_mode(new_mode):
