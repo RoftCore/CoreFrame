@@ -1096,6 +1096,137 @@ def _get_winform():
         _winforms_available = False
         return None, None
 
+# ---- renderer sleep: give the memory back while minimized ----
+# WebView2 only releases renderer memory when the controller is invisible and the
+# renderer is suspended. pywebview's minimize() changes WindowState and nothing else,
+# so the renderer kept every byte (pitfall 50).
+_renderer = {'state': 'awake', 'gen': 0}   # awake | pending | asleep
+
+
+def _webview2(i):
+    """(control, CoreWebView2) or (None, None); both missing before init."""
+    try:
+        ctl = getattr(i, 'webview', None)
+        core = ctl.CoreWebView2 if ctl is not None else None
+    except Exception:
+        return None, None
+    return ctl, core
+
+
+def _core_controller(ctl):
+    """The WinForms wrapper keeps CoreWebView2Controller private; reach it by field."""
+    try:
+        import System.Reflection as _reflection
+        field = ctl.GetType().GetField(
+            '_coreWebView2Controller',
+            _reflection.BindingFlags.NonPublic | _reflection.BindingFlags.Instance)
+        return field.GetValue(ctl) if field is not None else None
+    except Exception:
+        return None
+
+
+def _begin_ui(i, WinForms, fn):
+    """Post to the UI thread without waiting on it (pitfall 25)."""
+    try:
+        if i.InvokeRequired:
+            i.BeginInvoke(WinForms.MethodInvoker(fn))
+        else:
+            fn()
+    except Exception as e:
+        _trace(f'_begin_ui error: {e}')
+
+
+def _renderer_asleep(i, gen):
+    """Hide the controller and suspend the renderer. Must run on the UI thread."""
+    if gen != _renderer['gen']:      # restored while this was queued
+        return
+    ctl, core = _webview2(i)
+    if ctl is None or core is None:
+        _renderer['state'] = 'awake'
+        return
+    try:
+        controller = _core_controller(ctl)
+        if controller is not None:
+            controller.IsVisible = False        # TrySuspend refuses a visible WebView
+        else:
+            ctl.Visible = False                 # the wrapper forwards it to IsVisible
+        task = core.TrySuspendAsync()
+    except Exception as e:
+        _trace(f'renderer asleep: {e}')
+        _renderer['state'] = 'awake'
+        return
+    threading.Thread(target=_await_suspend, args=(task, gen), daemon=True,
+                     name='wv2-suspend').start()
+
+
+def _await_suspend(task, gen):
+    """Task<bool>; suspend is best effort and may legitimately return False."""
+    try:
+        task.Wait(4000)
+        ok = bool(task.Result) if task.IsCompleted else False
+    except Exception as e:
+        _trace(f'renderer suspend wait: {e}')
+        ok = False
+    if gen != _renderer['gen']:      # the window came back; awake already owns the state
+        _trace(f'renderer suspend stale: {ok}')
+        return
+    _renderer['state'] = 'asleep' if ok else 'awake'
+    _trace(f'renderer suspended: {ok}')
+
+
+def _renderer_awake(i):
+    """Resume the renderer and show the controller again. Must run on the UI thread."""
+    _renderer['gen'] += 1           # invalidate any suspend still in flight
+    ctl, core = _webview2(i)
+    if ctl is None or core is None:
+        return
+    try:
+        core.Resume()                           # harmless when it was not suspended
+        controller = _core_controller(ctl)
+        if controller is not None:
+            controller.IsVisible = True
+        else:
+            ctl.Visible = True
+        _renderer['state'] = 'awake'
+        _trace('renderer awake')
+    except Exception as e:
+        _trace(f'renderer awake: {e}')
+
+
+def _on_minimized():
+    if _renderer['state'] != 'awake':
+        return
+    _renderer['state'] = 'pending'
+    _renderer['gen'] += 1
+    gen = _renderer['gen']
+
+    def _run():
+        i, WinForms = _get_winform()
+        if i:
+            _begin_ui(i, WinForms, lambda: _renderer_asleep(i, gen))
+        else:
+            _renderer['state'] = 'awake'
+    _post_ui(_run)
+
+
+def _on_restored():
+    # Fires on every resize that ends Normal→Normal too; only undo a real sleep.
+    if _renderer['state'] == 'awake':
+        return
+    _renderer['gen'] += 1            # any in-flight suspend is now stale
+    _renderer['state'] = 'awake'
+
+    def _run():
+        i, WinForms = _get_winform()
+        if i:
+            _begin_ui(i, WinForms, lambda: _renderer_awake(i))
+    _post_ui(_run)
+
+
+window.events.minimized += _on_minimized
+window.events.restored += _on_restored
+
+
 def set_window_mode(new_mode):
     """js_api entry — offload to worker; never run inline on caller thread."""
     _trace(f'api: set_window_mode {new_mode}')
@@ -1234,6 +1365,7 @@ def _focus_impl():
             return
         def _do():
             try:
+                _renderer_awake(i)   # a tray open may be the first thing after a sleep
 # Hidden/autostart windows need an explicit show: BringToFront never unhides them.
                 try:
                     i.Show()
@@ -1285,6 +1417,9 @@ def _shutdown():
     except Exception:
         os._exit(0)
 _app_mod._shutdown_callback = _shutdown
+# /api/window/focus reaches the host through this hook: a suspended renderer
+# cannot run the JS relay, and that route is also the second-instance handshake.
+_app_mod._focus_callback = lambda: _post_ui(_focus_impl)
 
 print('[BOOT] Calling webview.start...', flush=True)
 _trace('calling webview.start')
