@@ -16,56 +16,99 @@ function cfCardBodyClaimed(card) {
 }
 
 // Drop the loading shimmer on the first paint, which is a DOM mutation here.
+// One observer and one sweep for every card instead of one observer and one 8 s
+// timer per card: with a thousand extensions loading, the per-card version left a
+// thousand observers and a thousand timers alive until each card painted.
+const cfPaintWatch = new Map();   // card -> deadline (ms)
+let cfPaintMO = null;
+let cfPaintSweep = null;
+
+function cfPaintIsBar(n) {
+  return n && n.nodeType === 1 &&
+    (n.classList.contains('cf-loading-bars') || n.classList.contains('cf-placeholder-bar'));
+}
+
+function cfPaintRelease(card) {
+  if (!card) return;
+  cfPaintWatch.delete(card);
+  if (cfPaintMO) { try { cfPaintMO.unobserve(card); } catch (e) {} }
+}
+
+function cfPaintClear(card) {
+  cfPaintRelease(card);
+  if (!card.isConnected) return;
+  cfClearLoadingState(card);
+  // The extension has painted: make its images decode off the main thread.
+  if (typeof cfAsyncImages === 'function') cfAsyncImages(card);
+}
+
+function cfPaintOnMutations(records) {
+  const hit = new Set();
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i];
+    const node = r.target;
+    const el = node && node.nodeType === 1 ? node : (node && node.parentElement);
+    const card = el && el.closest ? el.closest('.widget-extension') : null;
+    if (!card || !cfPaintWatch.has(card)) continue;
+    // A card that lost .cf-loading is done; stop watching it.
+    if (!card.classList.contains('cf-loading')) { cfPaintRelease(card); continue; }
+    if (r.type === 'characterData') { hit.add(card); continue; }
+    // Ignore the shimmer bars appearing; anything else is the extension painting.
+    let real = false;
+    for (let j = 0; j < r.addedNodes.length && !real; j++) if (!cfPaintIsBar(r.addedNodes[j])) real = true;
+    for (let j = 0; j < r.removedNodes.length && !real; j++) if (!cfPaintIsBar(r.removedNodes[j])) real = true;
+    if (real) hit.add(card);
+  }
+  hit.forEach(cfPaintClear);
+}
+
+// Safety net: whatever happens, a card must never stay hidden forever. One timer
+// for the whole queue, rescheduled to the earliest deadline.
+function cfPaintArmSweep() {
+  if (cfPaintSweep || !cfPaintWatch.size) return;
+  let next = Infinity;
+  cfPaintWatch.forEach(function (deadline) { if (deadline < next) next = deadline; });
+  cfPaintSweep = setTimeout(function () {
+    cfPaintSweep = null;
+    const now = Date.now();
+    const expired = [];
+    cfPaintWatch.forEach(function (deadline, card) { if (deadline <= now) expired.push(card); });
+    for (let i = 0; i < expired.length; i++) cfPaintClear(expired[i]);
+    cfPaintArmSweep();
+  }, Math.max(0, next - Date.now()));
+}
+
 function cfWatchForFirstPaint(card, extId) {
   if (!card || typeof MutationObserver === 'undefined') return;
   if (!card.classList.contains('cf-loading')) return;
+  cfPaintWatch.set(card, Date.now() + 8000);
+  if (!cfPaintMO) cfPaintMO = new MutationObserver(cfPaintOnMutations);
   // Watch the card: an extension that assigns widget.innerHTML drops .widget-body.
-  const isBarNode = function (n) {
-    return n && n.nodeType === 1 &&
-      (n.classList.contains('cf-loading-bars') || n.classList.contains('cf-placeholder-bar'));
-  };
-  const mo = new MutationObserver(function (records) {
-    if (!card.isConnected || !card.classList.contains('cf-loading')) { mo.disconnect(); return; }
-    for (const r of records) {
-      const touched = [];
-      for (let i = 0; i < r.addedNodes.length; i++) touched.push(r.addedNodes[i]);
-      for (let i = 0; i < r.removedNodes.length; i++) touched.push(r.removedNodes[i]);
-      if (r.type === 'characterData' && r.target) { cfClearLoadingState(card); mo.disconnect(); return; }
-      // Ignore the shimmer bars appearing; anything else is the extension painting.
-      if (touched.length && !touched.every(isBarNode)) {
-        cfClearLoadingState(card);
-        mo.disconnect();
-        return;
-      }
-    }
-  });
-  mo.observe(card, { childList: true, subtree: true, characterData: true });
-  // Safety net: whatever happens, the card must never stay hidden forever.
-  setTimeout(function () {
-    mo.disconnect();
-    if (card.isConnected) cfClearLoadingState(card);
-  }, 8000);
+  cfPaintMO.observe(card, { childList: true, subtree: true, characterData: true });
+  cfPaintArmSweep();
 }
 
 // Start the refresh clock and the deferred prime once an extension's card exists.
 function cfStartExtensionClocks(extId, ext, card) {
-  const interval = cfRefreshInterval(ext);
-// The clock belongs to the core only while it owns the values; a handler redraws on demand.
-  if (interval > 0 && cfCoreOwnsWidgets(ext, extId)) {
-    (ext.widgets || []).forEach(wDef => {
-      const key = `${extId}-${wDef.id}`;
-      widgetTimers[key] = setInterval(() => refreshWidget(extId, wDef), interval);
-    });
+  // A late card: index its DOM once and hand its widgets to the shared scheduler.
+  if (typeof cfPollAddExtension === 'function') {
+    cfPollIndexCard(card || cfPollCard(extId));
+    cfPollAddExtension(extId, ext);
   }
+  // Out-of-view cards freeze their animations instead of ticking for nobody.
+  if (typeof cfIdleObserve === 'function') cfIdleObserve(card || (typeof cfPollCard === 'function' ? cfPollCard(extId) : null));
   // Deferred for js extensions so their script claims the card before the core writes.
   const isJs = (ext.js_modules || []).length > 0;
   if (cfNeedsWidgetPriming(ext, extId)) {
     if (isJs) {
       setTimeout(function () {
         if (cfNeedsWidgetPriming(ext, extId)) {
-          (ext.widgets || []).forEach(wDef => refreshWidget(extId, wDef));
+          if (typeof cfPollPrime === 'function') cfPollPrime(extId, ext);
+          else (ext.widgets || []).forEach(wDef => refreshWidget(extId, wDef));
         }
       }, CF_PRIME_DEFER_MS);
+    } else if (typeof cfPollPrime === 'function') {
+      cfPollPrime(extId, ext);
     } else {
       (ext.widgets || []).forEach(wDef => refreshWidget(extId, wDef));
     }
@@ -80,7 +123,9 @@ function addExtensionToUI(extId, ext) {
     if (!existing) {
       const item = createSidebarExtensionItem(ext, extId);
       sidebar.appendChild(item);
-      if (typeof feather !== 'undefined') feather.replace();
+      // One coalesced pass for the whole boot, not one full-document scan per card.
+      if (typeof cfFeatherReplace === 'function') cfFeatherReplace();
+      else if (typeof feather !== 'undefined') feather.replace();
     }
   }
   // Disabled: listed, but no card, no assets and no polling.
@@ -169,7 +214,7 @@ function createSidebarExtensionItem(ext, extId) {
   const isError = extensionLoadState[extId]?.status === 'error';
   const isLoading = extensionLoadState[extId]?.status === 'loading';
   const iconHtml = ext.icon
-    ? (ext.icon.startsWith('/') ? '<img src="' + ext.icon + '" alt="" style="width:16px;height:16px">' : '<i data-feather="' + ext.icon + '" width="16" height="16"></i>')
+    ? (ext.icon.startsWith('/') ? '<img src="' + ext.icon + '" alt="" loading="lazy" decoding="async" style="width:16px;height:16px">' : '<i data-feather="' + ext.icon + '" width="16" height="16"></i>')
     : '<i data-feather="cpu" width="16" height="16"></i>';
   item.innerHTML = `
     <span class="ext-icon">${iconHtml}</span>

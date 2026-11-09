@@ -6,6 +6,8 @@ const EXT_DEFAULT_GRID = { w: 4, h: 2 };
 const CF_APPEAR_DEFAULT = 'fill-center';
 // Per-card offset so a full dashboard cascades instead of landing in one frame.
 const CF_APPEAR_STAGGER_MS = 32;
+// Cards past this point of a grid build do not animate: they are off screen.
+const CF_APPEAR_MAX_ANIMATED = 48;
 // A skeleton must be readable; extensions that finish in ~150ms would otherwise replace it in a frame.
 const CF_PLACEHOLDER_MIN_MS = 450;
 const CF_APPEAR_ANIMATIONS = {
@@ -17,12 +19,23 @@ const CF_APPEAR_ANIMATIONS = {
   none: 'cf-anim-none',
 };
 
+// Entrance budget: how many cards of a grid build may animate. Reset before the
+// build, released afterwards so a card that arrives later still animates.
+let cfAppearBudget = -1;
+function cfAppearReset() { cfAppearBudget = CF_APPEAR_MAX_ANIMATED; }
+function cfAppearEnd() { cfAppearBudget = -1; }
+
 function cfApplyAppearAnimation(el, ext) {
   if (!el || el.dataset.cfAppeared === '1') return;
-  const requested = (ext && ext.appear_animation) || CF_APPEAR_DEFAULT;
-  const cls = CF_APPEAR_ANIMATIONS[requested] || CF_APPEAR_ANIMATIONS[CF_APPEAR_DEFAULT];
   // Marked before the animation: this flag stops a re-render replaying the entrance.
   el.dataset.cfAppeared = '1';
+  // Only the first screens animate. A card below the fold is not visible while
+  // its entrance plays, so the class, the stagger and the 900 ms failsafe timer
+  // are pure cost. Late arrivals (budget = -1) keep their animation.
+  if (cfAppearBudget === 0) return;
+  if (cfAppearBudget > 0) cfAppearBudget--;
+  const requested = (ext && ext.appear_animation) || CF_APPEAR_DEFAULT;
+  const cls = CF_APPEAR_ANIMATIONS[requested] || CF_APPEAR_ANIMATIONS[CF_APPEAR_DEFAULT];
   // Staggered by grid position, so the cascade follows the reading order.
   const order = Array.prototype.indexOf.call(
     el.parentNode ? el.parentNode.querySelectorAll('.widget-extension') : [], el);

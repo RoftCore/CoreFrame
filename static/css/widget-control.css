@@ -228,6 +228,15 @@ body.edit-mode .widget > * {
     contain-intrinsic-size: auto 300px;
 }
 
+/* Out-of-view cards: freeze CSS animations. content-visibility already skips
+   their paint, but their animation clock still ticks; pausing it removes that
+   work and resumes from the same frame when the card comes back. Toggled by
+   cfIdleObserver, never on a visible card, so nothing jumps. */
+.widget-extension.cf-idle,
+.widget-extension.cf-idle * {
+    animation-play-state: paused !important;
+}
+
 /* Off-scene widgets are moved off-viewport instead of display:none.
    display:none drops the whole box tree, and Chromium discards the decoded
    images with it: revealing a heavy widget then pays a full re-decode on the

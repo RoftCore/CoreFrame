@@ -33,9 +33,12 @@ async function loadExtensionsAsync(tries) {
 
 async function pollExtensionUpdates() {
   try {
+    // Steady state is 5 s; anything still loading drops back to 1 s.
+    pollExtensionUpdates._nextMs = 5000;
     // Self-heal: an empty dashboard means the list never landed, and this poll runs every second.
     if (!Object.keys(extensionsData || {}).length && !pollExtensionUpdates._healing) {
       pollExtensionUpdates._healing = true;
+      pollExtensionUpdates._nextMs = 1000;
       loadExtensionsAsync(3).finally(() => { pollExtensionUpdates._healing = false; });
     }
     const health = await apiFetch('/api/extensions/health');
@@ -60,6 +63,7 @@ async function pollExtensionUpdates() {
         } else if (info.status === 'error' || info.status === 'dead') {
           updateExtensionStatusInSidebar(extId, info.status, info.last_error);
         } else if (info.status === 'loading') {
+          pollExtensionUpdates._nextMs = 1000;
           updateExtensionStatusInSidebar(extId, 'loading');
         }
       }
@@ -71,6 +75,7 @@ async function pollExtensionUpdates() {
     // Leftover placeholders: the branch above only fires on a loaded transition, which one that landed between renders never produces.
     const placeholders = document.querySelectorAll('.widget-extension.cf-placeholder');
     if (placeholders.length) {
+      pollExtensionUpdates._nextMs = 1000;
       let stale = false;
       for (const el of placeholders) {
         const info = health[el.dataset.extId];
