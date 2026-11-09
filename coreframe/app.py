@@ -128,8 +128,19 @@ _restart_lock = threading.Lock()
 def api_restart():
     if not _restart_lock.acquire(blocking=False):
         return jsonify({'ok': False, 'error': 'restart already in progress'}), 409
+    # The reload drains every child and spawns it again: 5.8 s measured on
+    # 2026-11-09, and the join deadline allows up to 10 s more when one refuses
+    # to die. The button awaited this response before reloading, so it spun for
+    # the whole drain and looked dead. Answer now; the work runs behind it.
+    threading.Thread(target=_restart_worker, daemon=True, name='restart').start()
+    return jsonify({'ok': True, 'status': 'reloading'}), 202
+
+
+def _restart_worker():
     try:
-        return _do_restart()
+        _do_restart()
+    except Exception as e:
+        log.exception("Restart failed: %s", e)
     finally:
         try:
             _restart_lock.release()
@@ -150,6 +161,18 @@ def _do_restart():
     except Exception:
         pass
 
+    # Drop the registry before the drain, not after it. A page that reloads while
+    # the children are being stopped then sees the pending manifests and paints
+    # skeletons, instead of the real cards whose processes are already dying.
+    old = list(extensions.items())
+    for ext_id, _ in old:
+        _ext_isolation.mark_dead(ext_id, 'Restart')
+    extensions.clear()
+    from coreframe.extensions import failed_extensions
+    failed_extensions.clear()
+    from coreframe.websocket import latest_update
+    latest_update.clear()
+
     # Drain old children first: parallel and bounded, so restarts never overlap.
     def _stop_one(ext_data):
         inst = ext_data.get('instance')
@@ -159,7 +182,7 @@ def _do_restart():
             except Exception:
                 pass
     stops = []
-    for ext_data in list(extensions.values()):
+    for ext_data in old:
         t = threading.Thread(target=_stop_one, args=(ext_data,), daemon=True)
         t.start()
         stops.append(t)
@@ -178,14 +201,6 @@ def _do_restart():
             log.warning("Restart: %d orphan children survived drain", left)
     except Exception:
         pass
-    for ext_id in list(extensions.keys()):
-        _ext_isolation.mark_dead(ext_id, 'Restart')
-
-    extensions.clear()
-    from coreframe.extensions import failed_extensions
-    failed_extensions.clear()
-    from coreframe.websocket import latest_update
-    latest_update.clear()
 
     mods_to_del = [k for k in list(sys.modules.keys()) if k.startswith('extensions.')]
     for k in mods_to_del:
@@ -200,8 +215,7 @@ def _do_restart():
 
     threading.Thread(target=_save_registry, daemon=True).start()
 
-    log.info("Restart: instant response sent, %d extensions loading async", len(extensions))
-    return jsonify({'ok': True, 'status': 'reloading'})
+    log.info("Restart: %d extensions loading behind the response", len(extensions))
 
 
 @app.route('/api/quit', methods=['POST'])

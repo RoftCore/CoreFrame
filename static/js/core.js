@@ -155,8 +155,11 @@ document.getElementById('btn-reload').addEventListener('click', async () => {
   const btn = document.getElementById('btn-reload');
   btn.textContent = '↻';
   btn.style.animation = 'spin 0.6s linear infinite';
-  try { await apiFetch('/api/restart', { method: 'POST' }); } catch (e) {}
-  setTimeout(() => location.reload(), 500);
+  // The endpoint answers 202 at once and drains the children behind it, so this
+  // never waits for the reload itself. The cap is a safety net for a wedged
+  // server: the button reloads even if the call never comes back.
+  try { await apiFetch('/api/restart', { method: 'POST', timeout: 3000 }); } catch (e) {}
+  setTimeout(() => location.reload(), 300);
 });
 
 // ── WebSocket ─────────────────────────────────────────────────────
