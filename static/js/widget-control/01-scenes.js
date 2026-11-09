@@ -119,6 +119,7 @@
       var t0 = now();
       // 1. Hide everything outside this scene first (cheap: no content cost).
       var sw = s.sceneWidgets();
+      var ids = Object.keys(sw).filter(function (id) { return sw[id] && !sw[id].hidden; });
       document.querySelectorAll('.widget-extension').forEach(function (w) {
         var pos = sw[w.dataset.extId];
         if (!pos || pos.hidden) cfHide(w);
@@ -128,6 +129,9 @@
       mark('layouts', t0);
       s.applyWidgetStyles();
       mark('styles', t0);
+      // The incoming scene is about to be on screen: fetch its deferred assets
+      // now instead of waiting for the observer's next frame.
+      if (typeof cfPrefetchAssets === 'function') cfPrefetchAssets(ids);
       // State-only registration of newcomers (no DOM writes here).
       if (window.__widgetControl && window.__widgetControl.autoAddExtensions) {
         try { window.__widgetControl.autoAddExtensions(); } catch(_){}
@@ -140,7 +144,6 @@
       var commitMs = Math.round((now() - t0) * 10) / 10;
       if (t0 && commitMs > 50) console.warn('[CoreFrame] slow scene-switch commit: ' + commitMs + 'ms (budget 50ms)');
 // Reveal in small batches: one heavy widget must not block the frame or starve input.
-      var ids = Object.keys(sw).filter(function (id) { return sw[id] && !sw[id].hidden; });
       var i = 0;
       (function revealBatch(){
         if (gen !== s._switchGen) return; // a newer switch took over
@@ -150,14 +153,18 @@
           if (w) { cfShow(w); n++; }
         }
         if (i < ids.length) { requestAnimationFrame(revealBatch); return; }
-// Reveal complete: refresh newly-visible core widgets, since intervals skip hidden ones.
+// Reveal complete: everything in this scene is stale, but only what is on screen fires.
         try {
-          ids.forEach(function (eid) {
-            var ext = window.extensionsData && window.extensionsData[eid];
-            if (!ext || (ext.js_modules && ext.js_modules.length)) return;
-            if (typeof refreshWidget !== 'function') return;
-            (ext.widgets || []).forEach(function (wDef) { refreshWidget(eid, wDef); });
-          });
+          if (typeof cfPollInvalidateScene === 'function') {
+            cfPollInvalidateScene(ids);
+          } else {
+            ids.forEach(function (eid) {
+              var ext = window.extensionsData && window.extensionsData[eid];
+              if (!ext || (ext.js_modules && ext.js_modules.length)) return;
+              if (typeof refreshWidget !== 'function') return;
+              (ext.widgets || []).forEach(function (wDef) { refreshWidget(eid, wDef); });
+            });
+          }
         } catch (_e) {}
         // All revealed: measure first paint and report telemetry (fire-and-forget).
         try {
@@ -223,7 +230,7 @@
       html += '<div class="ctx-hidden-item" data-scene="' + sid + '" style="margin-bottom:6px;">';
       var iconHtml = '';
       if (sc.image) {
-        iconHtml = '<img src="' + sc.image + '" style="width:22px;height:22px;object-fit:cover;border-radius:3px;vertical-align:middle;">';
+        iconHtml = '<img src="' + sc.image + '" loading="lazy" decoding="async" style="width:22px;height:22px;object-fit:cover;border-radius:3px;vertical-align:middle;">';
       } else if (typeof feather !== 'undefined' && feather.icons[label]) {
         iconHtml = '<i data-feather="' + label + '" width="18" height="18"></i>';
       } else {

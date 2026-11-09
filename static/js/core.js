@@ -1,5 +1,21 @@
 // CoreFrame Bootstrap. Logic lives in app/ (lifecycle) and widgets/ (construction).
 
+// Self-scheduling health poll. 1 Hz while an extension is still loading (so the
+// dashboard appears as soon as it is ready), 5 s once everything has settled.
+// The response carries one entry per extension, so a 1 Hz poll at a thousand
+// extensions is the heaviest thing the idle app does for no visible gain.
+let cfHealthTimer = null;
+function cfHealthSchedule(ms) {
+  if (cfHealthTimer) clearTimeout(cfHealthTimer);
+  cfHealthTimer = setTimeout(function () {
+    cfHealthTimer = null;
+    Promise.resolve()
+      .then(function () { return pollExtensionUpdates(); })
+      .catch(function () {})
+      .then(function () { cfHealthSchedule(pollExtensionUpdates._nextMs || 5000); });
+  }, ms);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.add('booting');
 
@@ -31,7 +47,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadingEl.innerHTML = '<div class="widget-grid"></div>';
 
   loadExtensionsAsync();
-  setInterval(pollExtensionUpdates, 1000);
+  cfHealthSchedule(1000);
   applyStartupMode();
 
 // Extension JS runs here, so a throw in its boot script would only show as a missing card.
@@ -164,6 +180,10 @@ function initWebSocket() {
   }
   socket.on('connect', updateDot);
   socket.on('disconnect', updateDot);
+  // Pushes sent while the socket was down are gone: ask once for everything on screen.
+  socket.on('connect', function () {
+    if (typeof cfPollRefreshHot === 'function') cfPollRefreshHot();
+  });
   updateDot();
   setInterval(updateDot, 3000);
 
@@ -200,10 +220,14 @@ function initWebSocket() {
 
   function handleRealtimeUpdate(data) {
     Object.keys(data.values).forEach(id => {
-      const el = document.querySelector(`[data-widget-id="${id}"][data-ext-id="${data.ext}"]`);
+      const el = typeof cfPollElement === 'function'
+        ? cfPollElement(data.ext, id)
+        : document.querySelector(`[data-widget-id="${id}"][data-ext-id="${data.ext}"]`);
       if (!el) return;
       // Skip hidden widgets: no backend-independent work for unseen content.
       if (cfHidden(el)) return;
+      // Off screen: hold the latest value and paint it when the card comes into view.
+      if (typeof cfPollStore === 'function' && cfPollStore(data.ext, id, data.values[id])) return;
       updateWidgetValue(el, { value: data.values[id] });
     });
   }
@@ -218,9 +242,12 @@ function initWebSocket() {
     let i = 0;
     const applyOne = (p) => {
       try {
-        const el = document.querySelector(`[data-widget-id="${p.id}"][data-ext-id="${p.ext}"]`);
+        const el = typeof cfPollElement === 'function'
+          ? cfPollElement(p.ext, p.id)
+          : document.querySelector(`[data-widget-id="${p.id}"][data-ext-id="${p.ext}"]`);
         if (!el) return;
         if (cfHidden(el)) return;
+        if (typeof cfPollStore === 'function' && cfPollStore(p.ext, p.id, p.value)) return;
         updateWidgetValue(el, { value: p.value });
       } catch (e) {}
     };

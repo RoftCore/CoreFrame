@@ -213,7 +213,7 @@ function createSubWidget(widgetDef, extId) {
       var ddTrigger = document.createElement('button');
       ddTrigger.className = 'widget-dd-trigger';
       if (icon && icon.startsWith('/')) {
-        ddTrigger.innerHTML = '<img src="' + icon + '" alt="" style="width:16px;height:16px">';
+        ddTrigger.innerHTML = '<img src="' + icon + '" alt="" loading="lazy" decoding="async" style="width:16px;height:16px">';
       } else {
         ddTrigger.innerHTML = '<i data-feather="' + icon + '" width="16" height="16"></i>';
       }

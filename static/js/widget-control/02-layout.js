@@ -75,7 +75,7 @@
       return '<i data-feather="' + icon + '"></i>';
     }
     if (icon && icon.startsWith('/')) {
-      return '<img src="' + icon + '" alt="">';
+      return '<img src="' + icon + '" alt="" loading="lazy" decoding="async">';
     }
     var ext = (window.extensionsData && window.extensionsData[extId]) || {};
     var cat = ext.category || '';

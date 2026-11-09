@@ -30,6 +30,15 @@
 - Processes are grouped by name like Windows Task Manager: single click on the header expands/collapses, double click on a child opens a context menu with details and End Task, and multi-process headers get a `✕` that kills every instance after a confirmation.
 - State survives refreshes through `_expandedGroups` and the icon cache; auto-refresh is a 3 s interval.
 
+## Console notes (PTY in a card)
+
+- A terminal is a push, not a poll. Polling the stream over the action API costs an HTTP round trip, a JSON escape in the child, another in the host and a parse in the page **per frame**: measured 1.55-1.76 s per `pty_poll` carrying a 380 KB backlog, while a single opencode repaint is ~95 KB. `console` owns a loopback WebSocket (`ws_server.py`, stdlib only, `127.0.0.1:0`, one token per boot) and the card connects straight to it; keys and resize travel back on the same socket. The action path remains as the fallback.
+- An extension at permission level 5 has `network_allowed`, so it can bind its own listener; the core stays generic and needs no change.
+- **DEC private mode 2026 must be cut server-side.** opencode wraps every repaint in `ESC[?2026h..l` and xterm.js 5.5 does not implement it: a frame written in pieces paints half old and half new. Accumulate in the reader and emit whole frames (with a deadline flush), or the card tears no matter how fast the transport is.
+- ConPTY, not the transport, is the ceiling: 82 KB/s for `cmd /c type` with ~156 B per read, identical through a raw pipe and through the socket.
+- Measure a frame from its first byte to its last. Timing `write command -> output` includes `py -3.13` startup and reads as ~290 ms of transport overhead that is not there.
+- `bin\runner\CoreFrame.exe <cfg.json>` can be driven directly to test an installed extension: pass `SHARED_LIB_DIR` under `coreframe_config` or the child dies with `No module named 'winpty'`.
+
 ## Generic patterns worth remembering
 
 - A widget's own `js_modules` run on the host's main thread: honour `window.__coreframeDragging`, listen for `coreframe-dragend` to repaint, wrap render callbacks in try/catch, and skip DOM writes when the value hash is unchanged.

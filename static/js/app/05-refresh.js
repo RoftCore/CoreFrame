@@ -11,11 +11,7 @@ window.cfOnCardRerender = function (extId, fn) {
   cfMarkExtensionLive(extId);
   cfRerenderHandlers[extId] = fn;
   // Registration precedes the paint, so the shimmer stays; the extension now owns the DOM.
-  const meta = (window.extensionsData || {})[extId];
-  for (const w of ((meta && meta.widgets) || [])) {
-    const k = `${extId}-${w.id}`;
-    if (widgetTimers[k]) { clearInterval(widgetTimers[k]); delete widgetTimers[k]; }
-  }
+  if (typeof cfPollDropExtension === 'function') cfPollDropExtension(extId);
 };
 
 // A declared 0 means "do not poll me" and must not fall through to the default.
@@ -50,25 +46,21 @@ function cfNeedsWidgetPriming(ext, extId) {
 }
 
 function refreshAllWidgets(data) {
-  // Prime core-owned widgets, but let js extensions boot and claim their cards first.
-  const primeOne = function (extId, ext) {
-    if (ext.disabled) return;
-    if (!cfNeedsWidgetPriming(ext, extId)) return;
-    // A late hook still means the extension owns this card; writing here is the bug.
-    for (const wDef of (ext.widgets || [])) {
-      const card = document.querySelector(`.widget-extension.ext-${extId}`);
-      if (card && cfCardBodyClaimed(card)) continue;
-      try { refreshWidget(extId, wDef); } catch (e) {
-        console.error('[EXT] Error refreshing ' + extId + ':', e);
+  // Registering is the priming now (cfPollRebuild). Only js extensions keep the
+  // deferred first call, so their script can claim the card before the core writes.
+  for (const [extId, ext] of Object.entries(data || {})) {
+    if (ext.disabled) continue;
+    if (!cfNeedsWidgetPriming(ext, extId)) continue;
+    if (!(ext.js_modules || []).length) continue;   // core-owned: the poller already primed it
+    setTimeout(function () {
+      if (!cfNeedsWidgetPriming(ext, extId)) return;
+      if (typeof cfPollPrime === 'function') { cfPollPrime(extId, ext); return; }
+      for (const wDef of (ext.widgets || [])) {
+        try { refreshWidget(extId, wDef); } catch (e) {
+          console.error('[EXT] Error refreshing ' + extId + ':', e);
+        }
       }
-    }
-  };
-
-  for (const [extId, ext] of Object.entries(data)) {
-    const isJs = (ext.js_modules || []).length > 0;
-    if (!isJs) { primeOne(extId, ext); continue; }  // no script: core owns it now
-    // js extension: defer so it can claim its card before the core writes.
-    setTimeout(function () { primeOne(extId, ext); }, CF_PRIME_DEFER_MS);
+    }, CF_PRIME_DEFER_MS);
   }
 }
 
@@ -88,7 +80,9 @@ function isWidgetActive(extId, widgetId) {
       if (!pos) return true;
       if (pos.hidden) {
         // State says hidden: still allow if actually on screen (state race).
-        const el = document.querySelector(`[data-widget-id="${widgetId}"][data-ext-id="${extId}"]`);
+        const el = typeof cfPollElement === 'function'
+          ? cfPollElement(extId, widgetId)
+          : document.querySelector(`[data-widget-id="${widgetId}"][data-ext-id="${extId}"]`);
         if (!el) return false;
         const hidden = typeof cfHidden === 'function' ? cfHidden(el) : el.style.display === 'none';
         if (hidden) return false;
@@ -106,11 +100,18 @@ async function refreshWidget(extId, wDef) {
   if (window.__coreframeDragging) return;
   // Anti pile-up: a still-running call skips instead of stacking requests.
   if (widgetInflight[key]) return;
+  // Off screen or window hidden: no request and no DOM write. The poller fires it on arrival.
+  if (typeof cfPollGate === 'function' && !cfPollGate(extId, wDef.id)) {
+    return;
+  }
   if (!isWidgetActive(extId, wDef.id)) return;
-  const el = document.querySelector(`[data-widget-id="${wDef.id}"][data-ext-id="${extId}"]`);
+  const el = typeof cfPollElement === 'function'
+    ? cfPollElement(extId, wDef.id)
+    : document.querySelector(`[data-widget-id="${wDef.id}"][data-ext-id="${extId}"]`);
   if (!el) return;
   if (wDef.action) {
     widgetInflight[key] = true;
+    if (typeof cfPollNoteFetched === 'function') cfPollNoteFetched(extId, wDef.id);
     try {
       const response = await apiFetch(`/api/extension/${extId}/${wDef.action}`);
       // Give a JS-painted body a moment to mount, and write nothing if it claimed it.
@@ -140,6 +141,8 @@ async function refreshWidget(extId, wDef) {
 }
 
 function startWidgetIntervals(data) {
+  // One queue for every clock now: viewport-gated, single timer, no setInterval per widget.
+  if (typeof cfPollRebuild === 'function') { cfPollRebuild(data); return; }
   for (const timer in widgetTimers) clearInterval(widgetTimers[timer]);
   for (const [extId, ext] of Object.entries(data)) {
     if (ext.disabled) continue;   // no polling for a disabled extension
