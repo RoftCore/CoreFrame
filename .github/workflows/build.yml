@@ -91,6 +91,11 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    # Without this the default GITHUB_TOKEN is read-only and `gh release create`
+    # answers 403. The step used to end in `2>/dev/null || true`, so the job went
+    # green and published nothing: v1.1.0 was tagged, built, and had no release.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -114,8 +119,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF_NAME}"
+          # A failed publish has to fail the job. Re-running a tag that already
+          # has its release is the only case allowed to pass silently.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists"
+            exit 0
+          fi
           gh release create "$TAG" \
             artifacts/CoreFrame-Windows/CoreFrame.exe#CoreFrame-Windows.exe \
             artifacts/CoreFrame-Linux/CoreFrame#CoreFrame-Linux \
             --title "CoreFrame $TAG" \
-            --notes-file notes.md 2>/dev/null || true
+            --notes-file notes.md
