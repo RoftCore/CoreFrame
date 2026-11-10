@@ -30,6 +30,11 @@ class ExtensionIsolation:
     MAX_RESTARTS = 3
     RESTART_COOLDOWN = 10.0
     RESTART_BACKOFF = (10.0, 30.0, 120.0)
+    MONITOR_TICK = 2.0
+    # A tick this much longer than MONITOR_TICK means the machine slept, not
+    # that the extensions died. Well above any scheduler hiccup, well below
+    # MAX_HEARTBEAT_AGE so the guard runs before the fleet is degraded.
+    SUSPEND_GAP = 30.0
 
     def __init__(self):
         self.health: Dict[str, ExtensionHealth] = {}
@@ -58,12 +63,44 @@ class ExtensionIsolation:
         self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _monitor_loop(self):
+        last = time.monotonic()
         while not self._stop_monitor.is_set():
-            time.sleep(2.0)
-            self._check_health()
+            time.sleep(self.MONITOR_TICK)
+            now = time.monotonic()
+            gap = now - last
+            last = now
+            self._check_health(gap)
 
-    def _check_health(self):
+    def _restamp_after_suspend(self, gap):
+        """The machine slept: every heartbeat is stale by the same amount.
+
+        time.monotonic() keeps counting through an OS suspend, so the first tick
+        after a wake found every extension hours past MAX_HEARTBEAT_AGE, degraded
+        the whole fleet at once and burned the restart budget until they were
+        quarantined for the session (log 2026-11-10 10:03 and 10:26, both right
+        after a resume). The children were suspended too, so re-stamp instead of
+        restarting them. A child that really died while the lid was closed still
+        times out normally 60 s later.
+        """
         now = time.monotonic()
+        with self._lock:
+            healed = 0
+            for health in self.health.values():
+                if health.status in ('healthy', 'degraded'):
+                    health.last_heartbeat = now
+                    healed += 1
+                # The sleep is not backoff: without this a pending restart fires
+                # the instant the machine wakes, on a fleet still warming up.
+                if health.last_restart_attempt:
+                    health.last_restart_attempt += gap
+            log.info("[isolation] monitor tick gap %.0fs (suspend/resume), %d heartbeats re-stamped",
+                     gap, healed)
+
+    def _check_health(self, gap=0.0):
+        now = time.monotonic()
+        if gap >= self.SUSPEND_GAP:
+            self._restamp_after_suspend(gap)
+            now = time.monotonic()
         with self._lock:
             for ext_id, health in list(self.health.items()):
                 if health.status == 'dead':
@@ -162,7 +199,21 @@ class ExtensionIsolation:
     def heartbeat(self, ext_id: str):
         with self._lock:
             health = self.health.get(ext_id)
-            if health and health.status in ('healthy', 'degraded'):
+            if not health:
+                return
+            # A quarantined extension that is still talking is not dead. The
+            # quarantine came from a false timeout (a sleep cycle or a stalled
+            # monitor), the process never stopped, and its widgets kept working
+            # under a badge that said dead. Admit it back.
+            if health.quarantined:
+                health.quarantined = False
+                health.restart_count = 0
+                health.status = 'healthy'
+                health.last_error = ''
+                health.last_heartbeat = time.monotonic()
+                log.info("Extension %s answered after quarantine, cleared", ext_id)
+                return
+            if health.status in ('healthy', 'degraded'):
                 health.last_heartbeat = time.monotonic()
                 if health.status == 'degraded':
                     health.status = 'healthy'
