@@ -93,9 +93,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      # The release body is the CHANGELOG section for this tag, not an empty
+      # string: a release nobody can read is a release nobody trusts.
+      - name: Extract release notes
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          awk -v tag="$TAG" '$0 ~ "^## " tag "([ ]|$)" { on=1; next } on && /^## / { exit } on { print }' CHANGELOG.md > notes.md
+          echo "notes: $(wc -l < notes.md) lines"
 
       - name: Create release
         shell: bash
@@ -107,4 +118,4 @@ jobs:
             artifacts/CoreFrame-Windows/CoreFrame.exe#CoreFrame-Windows.exe \
             artifacts/CoreFrame-Linux/CoreFrame#CoreFrame-Linux \
             --title "CoreFrame $TAG" \
-            --notes "" 2>/dev/null || true
+            --notes-file notes.md 2>/dev/null || true

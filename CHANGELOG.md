@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v1.1.0 — Permission System, Subprocess Isolation, Autoruns & the Scale Pass
+
+**Release date:** 2026-11-10 — first release since 1.0.2. Everything below shipped between 2026-08-26 and today, in two waves: the September security overhaul and the October/November scale pass. The 1.1.0 notes used to sit in their own section, dated 2026-09-01 and never tagged; that draft is now the closing part of this release instead of a version of its own.
 
 ### Refactors
 
@@ -63,29 +65,29 @@
 - **`AGENTS.md`:** pitfalls 42-44, and the one documented exception to architecture rule 1 (the bundled demo extension).
 
 
-## v1.1.0 — Permission System, Subprocess Isolation & Autoruns
+### The September wave — permissions, isolation and Autoruns
 
-**Release date:** 2026-09-01 — Security overhaul, long-term stable version for testing.
+Everything from here down landed between 2026-08-26 and 2026-09-01.
 
-### Features — Permissions & Isolation
+#### Features — Permissions & Isolation
 
 - **6-level permission model** (`basic 0` → `admin 5`) with consent modals, `permissions.json` + `permissions_denied.json`, and `file_whitelists.json` for `user_files` mediated access.
 - **Subprocess isolation for all Python extensions** via `coreframe/extensions/ext_runner.py` (embebido como string en `run_coreframe.pyw`, sin archivos en `MEIPASS`) → `CoreFrame.exe --ext-runner <config.json>` JSON-RPC over stdin/stdout. Enforces `builtins.open` (allowed_dirs + exe dir + `_MEIPASS` + `TEMP` + `ext_path`), `socket` and `subprocess` blocking at OS level. Fixes `builtins.open` bypass via `import` time capture.
 - **UAC elevation via `coreframe_helper.exe`** (`ShellExecuteW("runas")` + batch mode) for `registry_write`/`service_control`/`delete_file` — single UAC prompt, no need to run CoreFrame as admin. `win_tweaker` and `windows_autoruns` use it.
 - **Escalation `Once` vs `Always`** — `Once` stored in `temp_escalations` and consumed after one successful `check_escalation`, `Always` in `permanent_escalations`. Frontend `permissions.js` shows `Once`/`Always` and `script.js` polls `GET /permissions` (100ms + socket) for instant retry.
 
-### Features — Autoruns Extension
+#### Features — Autoruns Extension
 
 - **New extension `windows_autoruns`** (`system` + escalation `admin` for `toggle`) — native Autoruns clone: Registry `Run`/`RunOnce` (HKLM/HKCU/WOW6432), Startup folders, Winlogon, Services (125 via `SYSTEM\CurrentControlSet\Services`), Drivers, Scheduled Tasks (CSV), BHOs. Shows `Hide Microsoft`/`Hide Windows` (like Sysinternals), publisher via `GetFileVersionInfoW`, 16×16 icons via `SHGetFileInfoW→DrawIconEx→GetDIBits→PIL→base64` (114/167), table with `Disable`/`Enable` staying visible (grey `ar-disabled`, `disabled.json` for registry). SunshineService correctly appears as `AUTO_START` and toggles via helper `service_control`.
 
-### Bug Fixes — Widgets & Scenes
+#### Bug Fixes — Widgets & Scenes
 
 - **Revoke paperweight:** `03-menus-styles.js` `showRevokeConfirm` now does `hideWidget` + `loadState().applyHiddenState` so revoked stays in `Extensions` and `Show hidden widgets` picker, only hidden from viewport.
 - **Widget disappearance on scene switch/reload:** `02-layout.js` `saveAllLayouts` now only updates `col/row/w/h` for visible DOM widgets, keeps `hidden` from `widget_state.json` (source of truth). `01-scenes.js` `switchScene` simplified to 6 lines (no `deferred` magic, no `reload`).
 - **Plain text fallback:** `switchScene` lazy-load now correctly does `loadExtAssets` + filtered `renderWidgets` for deferred, and `01-scenes.js` re-renders with `renderWidgets(filtered)` to avoid `--` → `text` plain.
 - **Text selection in Autoruns table:** `style.css` `user-select: text` for `td`.
 
-### Bug Fixes — Core & Security
+#### Bug Fixes — Core & Security
 
 - **Stale `widget_state.json` on scene change:** `saveAllLayouts` no longer reconstructs `hidden` from DOM, prevents empty `widgets: {}` on new scenes.
 - **`ext_runner`  `TypeError: unhashable type: dict`** (f-string `{{e}}` in raw string) → fixed to `{e}`; `OSError Invalid argument` on close (stdout pipe) → `try/except OSError` around `ready` signal and `for line in sys.stdin`.
@@ -104,11 +106,11 @@
 - **Scene `widget_state` loss on `createScene`:** fixed `persistScenes` atomic write.
 - **Autostart toggle indicator:** the Start on boot menu item now shows a green ON / grey OFF badge plus check/square icon. Fixed two bugs hiding it: `feather.replace()` was never re-run after the async state fetch (raw `<i>` stayed invisible), and `_get_autostart_enabled` ran `isfile()` on the whole registry string including quotes and args (`"...\exe" --autostart` always False), so it reported OFF even when enabled.
 
-### Docs
+#### Docs
 
 - `docs/EXTENSIONS.md` new `### permissions` section with 6-level table, `extension.json` example, isolation details, admin helper, and frontend `403` handling (10s `showPermWaiting` cancellable, `Once` vs `Always`).
 
-### Bug Fixes — CoreFrame (subprocess isolation)
+#### Bug Fixes — CoreFrame (subprocess isolation)
 
 - `ext_runner.py:355` / `run_coreframe.pyw:344` missing `Lib/site-packages` on Windows: `pip --prefix` installs to `lib/Lib/site-packages` but isolated child only added `lib` to `sys.path` → `ModuleNotFoundError: trimesh` even after successful `pip install` (seen in `glb_convex_hull` with `trimesh 4.12.2` in `lib`). Fixed by adding `Lib/site-packages` and `lib/python3.11/site-packages` to child's `sys.path` before `import`. **Error de CoreFrame, no de la extensión.**
 - `subprocess.Popen` replaced with a plain function broke `class Popen(subprocess.Popen)` subclassing at import time (`yt_dlp/utils/_utils.py:842` → `TypeError: function() argument 'code' must be code, not str`), masking the real state as `yt-dlp not installed` in `spotify_downloader`. Fixed with `BlockedPopen`/`RestrictedPopen` raisable classes in `ext_runner.py`, embedded `_EXT_RUNNER_SOURCE` in `run_coreframe.pyw`, and `security.py` — subclassing works, instantiation still raises `PermissionError`. Verified: subclass OK, `yt_dlp 2026.08.19` imports, spawn still blocked at level 3. **Error de CoreFrame, no de la extensión.**
@@ -119,7 +121,7 @@
 - Install flow is now atomic: `_ensure_extension_deps_sync` (blocking, with pip exit-code check and 120s supervised timeout) + `_rollback_install` (removes dir + registry entry) on any dep failure, with a visible `failed_extensions` fallback if rollback itself fails. Verified live twice: failing dep → error + `Rollback removed dir` + clean state, no ghost.
 - Autoruns showed 0 entries: the 0.8s circuit breaker killed `get_entries` (full scan takes ~4s for 165 entries with icon extraction). `bridge.py` excludes `get_entries` from the fast-timeout list — heavy legitimate work keeps the 30s budget.
 
-### Other
+#### Other
 
 - `coreframe_helper.spec` batch support, `run_coreframe.pyw` `--ext-runner` early exit before heavy imports.
 - `MEMORY.md` and `SKILLS/plan-apocalipsis` updated.
