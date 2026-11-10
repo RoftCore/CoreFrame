@@ -477,11 +477,29 @@ class SubprocessBridge:
         _FAST = ('get_config', 'get_status', 'get_cpu', 'get_ram', 'get_gpu',
                  'get_disk', 'get_fortune', 'get_notes', 'get_ping')
 # 4s because get_ip median is 1.46s cold and exceeds 2.0s in 15% of calls.
-        _MEDIUM = ('get_ip', 'check_vpn', 'get_open_ports', 'get_processes')
-        if method in _FAST:
+        _MEDIUM = ('get_ip', 'check_vpn', 'get_open_ports')
+# get_processes walks the whole process table and its icons: 6-12s by design, so
+# a 4s budget could never succeed and every poll painted "degradado" (measured
+# 2026-11-09: 4144 ms, timeout error, on every visible refresh). 30s covers the
+# cold scan after boot, measured at 17.1s while the page's own first poll ran.
+        _SLOW = ('get_processes',)
+        # An extension can declare its own budget in extension.json:
+        # "timeouts": {"get_processes": 20}. Beats guessing for the next method.
+        try:
+            declared = self.config.get('timeouts') or {}
+        except Exception:
+            declared = {}
+        if method in declared:
+            try:
+                timeout = float(declared[method])
+            except (TypeError, ValueError):
+                timeout = 30
+        elif method in _FAST:
             timeout = 2.0
         elif method in _MEDIUM:
             timeout = 4.0
+        elif method in _SLOW:
+            timeout = 30.0
         else:
             timeout = 30
         deadline = time.monotonic() + timeout
