@@ -14,7 +14,7 @@ async function apiFetch(url, options = {}) {
   try {
     var headers = {};
     if (options.headers && typeof options.headers === 'object') {
-      for (var k in options.headers) headers[k] = options.headers[k];
+      for (var key in options.headers) headers[key] = options.headers[key];
     }
     if (_COREFRAME_TOKEN) headers['X-CoreFrame-Token'] = _COREFRAME_TOKEN;
     if (typeof options.body === 'string' && !headers['Content-Type']) {
@@ -23,12 +23,12 @@ async function apiFetch(url, options = {}) {
     delete options.headers;
     var timeout = (options && options.timeout) || 90000;
     const controller = new AbortController();
-    var t = setTimeout(function () { controller.abort(); }, timeout);
+    var timeoutId = setTimeout(function () { controller.abort(); }, timeout);
     var res;
     try {
       res = await fetch(url, { ...options, headers, signal: controller.signal });
     } finally {
-      clearTimeout(t);
+      clearTimeout(timeoutId);
     }
     if (!res) return { error: 'Request timed out' };
     if (!res.ok) {
@@ -65,6 +65,63 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = String(text);
   return div.innerHTML;
+}
+
+function cfCompareVersions(a, b) {
+  const pa = String(a || '0').split(/[.\-+]/).map(function (x) { return parseInt(x, 10) || 0; });
+  const pb = String(b || '0').split(/[.\-+]/).map(function (x) { return parseInt(x, 10) || 0; });
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na !== nb) return na > nb ? 1 : -1;
+  }
+  return 0;
+}
+
+function getProcessIcon(name) {
+  const n = (name || '').toLowerCase();
+  if (/chrome|edge|firefox|opera|safari|brave|vivaldi|msedge|iexplore|navigator/.test(n)) return '🌐';
+  if (/code|cursor|windsurf|sublime|atom|notepad\+\+|notepad|textedit|gedit|vim|nvim|nano/.test(n)) return '📝';
+  if (/terminal|cmd|powershell|gitbash|wsl|bash|zsh|sh\.exe|conhost|windowsterminal/.test(n)) return '💻';
+  if (/spotify|music|wmplayer|itunes|audacity/.test(n)) return '🎵';
+  if (/discord|slack|telegram|whatsapp|signal|messenger|wechat|teams|thunderbird|outlook/.test(n)) return '💬';
+  if (/vlc|mpv|mplayer|wmplayer|potplayer|plex/.test(n)) return '🎬';
+  if (/steam|epic|battlenet|origin|uplay|gog|game|unity|ue4|unreal/.test(n)) return '🎮';
+  if (/winword|excel|powerpoint|word|excel|ppt|onenote|office|libreoffice|acrobat|pdf|acrord/.test(n)) return '📄';
+  if (/explorer|finder|nautilus|thunar|dolphin|totalcmd|filezilla/.test(n)) return '📁';
+  if (/python|node|java|javaw|dotnet|go|rustc|gcc|clang|make|cmake|gradle|mvn|rake/.test(n)) return '⚙️';
+  if (/mysqld|postgres|mongod|redis|sqlservr|oracle|mariadb/.test(n)) return '🗄️';
+  if (/nginx|apache|httpd|iis|tomcat|jenkins|docker|containerd/.test(n)) return '🌍';
+  if (/sshd|ssh|putty|kitty|winscp|bitvise/.test(n)) return '🔐';
+  if (/photoshop|illustrator|figma|gimp|blender|paint|mspaint|coreldraw|affinity|sketchup/.test(n)) return '🎨';
+  if (/system|kernel|svchost|services|lsass|wininit|systemd|init|kthreadd|kworker|kern/.test(n)) return '⚡';
+  if (/sleep|idle|suspended|stopped|parked/.test(n)) return '💤';
+  return '⚪';
+}
+
+// feather.replace() walks the whole document looking for [data-feather]. Called
+// once per card while the dashboard is built, that is O(n^2): with a thousand
+// extensions it is a thousand full-document scans. Coalescing every request made
+// in the same task into one pass keeps it O(n).
+let _cfFeatherQueued = false;
+function cfFeatherReplace() {
+  if (_cfFeatherQueued) return;
+  _cfFeatherQueued = true;
+  setTimeout(function () {
+    _cfFeatherQueued = false;
+    if (typeof feather === 'undefined') return;
+    try { feather.replace(); } catch (e) {}
+  }, 0);
+}
+
+// Extension-painted images: async decode keeps the main thread clear and costs
+// nothing. loading="lazy" is deliberately NOT applied here: an extension that
+// draws an <img> into a canvas would get a late load and a blank canvas for good.
+function cfAsyncImages(root) {
+  if (!root || !root.querySelectorAll) return;
+  const imgs = root.querySelectorAll('img:not([decoding])');
+  for (let i = 0; i < imgs.length; i++) imgs[i].decoding = 'async';
 }
 
 function clockTick() {

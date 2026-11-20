@@ -4,6 +4,7 @@ import sys
 import json
 import time
 import shutil
+import tempfile
 import zipfile
 import threading
 from flask import request, jsonify
@@ -13,8 +14,61 @@ from coreframe.extensions import (
     extensions, failed_extensions, _ext_isolation,
     _load_single_extension, _sync_extension_lib, _start_polling,
 )
-from coreframe.extensions.deps import _ensure_extension_deps, _ensure_extension_deps_async
-from coreframe.extensions.loader import _load_extension_core
+from coreframe.extensions.deps import _ensure_extension_deps_sync
+from coreframe.extensions.loader import _load_extension_core, pending_consent, pending_migration
+from coreframe.extensions.permissions import get_permission_manager, PERMISSION_LEVELS
+from coreframe.extensions import state as ext_state
+
+
+def _install_dbg(ext_id, msg):
+    """Direct-file marker bypassing the logging module.
+
+    If a background install thread dies silently (BaseException, native
+    crash in frozen pip, AV thread-kill), the logging pipeline may never
+    flush — this file always shows exactly how far the flow got.
+    """
+    try:
+        with open(os.path.join(tempfile.gettempdir(), 'cf_install_dbg.log'),
+                  'a', encoding='utf-8') as f:
+            f.write(f'{time.time():.0f} {ext_id} {msg}\n')
+    except Exception:
+        pass
+
+
+def _rollback_install(ext_id, ext_path):
+    """Remove extracted files + registry entry after a failed install.
+
+    Returns True if nothing remains (no ghost). Best-effort on Windows
+    file locks: verify removal instead of trusting ignore_errors.
+    """
+    log.info("Rollback starting for %s (%s)", ext_id, ext_path)
+    clean = True
+    try:
+        if os.path.isdir(ext_path):
+            shutil.rmtree(ext_path, ignore_errors=True)
+            if os.path.exists(ext_path):
+                log.error("Rollback incomplete, files remain: %s", ext_path)
+                clean = False
+            else:
+                log.info("Rollback removed dir for %s", ext_id)
+        else:
+            log.info("Rollback: dir already gone for %s", ext_id)
+    except Exception as e:
+        log.error("Rollback rmtree failed for %s: %s", ext_id, e)
+        clean = False
+    try:
+        registry = ext_state.read_json(REGISTRY_PATH)
+        if ext_id in registry:
+            del registry[ext_id]
+            ext_state.write_json(REGISTRY_PATH, registry)
+        # A leftover flag would silently refuse to load the next install.
+        ext_state.set_disabled(ext_id, False)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log.error("Rollback registry cleanup failed for %s: %s", ext_id, e)
+        clean = False
+    return clean
 
 
 def register_install_routes(app, socketio):
@@ -85,26 +139,57 @@ def register_install_routes(app, socketio):
                 with open(dest, 'wb') as out:
                     out.write(zf.read(n))
             zf.close()
-            try:
-                with open(REGISTRY_PATH, encoding='utf-8') as rf:
-                    registry = json.load(rf)
-            except (FileNotFoundError, json.JSONDecodeError):
-                registry = {}
+            registry = ext_state.read_json(REGISTRY_PATH)
             registry[ext_id] = {
                 'name': ext_name,
                 'version': cfg_data.get('version', '1.0'),
                 'author': cfg_data.get('author', ''),
                 'category': cfg_data.get('category', 'general'),
+                # An explicit install means "run it": clear any flag left from
+                # a previous state, or the loader silently refuses to start it.
+                'disabled': False,
             }
-            with open(REGISTRY_PATH, 'w', encoding='utf-8') as rf:
-                json.dump(registry, rf, indent=2)
+            if not ext_state.write_json(REGISTRY_PATH, registry):
+                raise OSError('Could not write the extension registry')
+            ext_state.set_disabled(ext_id, False)
+
+            # ── Check permissions before background load ────────────
+            perm = get_permission_manager()
+            required_level = perm.get_required_level(cfg_data)
+            needs_consent = required_level >= 3 and not perm.has_consent(ext_id)
+            is_legacy = required_level == -1
 
             def _bg_install(ext_id, ext_path):
+                _install_dbg(ext_id, 'thread-start')
+                def _fail(msg):
+# Roll back files + registry so a failed install leaves no invisible ghost.
+                    rolled_back = _rollback_install(ext_id, ext_path)
+                    if not rolled_back:
+                        from coreframe.extensions import failed_extensions as _failed
+                        _failed[ext_id] = {'name': ext_name, 'loadError': msg}
+                    detail = msg if rolled_back else (msg + ' (rollback incomplete, see Extensions panel)')
+                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': detail})
+
                 try:
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'syncing'})
                     _sync_extension_lib(ext_path)
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'deps'})
-                    _ensure_extension_deps(ext_path)
+                    _install_dbg(ext_id, 'pre-pip')
+                    deps_ok, deps_err = _ensure_extension_deps_sync(ext_path, ext_id)
+                    _install_dbg(ext_id, f'post-pip ok={deps_ok} err={deps_err[:120]}')
+                    if not deps_ok:
+                        log.error("Install deps failed for %s: %s", ext_id, deps_err)
+                        _fail(f"Failed to install dependencies: {deps_err}")
+                        return
+
+                    if is_legacy:
+                        socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'needs_migration'})
+                        return
+
+                    if needs_consent:
+                        socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'needs_consent'})
+                        return
+
                     socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'loading'})
                     if _load_single_extension(ext_id):
                         ext_data = extensions.get(ext_id)
@@ -116,7 +201,20 @@ def register_install_routes(app, socketio):
                         socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': err_msg})
                 except Exception as e:
                     log.error("Background install failed for %s: %s", ext_id, e)
-                    socketio.emit('extension_install_progress', {'id': ext_id, 'name': ext_name, 'step': 'error', 'error': str(e)})
+                    _install_dbg(ext_id, f'except-Exception {type(e).__name__}: {e}'[:200])
+                    _fail(f"Install failed: {e}")
+                except BaseException as e:
+# SystemExit/KeyboardInterrupt bypass `except Exception` and kill threads silently.
+                    try:
+                        log.error("Background install aborted for %s: %s %s", ext_id, type(e).__name__, e)
+                    except Exception:
+                        pass
+                    _install_dbg(ext_id, f'except-BaseException {type(e).__name__}: {e}'[:200])
+                    try:
+                        _fail(f"Install aborted: {type(e).__name__}: {e}")
+                    except Exception:
+                        pass
+                    return
 
             t = threading.Thread(target=_bg_install, args=(ext_id, target), daemon=True)
             t.start()
@@ -131,37 +229,56 @@ def register_install_routes(app, socketio):
         if not os.path.isdir(ext_path):
             return jsonify({'error': 'Extension not found'}), 404
 
-        ext_data = extensions.get(ext_id)
-        if ext_data:
-            inst = ext_data.get('instance')
+# Stop the child before touching its files: Windows rmtree fails on an open handle.
+        from coreframe.extensions.loader import _poll_stop_events
+        stop_evt = _poll_stop_events.pop(ext_id, None)
+        if stop_evt:
+            stop_evt.set()
+
+        ext_data = extensions.pop(ext_id, None)
+        failed_extensions.pop(ext_id, None)
+        pending_consent.pop(ext_id, None)
+        pending_migration.pop(ext_id, None)
+        mod_name = f"extensions.{ext_id}"
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+
+        inst = (ext_data or {}).get('instance')
+        if inst is not None:
+# cleanup() first: it may need the child alive to flush; on_stop() then kills it.
             cleanup = getattr(inst, 'cleanup', None)
             if cleanup:
                 try:
                     cleanup()
                 except Exception as e:
                     log.warning("Cleanup failed for %s: %s", ext_id, e)
+            stop = getattr(inst, 'on_stop', None) or getattr(inst, 'stop', None)
+            if stop:
+                try:
+                    stop()
+                except Exception as e:
+                    log.warning("Stop failed for %s: %s", ext_id, e)
+# Without this the isolation monitor keeps heartbeating and restarting a gone folder.
+        _ext_isolation.mark_dead(ext_id, 'Deleted')
 
         last_err = None
-        for attempt in range(5):
+        for attempt in range(8):
             try:
                 shutil.rmtree(ext_path)
+                last_err = None
                 break
             except Exception as e:
                 last_err = str(e)
-                if attempt < 4:
-                    time.sleep(0.5)
-                else:
-                    return jsonify({'error': f'Failed to delete extension files: {last_err}'}), 500
+                if attempt < 7:
+                    time.sleep(0.4)
+        if last_err:
+# Silent failures here only reached the toast, never the log.
+            log.error("Delete failed for %s (%s): %s", ext_id, ext_path, last_err)
+            return jsonify({'error': f'Failed to delete extension files: {last_err}'}), 500
 
-        from coreframe.extensions.loader import _poll_stop_events
-        stop_evt = _poll_stop_events.pop(ext_id, None)
-        if stop_evt:
-            stop_evt.set()
-        extensions.pop(ext_id, None)
-        failed_extensions.pop(ext_id, None)
-        mod_name = f"extensions.{ext_id}"
-        if mod_name in sys.modules:
-            del sys.modules[mod_name]
+        # Revoke permissions
+        perm = get_permission_manager()
+        perm.revoke(ext_id)
 
         try:
             from coreframe.extensions.loader import _load_extension_core
@@ -182,11 +299,11 @@ def register_install_routes(app, socketio):
             log.warning("Failed to clean up widgets for %s: %s", ext_id, e)
 
         try:
-            with open(REGISTRY_PATH, encoding='utf-8') as rf:
-                registry = json.load(rf)
+            registry = ext_state.read_json(REGISTRY_PATH)
             registry.pop(ext_id, None)
-            with open(REGISTRY_PATH, 'w', encoding='utf-8') as rf:
-                json.dump(registry, rf, indent=2)
+            ext_state.write_json(REGISTRY_PATH, registry)
+            # Deleting removes the decision too: nothing to remember.
+            ext_state.set_disabled(ext_id, False)
         except Exception:
             pass
 
@@ -235,3 +352,5 @@ def register_install_routes(app, socketio):
             return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=f'{ext_id}.zip')
         except Exception as e:
             return jsonify({'error': str(e)}), 500
+
+

@@ -1,18 +1,24 @@
-venv/
+venv*/
+.venv*/
 __pycache__/
 *.pyc
 *.pyo
 .env
 .show
 *.egg-info/
-AGENTS.md
 CONTINUE.md
 CoreFrameTray.exe
 extensions/spotify_downloader/Downloads_playlists/
 extensions/spotify_downloader/config.json
 
+# Scratch space: throwaway scripts, probes and captures made while working on
+# the project. Nothing here belongs in the repo.
+temp/
+
 # PyInstaller
 dist/
+dist-runner/
+runner.zip
 build/
 build-tmp/
 dist-tmp/
@@ -23,8 +29,11 @@ pyproject.toml
 
 # User data
 logs/
-widget_state.json
 *.log
+
+# Generated at runtime: DATA_DIR owns the live copies, these are stale leftovers
+extensions.json
+widget_state.json
 
 # Extensions (users install their own)
 extensions/*

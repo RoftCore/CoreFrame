@@ -1,190 +1,3 @@
-const widgetHistory = {};
-const _widgetHash = {};
-const _progressTimers = {};
-const _dropdownMenus = [];
-
-if (!window._dropdownCloseAdded) {
-  document.addEventListener('click', function (e) {
-    if (e.target.closest('input, textarea, [contenteditable]')) return;
-    var anyOpen = false;
-    document.querySelectorAll('.widget-dd-menu:not([style*="display: none"])').forEach(function (m) {
-      m.style.display = 'none';
-      anyOpen = true;
-    });
-    if (anyOpen) {
-      document.querySelectorAll('.widget-extension').forEach(function (c) {
-        if (!c.querySelector('.widget-dd-menu:not([style*="display: none"])')) {
-          c.style.overflow = '';
-        }
-      });
-    }
-  });
-  window._dropdownCloseAdded = true;
-}
-
-function clearProgressTimers() {
-  for (const key in _progressTimers) {
-    clearTimeout(_progressTimers[key]);
-    delete _progressTimers[key];
-  }
-}
-
-function clearDropdownMenus() {
-  for (var i = 0; i < _dropdownMenus.length; i++) {
-    var m = _dropdownMenus[i];
-    if (m.parentNode) m.parentNode.removeChild(m);
-  }
-  _dropdownMenus.length = 0;
-}
-
-// Restore chart history from localStorage so it survives page reload
-(function loadPersistedHistory() {
-  try {
-    var saved = localStorage.getItem('coreframe-widget-history');
-    if (saved) Object.assign(widgetHistory, JSON.parse(saved));
-  } catch (_) {}
-})();
-
-function persistWidgetHistory() {
-  try {
-    localStorage.setItem('coreframe-widget-history', JSON.stringify(widgetHistory));
-  } catch (_) {}
-}
-
-function startProgressPoll(extId, id, action, interval) {
-  const key = extId + '-' + id;
-  if (_progressTimers[key]) clearTimeout(_progressTimers[key]);
-  function poll() {
-    var fill = document.getElementById('prog-fill-' + extId + '-' + id);
-    var info = document.getElementById('prog-info-' + extId + '-' + id);
-    var cur = document.getElementById('prog-cur-' + extId + '-' + id);
-    if (!fill) return;
-    apiFetch('/api/extension/' + extId + '/' + action).then(function (response) {
-      if (response && response.value) {
-        var val = response.value;
-        var status = val.status || '';
-        var progress = typeof val.progress === 'number' ? val.progress : 0;
-        var total = typeof val.total === 'number' ? val.total : 0;
-        var current = val.current || '';
-        var error = val.error || '';
-        var pct = total > 0 ? Math.min(Math.round((progress / total) * 100), 100) : 0;
-        fill.style.width = pct + '%';
-        if (info) {
-          if (status === 'completed') {
-            info.textContent = 'Done! ' + total + ' track' + (total !== 1 ? 's' : '');
-            info.className = 'widget-progress-info widget-progress-done';
-          } else if (status === 'error') {
-            info.textContent = error || 'Error';
-            info.className = 'widget-progress-info widget-progress-error';
-          } else if (status === 'idle' || status === '') {
-            info.textContent = total > 0 ? progress + ' / ' + total : 'Ready';
-            info.className = 'widget-progress-info';
-          } else {
-            info.textContent = total > 0 ? progress + ' / ' + total : '...';
-            info.className = 'widget-progress-info widget-progress-running';
-          }
-        }
-        if (cur) {
-          cur.textContent = current;
-          cur.style.display = current ? '' : 'none';
-        }
-      }
-    });
-    _progressTimers[key] = setTimeout(poll, interval);
-  }
-  _progressTimers[key] = setTimeout(poll, 200);
-}
-
-const EXT_DEFAULT_GRID = { w: 4, h: 2 };
-
-function createExtensionCard(ext) {
-  try {
-    return _createExtensionCardInner(ext);
-  } catch (e) {
-    console.error('[EXT] Error creating card for ' + (ext.id || '?') + ':', e);
-    var el = document.createElement('div');
-    el.className = 'widget widget-extension ext-error-boundary';
-    el.dataset.extId = ext.id || '';
-    el.style.gridColumn = 'span 2';
-    el.style.gridRow = 'span 1';
-    el.style.minWidth = '0';
-    el.style.minHeight = '0';
-    el.style.display = 'flex';
-    el.style.alignItems = 'center';
-    el.style.justifyContent = 'center';
-    el.style.border = '1px solid rgba(255,51,85,0.3)';
-    el.style.borderRadius = 'var(--radius-md)';
-    el.style.background = 'rgba(255,51,85,0.05)';
-    el.style.color = 'var(--accent-red)';
-    el.style.fontFamily = 'var(--font-mono)';
-    el.style.fontSize = '11px';
-    el.style.textAlign = 'center';
-    el.style.padding = '12px';
-    el.innerHTML = '<div><div style="font-size:18px;margin-bottom:4px">&#x26A0;</div>' +
-      '<div>Error loading</div><div style="font-size:9px;color:var(--text-muted);margin-top:2px">' +
-      escapeHtml(ext.name || ext.id || 'extension') + '</div></div>';
-    return el;
-  }
-}
-
-function _createExtensionCardInner(ext) {
-  const { id: extId, name, widgets, grid_size, overlayable } = ext;
-  const gs = grid_size || EXT_DEFAULT_GRID;
-
-  const el = document.createElement('div');
-  el.className = `widget widget-extension ext-${extId}`;
-  el.dataset.extId = extId;
-  el.dataset.overlayable = overlayable ? 'true' : 'false';
-  if (overlayable) el.classList.add('widget-overlayable');
-  el.style.gridColumn = `span ${gs.w}`;
-  el.style.gridRow = `span ${gs.h}`;
-  el.style.minWidth = '0';
-  el.style.minHeight = '0';
-
-  const scroll = ext.scroll;
-  if (scroll) {
-    el.classList.add('ext-scroll');
-    if (scroll === 'x') el.classList.add('ext-scroll-x');
-    else if (scroll === 'y') el.classList.add('ext-scroll-y');
-    else if (scroll === 'both') el.classList.add('ext-scroll-both');
-  }
-  if (ext.hideScrollbar) {
-    const hs = ext.hideScrollbar;
-    if (hs === true || hs === 'both') el.classList.add('ext-scrollbar-hide');
-    else if (hs === 'x') el.classList.add('ext-scrollbar-hide-x');
-    else if (hs === 'y') el.classList.add('ext-scrollbar-hide-y');
-  }
-
-  el.style.overflow = 'hidden';
-
-  const header = document.createElement('div');
-  header.className = 'widget-header';
-  header.textContent = name || extId;
-  el.appendChild(header);
-
-  const body = document.createElement('div');
-  body.className = 'widget-body';
-
-  if (widgets && widgets.length > 0) {
-    for (const wDef of widgets) {
-      try {
-        const sub = createSubWidget(wDef, extId);
-        body.appendChild(sub);
-      } catch (e) {
-        console.error('[EXT] Error creating sub-widget ' + (wDef.id || '?') + ':', e);
-        var errEl = document.createElement('div');
-        errEl.className = 'widget-sub';
-        errEl.style.cssText = 'color:var(--accent-red);font-size:10px;padding:8px;text-align:center;';
-        errEl.textContent = 'Widget error';
-        body.appendChild(errEl);
-      }
-    }
-  }
-
-  el.appendChild(body);
-  return el;
-}
-
 function createSubWidget(widgetDef, extId) {
   const { id, type, label, action } = widgetDef;
 
@@ -202,18 +15,23 @@ function createSubWidget(widgetDef, extId) {
 
   const body = document.createElement('div');
   body.className = 'widget-sub-body';
+  // Each type overwrites this with the node it actually paints into.
+  body.dataset.cfValueSel = '.widget-value';
 
   switch (type) {
     case 'text':
       body.innerHTML = '<div class="widget-value" id="val-' + id + '">--</div>';
       break;
     case 'badge':
+      body.dataset.cfValueSel = '.badge-label';
       body.innerHTML = '<div class="widget-badge"><span class="badge-dot" id="dot-' + id + '"></span><span class="badge-label" id="lbl-' + id + '">Loading...</span></div>';
       break;
     case 'list':
+      body.dataset.cfValueSel = '.widget-list-items';
       body.innerHTML = '<div class="widget-list-items" id="lst-' + id + '"></div>';
       break;
     case 'chart':
+      body.dataset.cfValueSel = '.chart-value';
       body.innerHTML = `
         <div class="chart-container">
           <canvas id="chart-${extId}-${id}" width="120" height="60"></canvas>
@@ -328,7 +146,7 @@ function createSubWidget(widgetDef, extId) {
               html += '<div style="display:flex;gap:4px">';
               html += '<input type="' + (f.input_type || 'text') + '" class="widget-form-input" data-field="' + f.id + '" value="' + escVal + '">';
               if (f.browse_action) {
-                html += '<button class="widget-form-browse" data-browse="' + f.id + '" data-browse-action="' + f.browse_action + '">\uD83D\uDCC1</button>';
+                html += '<button class="widget-form-browse" data-browse="' + f.id + '" data-browse-action="' + f.browse_action + '"><i data-feather="folder" width="14" height="14"></i></button>';
               }
               html += '</div>';
             }
@@ -339,6 +157,7 @@ function createSubWidget(widgetDef, extId) {
           html += '</div>';
           html += '<div class="widget-form-msg" id="form-msg-' + extId + '-' + id + '"></div>';
           formBody.innerHTML = html;
+          if (typeof feather !== 'undefined') feather.replace();
           formBody.querySelectorAll('.widget-form-browse').forEach(function (btn) {
             btn.addEventListener('click', function () {
               var fid = btn.dataset.browse;
@@ -387,13 +206,17 @@ function createSubWidget(widgetDef, extId) {
       break;
     }
     case 'dropdown': {
-      const icon = widgetDef.icon || '\u2699';
+      const icon = widgetDef.icon || 'settings';
       const pos = widgetDef.position || 'top-right';
       const tooltip = widgetDef.tooltip || '';
       const items = widgetDef.items || [];
       var ddTrigger = document.createElement('button');
       ddTrigger.className = 'widget-dd-trigger';
-      ddTrigger.innerHTML = icon;
+      if (icon && icon.startsWith('/')) {
+        ddTrigger.innerHTML = '<img src="' + icon + '" alt="" loading="lazy" decoding="async" style="width:16px;height:16px">';
+      } else {
+        ddTrigger.innerHTML = '<i data-feather="' + icon + '" width="16" height="16"></i>';
+      }
       if (tooltip) ddTrigger.title = tooltip;
       var ddMenu = document.createElement('div');
       ddMenu.className = 'widget-dd-menu';
@@ -491,198 +314,3 @@ function createSubWidget(widgetDef, extId) {
   return el;
 }
 
-function updateWidgetValue(widgetEl, response) {
-  if (!widgetEl) return;
-  if (response && response.error) {
-    var valEl = widgetEl.querySelector('.widget-value, .widget-list-items, .widget-terminal-output, .badge-label');
-    if (valEl) {
-      valEl.textContent = '\u26A0 ' + response.error;
-      valEl.style.color = 'var(--accent-red)';
-    }
-    return;
-  }
-
-  try {
-    _updateWidgetValueInner(widgetEl, response);
-  } catch (e) {
-    console.error('[EXT] Error updating widget:', e);
-  }
-}
-
-function _updateWidgetValueInner(widgetEl, response) {
-
-  const extId = widgetEl.dataset.extId;
-  const id = widgetEl.dataset.widgetId;
-  const val = response !== undefined && response !== null ? response.value : undefined;
-  const type =
-    widgetEl.classList.contains('widget-text') ? 'text'
-    : widgetEl.classList.contains('widget-badge') ? 'badge'
-    : widgetEl.classList.contains('widget-list') ? 'list'
-    : widgetEl.classList.contains('widget-chart') ? 'chart'
-    : widgetEl.classList.contains('widget-terminal') ? 'terminal'
-    : widgetEl.classList.contains('widget-button') ? 'button'
-    : widgetEl.classList.contains('widget-input') ? 'input'
-    : widgetEl.classList.contains('widget-progress') ? 'progress'
-    : widgetEl.classList.contains('widget-form') ? 'form'
-    : widgetEl.classList.contains('widget-dropdown') ? 'dropdown'
-    : 'unknown';
-
-  const hashKey = `${extId}-${id}`;
-  const newHash = val !== null && val !== undefined ? (typeof val === 'object' ? JSON.stringify(val) : String(val)) : 'null';
-
-  switch (type) {
-    case 'text':
-    case 'badge':
-    case 'list': {
-      if (_widgetHash[hashKey] === newHash) break;
-      _widgetHash[hashKey] = newHash;
-      if (type === 'text') {
-        const el = widgetEl.querySelector('.widget-value');
-        if (!el) break;
-        formatValue(el, widgetEl.dataset.format, val);
-      } else if (type === 'badge') {
-        const dot = widgetEl.querySelector('.badge-dot');
-        const lbl = widgetEl.querySelector('.badge-label');
-        if (val && typeof val === 'object') {
-          if (dot) dot.className = 'badge-dot ' + (val.status || 'warn');
-          if (lbl) lbl.textContent = val.text || val.status || '--';
-        } else {
-          if (lbl) lbl.textContent = String(val);
-        }
-      } else if (type === 'list') {
-        const container = widgetEl.querySelector('.widget-list-items');
-        if (container) {
-          const items = Array.isArray(val) ? val : [];
-          container.innerHTML = items.map(item => {
-            if (typeof item === 'string') return '<div class="list-item"><span class="list-item-value">' + escapeHtml(item) + '</span></div>';
-            return '<div class="list-item"><span class="list-item-key">' + escapeHtml(item.label || item.key || '') + '</span><span class="list-item-value">' + escapeHtml(item.value || '') + '</span></div>';
-          }).join('');
-        }
-      }
-      break;
-    }
-    case 'chart': {
-      const canvas = widgetEl.querySelector('canvas');
-      const valueEl = widgetEl.querySelector('.chart-value');
-      if (!canvas) break;
-
-      let numericVal = 0;
-      if (typeof val === 'number') numericVal = val;
-      else if (val && typeof val === 'object' && 'percent' in val) numericVal = val.percent;
-
-      const historyKey = `${extId}-${id}`;
-      if (!widgetHistory[historyKey]) widgetHistory[historyKey] = [];
-      widgetHistory[historyKey].push(numericVal);
-      if (widgetHistory[historyKey].length > 30) widgetHistory[historyKey].shift();
-      persistWidgetHistory();
-
-      if (valueEl) formatValue(valueEl, widgetEl.dataset.format, val);
-
-      const color = getComputedStyle(canvas).getPropertyValue('--chart-color').trim()
-        || getComputedStyle(document.documentElement).getPropertyValue('--accent-blue').trim()
-        || '#3498db';
-      drawMiniChart(canvas, widgetHistory[historyKey], color);
-      break;
-    }
-    case 'terminal': {
-      const out = widgetEl.querySelector('.widget-terminal-output');
-      if (out) {
-        const text = typeof val === 'string' ? val : JSON.stringify(val, null, 2);
-        out.textContent = text;
-      }
-      break;
-    }
-    case 'input':
-    case 'progress':
-    case 'form':
-    case 'dropdown':
-      break;
-  }
-}
-
-function formatValue(el, format, val) {
-  if (val === undefined || val === null) { el.textContent = '--'; return; }
-
-  if (typeof val === 'object' && val.label) {
-    if (typeof val.label === 'string' && /<[a-z][\s\S]*>/i.test(val.label)) {
-      el.innerHTML = val.label;
-    } else {
-      el.textContent = val.label;
-    }
-    return;
-  }
-
-  switch (format) {
-    case 'percent':
-      el.textContent = formatPercent(typeof val === 'object' ? val.percent : val);
-      break;
-    case 'bytes':
-      el.textContent = formatBytes(typeof val === 'number' ? val : val.bytes);
-      break;
-    case 'temp':
-      el.textContent = formatTemp(typeof val === 'object' ? val.temp : val);
-      break;
-    default:
-      if (typeof val === 'object') {
-        el.textContent = JSON.stringify(val);
-      } else {
-        el.textContent = val;
-      }
-  }
-}
-
-function drawMiniChart(canvas, data, color) {
-  const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-  ctx.scale(dpr, dpr);
-  const w = rect.width;
-  const h = rect.height;
-
-  ctx.clearRect(0, 0, w, h);
-  if (!data || data.length < 2) return;
-
-  const range = 100;
-  const stepX = w / 29;
-  const startIdx = 30 - data.length;
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-
-  data.forEach((v, i) => {
-    const x = (startIdx + i) * stepX;
-    const y = h - ((v / range) * h);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  ctx.lineTo(w, h);
-  ctx.lineTo(startIdx * stepX, h);
-  ctx.closePath();
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, color + '66');
-  grad.addColorStop(1, color + '00');
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const y = (h / 4) * i;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
-  }
-  for (let i = 0; i <= 6; i++) {
-    const x = (w / 6) * i;
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, h);
-    ctx.stroke();
-  }
-}

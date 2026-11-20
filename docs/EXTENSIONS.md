@@ -2,16 +2,20 @@
 
 ## Table of Contents
 
-1. [Extension Structure](#estructura)
+1. [Extension Structure](#structure)
 2. [extension.json — Complete Reference](#extensionjson)
 3. [main.py — Python API](#mainpy)
-4. [Widgets — Types and Configuration](#widgets)
-5. [Custom Styles](#estilos)
-6. [JavaScript and CSS](#javascript-y-css)
-7. [Menus and Actions](#menús-y-acciones)
-8. [Real-time (WebSocket)](#tiempo-real)
-9. [Publishing an Extension](#publicar)
-10. [Multi-language (Bridge)](#multi-lenguaje)
+4. [Widgets — Types and Configuration](#widgets--types)
+5. [Custom Styles](#styles)
+6. [JavaScript and CSS](#javascript-and-css)
+7. [Menus and Actions](#menus-and-actions)
+8. [Global Frontend Utilities](#global-frontend-utilities)
+9. [Data Storage](#data-storage)
+10. [Libraries (PyPI packages)](#libraries-pypi-packages)
+11. [HTTP API reference](#http-api-reference)
+12. [Real-time (WebSocket)](#real-time)
+13. [Publishing an Extension](#publishing)
+14. [Multi-language (Bridge)](#multi-language)
 
 ---
 
@@ -54,6 +58,135 @@ extensions/mi_extension/
 | `js_modules` | string[] | `[]` | ❌ | JS files in `static/` |
 | `css_modules` | string[] | `[]` | ❌ | CSS files in `static/` |
 | `widgets` | array | `[]` | ✅ | Array of widget definitions |
+| `permissions` | object | — | ❌ | Permission declaration (see [Permissions](#permissions)) |
+| `serve_data` | bool | `false` | — | Publishes the extension's **data dir** over `/ext-data/<id>/` (with Range/206, so `<audio>`/`<video>` can seek). Use it to serve local media, sessions or exports without putting them in the extension folder, which gets packaged and copied on install |
+| `keep_alive` | bool | `true` | — | Keeps off-scene widgets alive (decoded images and layout preserved) by moving them off-viewport instead of `display:none`. Set `false` only if the widget must be genuinely torn down while its scene is inactive |
+| `appear_animation` | string | `"fill-center"` | — | Entrance animation when the card appears. **Owned by the host**: the animations are defined in `static/css/components.css` and the extension only picks one by name. Omit it and every extension gets the same default, which is what keeps the dashboard reading as one surface. Values: `"fill-center"` (default, a circle growing from the card's own centre, revealing the content), `"fill"` (same from the left edge), `"rise"`, `"unfold"`, `"fade"`, `"none"`. An unknown value silently falls back to the default. Extensions cannot define their own animation — that would make the grid inconsistent and there is no safe way to let extension CSS reach the host shell |
+
+### permissions
+
+CoreFrame 1.1.0 introduces a 6-level permission system with subprocess isolation. Every Python extension runs in its own OS process (`--ext-runner` embebido) with file/network/subprocess restrictions enforced at the OS level.
+
+| Level | Name | Value | Description | Needs consent | Escalation |
+|-------|------|-------|-------------|---------------|------------|
+| `basic` | Básico | 0 | UI only, no file/network access | No | — |
+| `storage` | Almacenamiento | 1 | Only `data_dir` (own files) | No | — |
+| `user_files` | Archivos del usuario | 2 | Whitelisted files only (mediated via file dialog) | No | — |
+| `network` | Red | 3 | Outbound HTTP/HTTPS + read `data_dir` | **Yes** | — |
+| `system` | Sistema | 4 | Read system info, processes, registry (read-only) | **Yes** | `registry_write` → admin |
+| `admin` | Admin | 5 | Full control: registry write, services, files | **Yes** | — |
+
+Declare in `extension.json`:
+
+```json
+{
+  "permissions": {
+    "level": "system",
+    "requires": ["system_info"],
+    "mediated": false,
+    "escalation": {
+      "admin": {
+        "methods": ["registry_write", "service_control", "delete_file", "toggle"],
+        "description": "Deshabilitar entradas de inicio"
+      }
+    }
+  }
+}
+```
+
+- `level` < 3 loads without modal. `network`/`system`/`admin` show a consent modal on first load.
+- If an extension later **raises its level** (e.g. `network` → `system`) while the user granted the old one, CoreFrame does NOT hard-deny. It re-asks consent at the new level (`needs_consent`), so the modal appears and the user can grant it.
+- `escalation.admin.methods` lists actions that require **extra** admin approval even if base level is `system`. When the frontend calls one of those methods, CoreFrame shows a second modal: **Once** (single use, consumed after one successful call) vs **Always** (permanent). If denied, the widget must stay in waiting state for **10s** (cancellable) and then show a CoreFrame timeout message, not an error.
+
+### What each level enforces (child process)
+
+| Level | Files (`open`) | Network (`socket`) | Subprocess (`Popen`/`run`/`system`) |
+|-------|----------------|--------------------|-------------------------------------|
+| 0 `basic` | Nothing (only `TEMP` + own folder + exe internals) | Blocked | Blocked |
+| 1 `storage` | Only own `data/<id>/` | Blocked | Blocked |
+| 2 `user_files` | Own data + whitelisted files | Blocked | Blocked |
+| 3 `network` | Own data (read-oriented) | **Allowed** | Blocked |
+| 4 `system` | Any path (`/` = any absolute path on Windows) | Allowed | **Allowed** |
+| 5 `admin` | Any path | Allowed | Allowed |
+
+Implementation notes (so you understand the errors you may see):
+
+- `socket` is replaced with a raisable **class** — libraries that only *import* it still load; creating a connection raises `PermissionError`.
+- `subprocess.Popen` is replaced with a raisable **class** (`BlockedPopen`), not a function — libraries that *subclass* `Popen` at import time (e.g. `yt_dlp`) still import cleanly; only *spawning* raises `PermissionError`. (A plain-function replacement broke those imports with `TypeError: function() argument 'code' must be code, not str`.)
+- `DATA_DIR` and `SHARED_LIB_DIR` are injected into your config as `config['_coreframe']`.
+- Methods `get_config`, `get_entries`, `get_status`, `get_cpu`, `get_ram`, `get_gpu`, `get_disk`, `get_fortune`, `get_notes`, `get_ping` time out after **0.8s**; any other method after **30s**. After 3 timeouts the widget is marked `degraded` instead of blocking CoreFrame.
+
+### Admin elevation (the right way)
+
+Your extension runs isolated and can **never** `import coreframe.*` — there is no `from coreframe... import` available in the child process (especially in the frozen `.exe`). To perform an admin operation, ship the helper call **inside your own `main.py`** using temp JSON files + UAC (pattern used by `windows_autoruns`):
+
+```python
+import ctypes, json, os, sys, tempfile
+
+def _get_helper_path():
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    p = os.path.join(base, "coreframe_helper.exe")
+    if os.path.isfile(p):
+        return p
+    return os.path.join(os.path.expanduser("~"), "Documents", "CoreFrame", "coreframe_helper.exe")
+
+def _elevated_via_helper(op_type, params, timeout=20):
+    """Returns (ok, result). Triggers ONE Windows UAC prompt."""
+    helper = _get_helper_path()
+    tmp = tempfile.gettempdir()
+    ts = int(__import__('time').time() * 1000)
+    op_file = os.path.join(tmp, f"my_op_{ts}.json")
+    res_file = os.path.join(tmp, f"my_res_{ts}.json")
+    with open(op_file, 'w', encoding='utf-8') as f:
+        json.dump({"type": op_type, "params": params}, f)
+    ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", helper, f'"{op_file}" "{res_file}"', None, 0)
+    if ret <= 32:
+        return False, f"UAC failed/cancelled (code {ret})"
+    for _ in range(int(timeout * 10)):
+        if os.path.exists(res_file):
+            break
+        __import__('time').sleep(0.1)
+    if not os.path.exists(res_file):
+        return False, "Helper timeout - no response"
+    with open(res_file, 'r', encoding='utf-8') as f:
+        res = json.load(f)
+    for p in (op_file, res_file):
+        try: os.remove(p)
+        except Exception: pass
+    if res.get('error'):
+        return False, res['error']
+    return True, res
+
+# Usage:
+ok, res = _elevated_via_helper("service_control", {"service": "SunshineService", "action": "disable"})
+```
+
+Helper operation types (`coreframe_helper.py` `HANDLERS`): `registry_write`, `system_command` (aliases: `bash`, `exec`), `write_file`, `edit_file` / `replace_file`, `delete_file`, `create_directory`, `service_control` (`status`/`start`/`stop`/`restart`/`enable`/`disable`), `adapter_control`, `batch` (multiple ops, single UAC prompt).
+
+If you do direct `winreg`/`sc` without the helper, it fails with `Access is denied` unless CoreFrame itself runs as admin. With the helper, Windows shows **one UAC prompt** (blue screen) and most antiviruses whitelist `coreframe_helper.exe`.
+
+### Frontend permission flow
+
+Always use the global `apiFetch` (fetches `/api/token` itself and sends `X-CoreFrame-Token`). Important: it **never rejects** — HTTP errors resolve as `{error: "..."}` and the extra 403 fields are lost, so match on the message string:
+
+```javascript
+const r = await apiFetch('/api/extension/my_ext/toggle', {method:'POST', body:JSON.stringify({id})});
+if (r.error && r.error.includes('Escalation')) {
+  // Show ONE waiting UI for 10s with Cancel — do NOT retry toggle in a loop
+  // (each retry fires another modal = spam).
+  // Poll GET /api/extensions/my_ext/permissions every ~100ms until
+  // granted_escalations includes your method, then retry toggle ONCE.
+}
+```
+
+Rules:
+
+- Never show `Error: Escalation required` in red. Show a waiting message (`Esperando permiso... 10s` + Cancel); on timeout show `CoreFrame: tiempo de espera agotado`, not `Error`.
+- `Once` is consumed after **one successful call** — the next call asks again. `Always` persists in `permissions_consent.json`.
+- Useful endpoints: `GET /api/extensions/<id>/permissions` (granted level + escalations), `POST .../permissions/grant` (`{level, escalations[]}`), `POST .../permissions/escalation` (`{method, grant, once}`), `POST .../permissions/revoke`, `GET /api/extensions/pending_consent` (startup polling).
 
 ### widgets[]
 
@@ -66,7 +199,7 @@ Each widget is an object:
 | `label` | string | ✅ | Visible label |
 | `action` | string | ❌* | Python method to call for data retrieval |
 | `click_action` | string | ❌ | Action when clicking the widget |
-| `styles` | object | ❌ | Swappable styles (see [styles](#estilos)) |
+| `styles` | object | ❌ | Swappable styles (see [styles](#styles)) |
 
 \* Required except for static widgets without data (`action: ""`)
 
@@ -85,6 +218,23 @@ class Extension:
         return {"value": 42}
 ```
 
+### How actions are called
+
+- **GET** `/api/extension/<id>/<action>` calls `def action(self)` — no arguments. Use for reads.
+- **POST** with a JSON body calls `def action(self, data)` — `data` is the parsed body dict. Use for writes.
+
+```python
+def get_notes(self):
+    return {"value": [...]}
+
+def create(self, data):          # POST {"title": ..., "body": ...}
+    title = data.get("title", "Untitled")
+    ...
+    return {"value": [...]}
+```
+
+Method names starting with `_` are rejected (`Method not allowed`). Unknown methods return `Unknown method`.
+
 ### Response Format
 
 Every action must return a dict. Accepted formats:
@@ -99,6 +249,8 @@ return {"value": [{"label": "Puerto", "value": "8080"}, ...]}  # → widget list
 # Error
 return {"error": "No se pudo conectar"}
 ```
+
+The bridge returns your dict as-is when it already has `value`/`error` keys, so always wrap in one of the two shapes above. Keep data-fetch methods fast: they time out after **0.8s** (other methods: 30s).
 
 ### Lifecycle
 
@@ -137,6 +289,16 @@ Displays a numeric value or text. Ideal for simple metrics.
 def get_ping(self):
     return {"value": "23 ms"}
 ```
+
+The value may also be a structure. With `label` the widget shows that; without it, the core renders the
+fields as key/value rows (max 12, then `+N more`), so a payload is never dropped on the floor:
+
+```python
+def get_ping(self):
+    return {"value": {"avg": "23 ms", "jitter": "4 ms"}}
+```
+
+A scalar string stays the better answer when one number is all the widget has room for.
 
 ### badge
 
@@ -419,16 +581,18 @@ showToast('Note saved');
 
 ### apiFetch(url, options)
 
-Thin wrapper around `fetch()` with automatic JSON parsing and error handling. Returns a Promise.
+Thin wrapper around `fetch()`. Fetches `/api/token` itself and sends `X-CoreFrame-Token`; sets `Content-Type: application/json` automatically for string bodies; aborts after 90s (configurable via `options.timeout`).
+
+**It never rejects**: HTTP errors resolve as `{error: "..."}` (extra 403 fields like `needs_escalation` are lost — match on the message string).
 
 ```javascript
 apiFetch('/api/extension/mi_ext/mi_accion').then(function(data) {
+  if (data.error) { /* e.g. 'Escalation required', 'Unauthorized' */ return; }
   console.log(data.value);
 });
 
 apiFetch('/api/extension/mi_ext/create', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ title: 'Test' })
 }).then(function(data) {
   if (data && data.value) { /* success */ }
@@ -486,6 +650,70 @@ Frontend code can access the same location via API calls that read/write from `d
 
 ---
 
+## Libraries (PyPI packages)
+
+Your extension runs isolated but shares one library directory with all extensions. Two ways to get a package (both end up importable with a plain `import`):
+
+**Option A — `requirements.txt` (recommended).** Drop it in the extension folder:
+
+```
+trimesh
+numpy
+scipy
+```
+
+On first load CoreFrame installs it in the background (`pip install --prefix <DATA_DIR>/lib ...`). No restart needed — but the first call needing the lib can fail while install is still running, so return a friendly `{"error": ...}` in that case.
+
+**Option B — ship a `lib/` folder** inside the extension. On load it is copied into the shared lib and removed from the extension. Useful for vendored or offline packages.
+
+**Where they live and how imports resolve.** Shared lib paths:
+
+| Platform | Shared lib | `pip --prefix` layout |
+|----------|-----------|----------------------|
+| Windows | `~/Documents/CoreFrame/lib/` | `lib/` + `lib/Lib/site-packages/` |
+| Linux | `~/.local/share/CoreFrame/lib/` | `lib/` + `lib/python3.11/site-packages/` |
+
+The child process `sys.path` already includes, in order: your extension folder, the shared lib, and its `site-packages` subdir. So this just works:
+
+```python
+import yt_dlp  # installed via A or B, no sys.path hacks needed
+```
+
+> Real case: `pip --prefix` on Windows puts packages under `lib/Lib/site-packages`, not `lib/` directly. If your `import` fails right after install, you are probably hitting a stale process — restart CoreFrame so the child picks up the new `sys.path`.
+
+---
+
+## HTTP API reference
+
+Base URL `http://127.0.0.1:8420`. Auth: `GET /api/token` (no auth) → send `X-CoreFrame-Token` header on everything else under `/api/` (`/api/health`, `/api/debug` exempt; missing/invalid token → `403 Unauthorized`).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/extensions` | All extensions: config, widgets, `js/css_modules`, permission info, consent state |
+| GET/POST | `/api/extension/<id>/<action>` | Call a method. GET calls `def action(self)`; POST passes the JSON body as `def action(self, data)`. Returns `{"value": ...}` or `{"error": ...}` |
+| GET | `/api/extensions/health` | Load status, load time, errors per extension |
+| GET/POST | `/api/widget-state` | Scene + widget layout JSON |
+| GET/POST | `/api/scenes`, PUT/DELETE `/api/scenes/<id>` | Scene CRUD |
+| GET | `/api/extensions/<id>/permissions` | Granted level + escalations |
+| POST | `/api/extensions/<id>/permissions/grant` | Body `{level, escalations[]}` |
+| POST | `/api/extensions/<id>/permissions/revoke` | Revoke all (widget becomes paperweight, stays in picker) |
+| POST | `/api/extensions/<id>/permissions/escalation` | Body `{method, grant, once}` |
+| GET | `/api/extensions/pending_consent` | Extensions waiting for a user decision (startup polling) |
+| POST | `/api/extensions/<id>/load`, `/unload` | Re-check a loaded extension (reports the load error when it failed) / free its process |
+| POST | `/api/install_extension` | Install a `.zip` |
+| DELETE | `/api/extensions/<id>` | Uninstall |
+| GET | `/ext-static/<id>/<file>` | Frontend files from the extension's `static/` folder |
+| GET | `/ext-data/<id>/<path>` | Files from the extension's data dir. Only served when the manifest sets `serve_data: true`; Range requests get `206` so `<audio>`/`<video>` can seek |
+
+```bash
+TOKEN=$(curl -s http://127.0.0.1:8420/api/token | jq -r .token)
+curl -H "X-CoreFrame-Token: $TOKEN" http://127.0.0.1:8420/api/extensions
+curl -X POST -H "X-CoreFrame-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"title":"Hi"}' http://127.0.0.1:8420/api/extension/<ext_id>/create
+```
+
+---
+
 ## Real-time
 
 For widgets that update continuously without client polling:
@@ -514,6 +742,22 @@ The server polls at the same `refresh_interval` and emits via WebSocket to all c
 2. Or manually: compress the extension folder
 3. Upload to GitHub or any host
 4. Add to the marketplace registry (PR in the extensions-coreframe repo)
+
+The registry entry takes an optional `versions` array, newest first. It is what feeds the version dropdown and the **Update** button in the marketplace:
+
+```json
+{
+  "id": "console",
+  "version": "3.1",
+  "versions": [
+    {"version": "3.1", "download_url": ".../console-3.1/console.zip"},
+    {"version": "3.0", "download_url": ".../console-1.1/console.zip"}
+  ],
+  "download_url": ".../console-3.1/console.zip"
+}
+```
+
+Keep the flat `version` / `download_url` pair equal to the first array entry: older clients read only those two, and the card header shows that version. An extension without `versions` still installs, but the card offers a single version and no dropdown.
 
 ---
 

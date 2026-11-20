@@ -155,6 +155,8 @@ function showInstallConfirm(extName, extId) {
           document.querySelectorAll('script[src*="/ext-static/' + extId + '/"]').forEach(function (s) { s.remove(); });
           ext.js_modules.forEach(function (mod) {
             var script = document.createElement('script');
+// Same ordering contract as loadExtensionAssets (pitfall 34).
+            script.async = false;
             script.src = '/ext-static/' + extId + '/' + mod;
             document.body.appendChild(script);
           });
@@ -201,10 +203,84 @@ function showMarketplaceList(choiceOverlay) {
     if (!filtered.length) { body.innerHTML = '<div class="pkg-empty">No extensions available.</div>'; return; }
     var grid = document.createElement('div');
     grid.className = 'mkt-grid';
+    function runInstall(target, version, btn, installedVersion) {
+      btn.textContent = '...';
+      btn.disabled = true;
+      var attempts = 0;
+      var maxAttempts = 3;
+      var to = [3000, 15000, 30000];
+      var installId = null;
+      var sock = window.__socket;
+      var progressHandler = null;
+      function tryInstall() {
+        var label = attempts === 0
+          ? 'Downloading ' + target.name + ' v' + version + '...'
+          : 'Retrying (' + attempts + '/' + maxAttempts + ')...';
+        showInstallOverlay(label);
+        var url = '/api/marketplace/install/' + encodeURIComponent(target.id) + '?version=' + encodeURIComponent(version);
+        apiFetch(url, { method: 'POST', timeout: to[attempts] || 30000 }).then(function (res) {
+          if (res && res.exists) { hideInstallOverlay(); showToast(res.message || 'This version is already installed.'); renderMarketplace(); return; }
+          if (res && res.error) { attempts++; if (attempts < maxAttempts) { tryInstall(); return; } hideInstallOverlay(); showToast('Error: ' + res.error); renderMarketplace(); return; }
+          if (res && res.status === 'installing') {
+            installId = res.id;
+            hideInstallOverlay();
+            showInstallToast('Installing ' + target.name + ' v' + version + '...');
+            progressHandler = function (ev) {
+              if (ev.id !== installId) return;
+              if (ev.step === 'syncing') showInstallToast('Syncing ' + target.name + '...');
+              else if (ev.step === 'deps') showInstallToast('Installing deps for ' + target.name + '...');
+              else if (ev.step === 'needs_consent' || ev.step === 'needs_migration') {
+                // permissions.js owns the modal from here; keeping this toast up
+                // would leave it hanging if the user cancels, and "waiting for
+                // consent" is not the same as installed.
+                hideInstallToast();
+                if (sock) sock.off('extension_install_progress', progressHandler);
+              } else if (ev.step === 'loading') showInstallToast('Loading ' + target.name + '...');
+              else if (ev.step === 'done') {
+                hideInstallToast();
+                if (sock) sock.off('extension_install_progress', progressHandler);
+                apiFetch('/api/extensions').then(function (data) {
+                  if (data && !data.error) { window.extensionsData = data; buildSidebar(data); }
+                  renderMarketplace();
+                  refreshAfterInstall(target.name, target.id);
+                });
+              } else if (ev.step === 'error') {
+                hideInstallToast();
+                if (sock) sock.off('extension_install_progress', progressHandler);
+                showToast('Install error: ' + (ev.error || 'Unknown error'));
+                renderMarketplace();
+              }
+            };
+            if (sock) sock.on('extension_install_progress', progressHandler);
+            return;
+          }
+          hideInstallOverlay();
+          apiFetch('/api/extensions').then(function (data) {
+            if (data && !data.error) { window.extensionsData = data; buildSidebar(data); }
+            renderMarketplace();
+            refreshAfterInstall(target.name, target.id);
+          });
+        });
+      }
+      tryInstall();
+    }
+
     filtered.forEach(function (ext) {
-      var installed = !!(window.extensionsData && window.extensionsData[ext.id]);
+      var installedExt = (window.extensionsData && window.extensionsData[ext.id]) || null;
+      var installedVersion = installedExt ? String(installedExt.version || '') : '';
+      var available = (Array.isArray(ext.versions) ? ext.versions : []).filter(function (v) {
+        return v && v.version && v.download_url;
+      });
+      if (!available.length && ext.download_url) {
+        available = [{ version: String(ext.version || '1.0'), download_url: ext.download_url }];
+      }
+      available.sort(function (a, b) { return cfCompareVersions(b.version, a.version); });
+      var latest = available.length ? String(available[0].version) : String(ext.version || '');
+      var knownInstalled = !!installedVersion && available.some(function (v) { return String(v.version) === installedVersion; });
+      // An unpublished local build must not default to a downgrade offer.
+      var selected = (installedVersion && !knownInstalled) ? installedVersion : latest;
       var card = document.createElement('div');
-      card.className = 'mkt-card' + (ext.hidden ? ' mkt-hidden' : '') + (installed ? ' mkt-installed' : '');
+      card.className = 'mkt-card' + (ext.hidden ? ' mkt-hidden' : '') + (installedVersion ? ' mkt-installed' : '');
       var iconHtml = window.renderExtIconHtml ? window.renderExtIconHtml(ext.icon || '', ext.id) : '';
       if (iconHtml) {
         var iconWrap = document.createElement('div');
@@ -215,81 +291,86 @@ function showMarketplaceList(choiceOverlay) {
       }
       var nameEl = document.createElement('div');
       nameEl.className = 'mkt-card-name';
-      nameEl.innerHTML = '<strong>' + (ext.name || ext.id) + '</strong> <span class="text-muted">v' + (ext.version || '?') + '</span>';
+      nameEl.innerHTML = '<strong>' + escapeHtml(ext.name || ext.id) + '</strong> <span class="text-muted">v' + escapeHtml(latest || '?') + '</span>';
       var descEl = document.createElement('div');
       descEl.className = 'mkt-card-desc';
       descEl.textContent = ext.description || '';
-      var btn = document.createElement('button');
-      if (installed) {
-        btn.className = 'pkg-btn mkt-installed-btn';
-        btn.textContent = 'Installed';
-        btn.addEventListener('mouseenter', function () { btn.textContent = 'Uninstall'; btn.style.color = 'var(--accent-red)'; btn.style.borderColor = 'var(--accent-red)'; });
-        btn.addEventListener('mouseleave', function () { btn.textContent = 'Installed'; btn.style.color = ''; btn.style.borderColor = ''; });
-        btn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          var wc = window.__wc;
-          if (wc && wc.showDeleteExtensionConfirm) wc.showDeleteExtensionConfirm(ext.id, function () { renderMarketplace(); });
-        });
-      } else {
-        btn.className = 'pkg-btn pkg-btn-primary';
-        btn.textContent = 'Install';
-        btn.addEventListener('click', function () {
-          btn.textContent = '...';
-          btn.disabled = true;
-          var attempts = 0;
-          var maxAttempts = 3;
-          var to = [3000, 15000, 30000];
-          var installId = null;
-          var sock = window.__socket;
-          var progressHandler = null;
-          function tryInstall() {
-            var label = attempts === 0 ? 'Downloading ' + ext.name + '...' : 'Retrying (' + attempts + '/' + maxAttempts + ')...';
-            showInstallOverlay(label);
-            apiFetch('/api/marketplace/install/' + encodeURIComponent(ext.id), { method: 'POST', timeout: to[attempts] || 30000 }).then(function (res) {
-              if (res && res.exists) { hideInstallOverlay(); showToast(res.message || 'This extension has already been imported.'); btn.textContent = 'Install'; btn.disabled = false; return; }
-              if (res && res.error) { attempts++; if (attempts < maxAttempts) { tryInstall(); return; } hideInstallOverlay(); showToast('Error: ' + res.error); btn.textContent = 'Install'; btn.disabled = false; return; }
-              if (res && res.status === 'installing') {
-                installId = res.id;
-                hideInstallOverlay();
-                showInstallToast('Installing deps for ' + ext.name + '...');
-                progressHandler = function (ev) {
-                  if (ev.id !== installId) return;
-                  if (ev.step === 'syncing') showInstallToast('Syncing ' + ext.name + '...');
-                  else if (ev.step === 'deps') showInstallToast('Installing deps for ' + ext.name + '...');
-                  else if (ev.step === 'loading') showInstallToast('Loading ' + ext.name + '...');
-                  else if (ev.step === 'done') {
-                    hideInstallToast();
-                    if (sock) sock.off('extension_install_progress', progressHandler);
-                    apiFetch('/api/extensions').then(function (data) {
-                      if (data && !data.error) { window.extensionsData = data; buildSidebar(data); }
-                      renderMarketplace();
-                      refreshAfterInstall(ext.name, ext.id);
-                    });
-                  } else if (ev.step === 'error') {
-                    hideInstallToast();
-                    if (sock) sock.off('extension_install_progress', progressHandler);
-                    showToast('Install error: ' + (ev.error || 'Unknown error'));
-                    btn.textContent = 'Install'; btn.disabled = false;
-                    renderMarketplace();
-                  }
-                };
-                if (sock) sock.on('extension_install_progress', progressHandler);
-                return;
-              }
-              hideInstallOverlay();
-              apiFetch('/api/extensions').then(function (data) {
-                if (data && !data.error) { window.extensionsData = data; buildSidebar(data); }
-                renderMarketplace();
-                refreshAfterInstall(ext.name, ext.id);
-              });
-            });
-          }
-          tryInstall();
-        });
-      }
       card.appendChild(nameEl);
       card.appendChild(descEl);
+
+      if (available.length > 1) {
+        var vRow = document.createElement('div');
+        vRow.className = 'mkt-version-row';
+        var vLabel = document.createElement('span');
+        vLabel.textContent = 'Version';
+        var vSelect = document.createElement('select');
+        vSelect.className = 'mkt-version-select';
+        if (installedVersion && !knownInstalled) {
+          var curOpt = document.createElement('option');
+          curOpt.value = installedVersion;
+          curOpt.textContent = 'v' + installedVersion + ' (installed)';
+          vSelect.appendChild(curOpt);
+        }
+        available.forEach(function (v) {
+          var opt = document.createElement('option');
+          opt.value = String(v.version);
+          opt.textContent = 'v' + v.version + (String(v.version) === installedVersion ? ' (installed)' : '');
+          vSelect.appendChild(opt);
+        });
+        vSelect.value = selected;
+        vSelect.addEventListener('change', function () {
+          selected = vSelect.value;
+          paintButton();
+        });
+        vRow.appendChild(vLabel);
+        vRow.appendChild(vSelect);
+        card.appendChild(vRow);
+      }
+
+      var btn = document.createElement('button');
       card.appendChild(btn);
+      var btnMode = '';
+
+      function paintButton() {
+        btn.style.color = '';
+        btn.style.borderColor = '';
+        if (!installedVersion) {
+          btnMode = 'install';
+          btn.className = 'pkg-btn pkg-btn-primary';
+          btn.textContent = 'Install';
+          return;
+        }
+        if (selected === installedVersion) {
+          btnMode = 'installed';
+          btn.className = 'pkg-btn mkt-installed-btn';
+          btn.textContent = 'Installed';
+          return;
+        }
+        var newer = cfCompareVersions(selected, installedVersion) > 0;
+        btnMode = 'change';
+        btn.className = 'pkg-btn pkg-btn-primary' + (newer ? ' mkt-update-btn' : '');
+        btn.textContent = (newer ? 'Update to v' : 'Switch to v') + selected;
+      }
+
+      btn.addEventListener('mouseenter', function () {
+        if (btnMode !== 'installed') return;
+        btn.textContent = 'Uninstall';
+        btn.style.color = 'var(--accent-red)';
+        btn.style.borderColor = 'var(--accent-red)';
+      });
+      btn.addEventListener('mouseleave', function () {
+        if (btnMode === 'installed') paintButton();
+      });
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (btnMode === 'installed') {
+          var wc = window.__wc;
+          if (wc && wc.showDeleteExtensionConfirm) wc.showDeleteExtensionConfirm(ext.id, function () { renderMarketplace(); });
+          return;
+        }
+        runInstall(ext, selected, btn, installedVersion);
+      });
+      paintButton();
       grid.appendChild(card);
     });
     body.appendChild(grid);
@@ -352,18 +433,19 @@ function showExternalProviders() {
     var body = document.getElementById('ep-body');
     if (!body) return;
     var html = '';
-    html += '<div class="provider-warning"><span class="provider-warning-icon">\u26A0</span><span>External providers are not supervised or verified by CoreFrame. Extensions from these sources may be unsafe. Install only from providers you trust.</span></div>';
+    html += '<div class="provider-warning"><span class="provider-warning-icon"><i data-feather="alert-triangle" width="16" height="16"></i></span><span>External providers are not supervised or verified by CoreFrame. Extensions from these sources may be unsafe. Install only from providers you trust.</span></div>';
     html += '<div class="provider-input-row"><input type="text" id="ep-url-input" placeholder="https://example.com/registry.json"><button id="ep-add-btn">Add</button></div>';
     if (providers && providers.length) {
       html += '<div style="display:flex;flex-direction:column;gap:6px;" id="ep-list">';
       providers.forEach(function (p, i) {
-        html += '<div class="provider-card" data-idx="' + i + '"><div class="provider-card-icon">\uD83C\uDF10</div><div class="provider-card-info"><div class="provider-card-name">' + escapeHtml(p.name || p.url) + '</div><div class="provider-card-url">' + escapeHtml(p.url) + '</div></div><button class="ext-card-btn ext-card-btn-danger ep-remove" data-idx="' + i + '">Remove</button></div>';
+        html += '<div class="provider-card" data-idx="' + i + '"><div class="provider-card-icon"><i data-feather="globe" width="16" height="16"></i></div><div class="provider-card-info"><div class="provider-card-name">' + escapeHtml(p.name || p.url) + '</div><div class="provider-card-url">' + escapeHtml(p.url) + '</div></div><button class="ext-card-btn ext-card-btn-danger ep-remove" data-idx="' + i + '">Remove</button></div>';
       });
       html += '</div>';
     } else {
       html += '<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:11px;">No external providers configured.</div>';
     }
     body.innerHTML = html;
+    if (typeof feather !== 'undefined') feather.replace();
     document.getElementById('ep-add-btn').addEventListener('click', function () {
       var input = document.getElementById('ep-url-input');
       var url = (input.value || '').trim();

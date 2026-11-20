@@ -45,6 +45,12 @@ def _collect_full_stdlib():
 
 _stdlib_all = _collect_full_stdlib()
 
+# The light ext_runner is optional: built by tools/build_runner.py and skipped
+# when absent (CI without the runner step, Linux). The app boots fine without it
+# (run_coreframe._ensure_persistent_runner returns early) and just falls back to
+# the main exe per extension child.
+_runner_datas = [('runner.zip', '.')] if os.path.isfile('runner.zip') else []
+
 a = Analysis(
     ['run_coreframe.pyw'],
     pathex=[],
@@ -53,7 +59,7 @@ a = Analysis(
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
         (_WEBVIEW_LIB, 'webview\\lib'),
-    ] + _pip_datas + _st_datas + _w_datas + _tk_datas,
+    ] + _runner_datas + _pip_datas + _st_datas + _w_datas + _tk_datas,
     hiddenimports=[
         'ssl',
         '_ssl',
@@ -61,6 +67,7 @@ a = Analysis(
         'eventlet',
         'psutil',
         'requests',
+        'orjson',
         'PIL.Image',
         'PIL._imaging',
         'PIL._imagingcms',
@@ -73,6 +80,8 @@ a = Analysis(
         'webview.platforms.win32',
         'webview.platforms.edgechromium',
         'clr',
+        'coreframe.extensions.ext_runner',
+        'hid',
         # Full stdlib so runtime-loaded widget deps always import cleanly,
         # with no system Python dependency. See _collect_full_stdlib() above.
         *_stdlib_all,
@@ -98,11 +107,33 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# Bootloader splash: static image shown DURING MEIPASS extraction, before
+# any Python runs. Closed via pyi_splash.close() in run_coreframe.pyw once the
+# main window reveals (children close it immediately, they have no window).
+splash = Splash(
+    'splash.png',
+    binaries=a.binaries,
+    datas=a.datas,
+    # Single small centered loading screen (440x330). Status lines are
+    # pushed at runtime via pyi_splash.update_text(); closed via
+    # pyi_splash.close() once the main window reveals.
+    text_pos=(24, 288),
+    text_size=11,
+    text_color='#A0A0B0',
+    text_default='Starting...',
+    max_img_size=(440, 330),
+    minify_script=True,
+    # Never cover other windows (login screen, etc.): plain centered dialog.
+    always_on_top=False,
+)
+
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
+    splash,
+    splash.binaries,
     name='CoreFrame',
     icon='CoreFrame.ico',
     version='version_info.txt',

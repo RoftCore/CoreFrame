@@ -4,7 +4,66 @@
   var s = window.__wc;
 
   // --- shared icon renderer ---
-  var _featherIconNames = {activity:1,airplay:1,alertCircle:1,alertOctagon:1,alertTriangle:1,alignCenter:1,alignJustify:1,alignLeft:1,alignRight:1,anchor:1,aperture:1,archive:1,arrowDown:1,arrowDownCircle:1,arrowDownLeft:1,arrowDownRight:1,arrowLeft:1,arrowLeftCircle:1,arrowRight:1,arrowRightCircle:1,arrowUp:1,arrowUpCircle:1,arrowUpLeft:1,arrowUpRight:1,atSign:1,award:1,barChart:1,barChart2:1,battery:1,batteryCharging:1,bell:1,bellOff:1,bluetooth:1,bold:1,book:1,bookOpen:1,bookmark:1,bookmark2:1,borderAll:1,borderBottom:1,borderInner:1,borderLeft:1,borderOuter:1,borderRight:1,borderTop:1,box:1,briefcase:1,calendar:1,camera:1,cameraOff:1,cast:1,check:1,checkCircle:1,checkSquare:1,chevronDown:1,chevronLeft:1,chevronRight:1,chevronUp:1,chevronDown2:1,chevronLeft2:1,chevronRight2:1,chevronUp2:1,clipboard:1,clock:1,cloud:1,cloudDrizzle:1,cloudLightning:1,cloudRain:1,cloudSnow:1,code:1,codepen:1,codesandbox:1,coffee:1,columns:1,command:1,compass:1,copy:1,cornerDownLeft:1,cornerDownRight:1,cornerLeftDown:1,cornerLeftUp:1,cornerRightDown:1,cornerRightUp:1,cornerUpLeft:1,cornerUpRight:1,cpu:1,creditCard:1,crop:1,crosshair:1,database:1,delete:1,desktop:1,divertLeft:1,divertRight:1,dollarSign:1,download:1,downloadCloud:1,dribbble:1,droplet:1,edit:1,edit2:1,edit3:1,externalLink:1,eye:1,eyeOff:1,facebook:1,fastForward:1,feather:1,figma:1,file:1,fileMinus:1,filePlus:1,fileText:1,film:1,filter:1,flag:1,flame:1,flashlight:1,flashlightOff:1,folder:1,folderMinus:1,folderPlus:1,framer:1,frown:1,gift:1,gitBranch:1,gitCommit:1,gitMerge:1,gitPullRequest:1,globe:1,grid:1,hardDrive:1,hash:1,headphones:1,heart:1,heartOff:1,helpCircle:1,home:1,image:1,inbox:1,info:1,instagram:1,italic:1,key:1, layers:1,layout:1,lifeBuoy:1,link:1,link2:1,list:1,loader:1,lock:1,logIn:1,logOut:1,mail:1,map:1,mapPin:1,maximize:1,maximize2:1,meh:1,menu:1,messageCircle:1,messageSquare:1,mic:1,micOff:1,minimize:1,minimize2:1,minus:1,minusCircle:1,minusSquare:1,monitor:1,moon:1,moreHorizontal:1,moreVertical:1,mousePointer:1,mousePointer2:1,move:1,music:1,navigation:1,navigation2:1,octagon:1,package:1,paperclip:1,pause:1,pauseCircle:1,penTool:1,percent:1,phone:1,phoneCall:1,phoneForwarded:1,phoneIncoming:1,phoneOff:1,phoneOutgoing:1,pieChart:1,pin:1,play:1,playCircle:1,plus:1,plusCircle:1,plusSquare:1,pocket:1,power:1,printer:1,radio:1,refreshCcw:1,refreshCw:1,repeat:1,rewind:1,rotateCcw:1,rotateCw:1,rss:1,save:1,scissors:1,search:1,send:1,server:1,settings:1,share:1,share2:1,shield:1,shieldOff:1,shoppingBag:1,shoppingCart:1,shuffle:1,sidebar:1,skipBack:1,skipForward:1,slack:1,slash:1,sliders:1,smartphone:1,smile:1,snowflake:1,sortAsc:1,sortDesc:1,speaker:1,square:1,star:1,stopCircle:1,sun:1,sunrise:1,sunset:1,tablet:1,tag:1,target:1,terminal:1,thermometer:1,thumbsDown:1,thumbsUp:1,toggleLeft:1,toggleRight:1,tool:1,trash:1,trash2:1,trello:1,trendingDown:1,trendingUp:1,triangle:1,truck:1,tv:1,twitch:1,twitter:1,type:1,umbrella:1,underline:1,undo:1,unlock:1,upload:1,uploadCloud:1,user:1,userCheck:1,userMinus:1,userPlus:1,users:1,userX:1,video:1,videoOff:1,voicemail:1,volume:1,volume1:1,volume2:1,volumeX:1,watch:1,wifi:1,wifiOff:1,wind:1,x:1,xCircle:1,xOctagon:1,xSquare:1,youtube:1,zap:1,zapOff:1,zero:1};
+  var _featherIconNames = {
+    activity:1, airplay:1, alertCircle:1, alertOctagon:1, alertTriangle:1,
+    alignCenter:1, alignJustify:1, alignLeft:1, alignRight:1, anchor:1,
+    aperture:1, archive:1, arrowDown:1, arrowDownCircle:1, arrowDownLeft:1,
+    arrowDownRight:1, arrowLeft:1, arrowLeftCircle:1, arrowRight:1, arrowRightCircle:1,
+    arrowUp:1, arrowUpCircle:1, arrowUpLeft:1, arrowUpRight:1, atSign:1,
+    award:1, barChart:1, barChart2:1, battery:1, batteryCharging:1,
+    bell:1, bellOff:1, bluetooth:1, bold:1, book:1,
+    bookOpen:1, bookmark:1, bookmark2:1, borderAll:1, borderBottom:1,
+    borderInner:1, borderLeft:1, borderOuter:1, borderRight:1, borderTop:1,
+    box:1, briefcase:1, calendar:1, camera:1, cameraOff:1,
+    cast:1, check:1, checkCircle:1, checkSquare:1, chevronDown:1,
+    chevronLeft:1, chevronRight:1, chevronUp:1, chevronDown2:1, chevronLeft2:1,
+    chevronRight2:1, chevronUp2:1, clipboard:1, clock:1, cloud:1,
+    cloudDrizzle:1, cloudLightning:1, cloudRain:1, cloudSnow:1, code:1,
+    codepen:1, codesandbox:1, coffee:1, columns:1, command:1,
+    compass:1, copy:1, cornerDownLeft:1, cornerDownRight:1, cornerLeftDown:1,
+    cornerLeftUp:1, cornerRightDown:1, cornerRightUp:1, cornerUpLeft:1, cornerUpRight:1,
+    cpu:1, creditCard:1, crop:1, crosshair:1, database:1,
+    delete:1, desktop:1, divertLeft:1, divertRight:1, dollarSign:1,
+    download:1, downloadCloud:1, dribbble:1, droplet:1, edit:1,
+    edit2:1, edit3:1, externalLink:1, eye:1, eyeOff:1,
+    facebook:1, fastForward:1, feather:1, figma:1, file:1,
+    fileMinus:1, filePlus:1, fileText:1, film:1, filter:1,
+    flag:1, flame:1, flashlight:1, flashlightOff:1, folder:1,
+    folderMinus:1, folderPlus:1, framer:1, frown:1, gift:1,
+    gitBranch:1, gitCommit:1, gitMerge:1, gitPullRequest:1, globe:1,
+    grid:1, hardDrive:1, hash:1, headphones:1, heart:1,
+    heartOff:1, helpCircle:1, home:1, image:1, inbox:1,
+    info:1, instagram:1, italic:1, key:1, layers:1,
+    layout:1, lifeBuoy:1, link:1, link2:1, list:1,
+    loader:1, lock:1, logIn:1, logOut:1, mail:1,
+    map:1, mapPin:1, maximize:1, maximize2:1, meh:1,
+    menu:1, messageCircle:1, messageSquare:1, mic:1, micOff:1,
+    minimize:1, minimize2:1, minus:1, minusCircle:1, minusSquare:1,
+    monitor:1, moon:1, moreHorizontal:1, moreVertical:1, mouse:1,
+    move:1, music:1, navigation:1, navigation2:1, npm:1,
+    octagon:1, package:1, paperclip:1, pause:1, pauseCircle:1,
+    penTool:1, percent:1, phone:1, phoneCall:1, phoneForwarded:1,
+    phoneIncoming:1, phoneMissed:1, phoneOff:1, phoneOutgoing:1, pieChart:1,
+    play:1, playCircle:1, plus:1, plusCircle:1, plusSquare:1,
+    pocket:1, power:1, printer:1, radio:1, refreshCcw:1,
+    refreshCw:1, repeat:1, rewind:1, rss:1, save:1,
+    scissors:1, search:1, send:1, server:1, settings:1,
+    share2:1, shield:1, shieldOff:1, shoppingBag:1, shoppingCart:1,
+    shuffle:1, sidebar:1, skipBack:1, skipForward:1, slack:1,
+    slash:1, sliders:1, smartphone:1, smile:1, snowflake:1,
+    sort:1, speaker:1, square:1, star:1, stopCircle:1,
+    sun:1, sunrise:1, sunset:1, tablet:1, tag:1,
+    target:1, terminal:1, thermometer:1, thumbsDown:1, thumbsUp:1,
+    toggleLeft:1, toggleRight:1, tool:1, trash:1, trash2:1,
+    triangle:1, truck:1, tv:1, twitch:1, twitter:1,
+    type:1, umbrella:1, underline:1, undo:1, unlock:1,
+    upload:1, uploadCloud:1, user:1, userCheck:1, userMinus:1,
+    userPlus:1, users:1, userX:1, video:1, videoOff:1,
+    voicemail:1, volume:1, volume1:1, volume2:1, volumeX:1,
+    watch:1, wifi:1, wind:1, x:1, xCircle:1,
+    xOctagon:1, xSquare:1, youtube:1, zap:1, zapOff:1,
+    zero:1
+  }
   var _defaultIcons = {
     system:'monitor',cybersecurity:'shield',security:'lock',fun:'smile',ui:'layout',
     media:'play',ai:'cpu',processes:'list',network:'wifi',disk:'hard-drive',
@@ -16,7 +75,7 @@
       return '<i data-feather="' + icon + '"></i>';
     }
     if (icon && icon.startsWith('/')) {
-      return '<img src="' + icon + '" alt="">';
+      return '<img src="' + icon + '" alt="" loading="lazy" decoding="async">';
     }
     var ext = (window.extensionsData && window.extensionsData[extId]) || {};
     var cat = ext.category || '';
@@ -31,7 +90,7 @@
     var sw = s.sceneWidgets();
     var h = {};
     for (var id in sw) {
-      if (sw[id] && sw[id].hidden && window.extensionsData && window.extensionsData[id]) h[id] = true;
+      if (sw[id] && sw[id].hidden) h[id] = true;
     }
     document.querySelectorAll('.widget-extension').forEach(function (w) {
       var extId = w.dataset.extId;
@@ -48,18 +107,40 @@
         }
       }
     }
+    // Include deferred hidden extensions that are not yet in extensionsData but are hidden in scene
+    for (var id in sw) {
+      if (sw[id] && sw[id].hidden && !h[id]) h[id] = true;
+    }
     return h;
   };
 
+  function isVisibleInAnyScene(extId){
+    for(var sid in s._scenes){
+      var sc = s._scenes[sid];
+      if(sc && sc.widgets && sc.widgets[extId] && !sc.widgets[extId].hidden) return true;
+    }
+    return false;
+  }
   s.hideWidget = function (widget) {
     const extId = widget.dataset.extId;
     if (!extId || !s.currentScene()) return;
     var sw = s.currentScene().widgets;
     var gs = s.getExtGrid(extId);
     sw[extId] = sw[extId] || { col: 1, row: 1, w: gs.w || 2, h: gs.h || 2 };
+    // Snapshot before the flag flips: afterwards the "before" is unrecoverable.
+    var _hBefore = (window.cfHistory && sw[extId])
+      ? window.cfHistory.snapshot(extId, s._activeScene) : null;
     sw[extId].hidden = true;
     s.persistScenes();
-    widget.style.display = 'none';
+    cfHide(widget);
+    if (window.cfHistory && _hBefore) {
+      window.cfHistory.record('hide ' + extId, extId, s._activeScene, _hBefore,
+                              window.cfHistory.snapshot(extId, s._activeScene));
+    }
+    // Kill process only if hidden in ALL scenes (same ext_runner process shared)
+    if(!isVisibleInAnyScene(extId)){
+      apiFetch('/api/extensions/' + encodeURIComponent(extId) + '/unload', {method:'POST'}).catch(function(){});
+    }
   };
 
   s.showHiddenPanel = function () {
@@ -136,8 +217,56 @@
     overlay.classList.add('open');
   };
 
-  s.unhideWidget = function (extId) {
+  s.unhideWidget = async function (extId) {
     if (!s.currentScene()) return false;
+
+    // Lazy load: if extension was deferred (hidden at startup), load it now
+    if (!window.extensionsData || !window.extensionsData[extId]) {
+      try {
+        const loadRes = await apiFetch('/api/extensions/' + extId + '/load', { method: 'POST' });
+        if (loadRes && loadRes.loaded) {
+          // Refresh extensions data
+          const newData = await apiFetch('/api/extensions');
+          if (newData && !newData.error) {
+            window.extensionsData = newData;
+            if (typeof buildSidebar !== 'undefined') buildSidebar(newData);
+          }
+        }
+      } catch (e) {
+        console.warn('[WIDGET] Deferred load failed for ' + extId, e);
+      }
+    }
+
+    // Check consent status before showing
+    try {
+      const check = await apiFetch('/api/extensions/' + extId + '/permissions/check');
+      if (check && !check.has_consent) {
+        // Needs consent — show modal first
+        const level = check.level || 3;
+        const name = check.name || extId;
+        const granted = await window.__permissions.showConsentModal(extId, name, level, {});
+        if (granted) {
+          const res = await apiFetch('/api/extensions/' + extId + '/permissions/grant', {
+            method: 'POST',
+            body: JSON.stringify({ level: level, escalations: [] }),
+          });
+          if (!res || !res.loaded) {
+            s.showToast('Failed to load extension');
+            return false;
+          }
+          // Extension loaded — reload to get its widgets
+          location.reload();
+          return true;
+        } else {
+          // Denied — don't show widget
+          return false;
+        }
+      }
+    } catch (e) {
+      console.error('[WIDGET] Consent check failed:', e);
+    }
+
+    // Consent OK or not needed — proceed with unhiding
     var sw = s.currentScene().widgets;
     var gs = s.getExtGrid(extId);
     var w = gs.w || 2, h = gs.h || 2;
@@ -150,15 +279,29 @@
       s.showToast('No space for this widget');
       return false;
     }
+    var _sBefore = window.cfHistory
+      ? window.cfHistory.snapshot(extId, s._activeScene) : null;
     sw[extId] = { col: spot.col, row: spot.row, w: spot.w, h: spot.h, hidden: false };
     s.persistScenes();
+    if (window.cfHistory && _sBefore) {
+      window.cfHistory.record('show ' + extId, extId, s._activeScene, _sBefore,
+                              window.cfHistory.snapshot(extId, s._activeScene));
+    }
     var wEl = document.querySelector('.widget-extension.ext-' + extId);
     if (wEl) {
-      wEl.style.display = '';
+      cfShow(wEl);
       wEl.style.gridColumn = spot.col + ' / span ' + spot.w;
       wEl.style.gridRow = spot.row + ' / span ' + spot.h;
       s.applyStyleToWidget(extId);
     }
+    // Fresh values on show; skips extension-driven widgets like refreshAllWidgets.
+    try {
+      var extData = window.extensionsData && window.extensionsData[extId];
+      if (extData && !(extData.js_modules && extData.js_modules.length) &&
+          typeof refreshWidget === 'function' && extData.widgets) {
+        extData.widgets.forEach(function (wDef) { refreshWidget(extId, wDef); });
+      }
+    } catch (_e) {}
     if (spot.w !== w || spot.h !== h) {
       s.showToast('Resized to fit: ' + spot.w + 'x' + spot.h);
     }
@@ -170,10 +313,10 @@
     document.querySelectorAll('.widget-extension').forEach(function (w) {
       var extId = w.dataset.extId;
       if (sw[extId]) {
-        w.style.display = sw[extId].hidden ? 'none' : '';
+        if (sw[extId].hidden) cfHide(w); else cfShow(w);
       } else {
         // Widgets not in scene state are hidden by default (user must Show them)
-        w.style.display = 'none';
+        cfHide(w);
       }
     });
   };
@@ -200,38 +343,32 @@
     s.persistScenes();
   };
 
-  s.saveAllLayouts = function () {
+  // Scene switches must never wait on widgets; persistence is opt-out so they coalesce.
+  s.saveAllLayouts = function (skipPersist) {
     if (!s.currentScene()) return;
-    var sw = {};
+    // Hidden widgets keep their position: widget_state.json is the source of truth.
     var maxCols = s.sceneCols();
     var sc = s.currentScene();
     var maxRows = (sc && sc.rows) || 6;
-    // First, preserve existing hidden widgets with their saved positions
-    var old = s.currentScene().widgets;
-    for (var hid in old) {
-      if (old[hid] && old[hid].hidden) {
-        sw[hid] = { col: old[hid].col, row: old[hid].row, w: old[hid].w, h: old[hid].h, hidden: true };
-      }
-    }
-    // Then add/update visible widgets from DOM
+    var cur = s.currentScene().widgets;
     document.querySelectorAll('.widget-extension').forEach(function (w) {
-      if (w.style.display === 'none') return;
+      if (cfHidden(w)) return;
+      if (!w.dataset.extId || !cur[w.dataset.extId]) return;
       var gc = (w.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       var gr = (w.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
-      if (gc && gr && w.dataset.extId) {
+      if (gc && gr) {
         var col = Math.max(1, parseInt(gc[1],10));
         var row = Math.max(1, parseInt(gr[1],10));
         var wSpan = Math.max(1, Math.min(parseInt(gc[2],10), maxCols - col + 1));
         var hSpan = Math.max(1, Math.min(parseInt(gr[2],10), maxRows - row + 1));
-        sw[w.dataset.extId] = {
-          col: col, row: row,
-          w: wSpan, h: hSpan,
-          hidden: false
-        };
+        // Only update position/size, keep hidden as is (should be false for visible)
+        cur[w.dataset.extId].col = col;
+        cur[w.dataset.extId].row = row;
+        cur[w.dataset.extId].w = wSpan;
+        cur[w.dataset.extId].h = hSpan;
       }
     });
-    s.currentScene().widgets = sw;
-    s.persistScenes();
+    if (!skipPersist) s.persistScenes();
   };
 
   s.applySavedLayouts = function () {
@@ -276,7 +413,7 @@
     var cells = {};
     var widgets = document.querySelectorAll('.widget-extension');
     for (const el of widgets) {
-      if (el.style.display === 'none' || el.dataset.overlayable === 'true') continue;
+      if (cfHidden(el) || el.dataset.overlayable === 'true') continue;
       var cs = getComputedStyle(el);
       var gc = parseGridPos(cs.gridColumn || '');
       var gr = parseGridPos(cs.gridRow || '');
@@ -325,7 +462,7 @@
     const target = getOccupiedCells(col, row, w, h);
     const widgets = document.querySelectorAll('.widget-extension');
     for (const el of widgets) {
-      if (el.dataset.extId === extId || el.dataset.overlayable === 'true' || el.style.display === 'none') continue;
+      if (el.dataset.extId === extId || el.dataset.overlayable === 'true' || cfHidden(el)) continue;
       const gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       const gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
       if (!gc || !gr) continue;
@@ -342,6 +479,74 @@
     var tracks = (cs.gridTemplateRows || '').split(' ').filter(Boolean);
     if (tracks.length > 0) return parseFloat(tracks[0]) + gap;
     return parseFloat(cs.gridAutoRows) + gap || 93;
+  }
+
+  // Track sizes from the computed value: only px counts, since parseFloat('1fr') is 1.
+  function pxTracks(value) {
+    var out = [];
+    (value || '').split(' ').forEach(function (tok) {
+      var m = /(-?\d+(?:\.\d+)?)px$/.exec(tok);
+      if (m) out.push(parseFloat(m[1]));
+    });
+    return out;
+  }
+
+  // Fallback when the computed value is not a length: this grid is always repeat(n, 1fr).
+  function uniformTracks(size, gap, n) {
+    if (!(n > 0)) return [];
+    var t = (size - gap * (n - 1)) / n;
+    var out = [];
+    for (var i = 0; i < n; i++) out.push(t > 0 ? t : 0);
+    return out;
+  }
+
+  function gridTracks(grid, nCols, nRows) {
+    var cs = window.getComputedStyle(grid);
+    var gap = parseFloat(cs.gap) || 0;
+    var cols = pxTracks(cs.gridTemplateColumns);
+    var rows = pxTracks(cs.gridTemplateRows);
+    var r = grid.getBoundingClientRect();
+    if (cols.length === 0) cols = uniformTracks(r.width, gap, nCols || 12);
+    if (rows.length === 0) rows = uniformTracks(r.height, gap, nRows || 6);
+    return { cols: cols, rows: rows, gap: gap };
+  }
+
+  function tracksOf(metrics) {
+    if (metrics && metrics.colTracks && metrics.rowTracks) {
+      return { cols: metrics.colTracks, rows: metrics.rowTracks, gap: metrics.trackGap || 0 };
+    }
+    var sc = s.currentScene();
+    return gridTracks(metrics.grid, metrics.maxCol, metrics.maxRow ||
+      ((sc && sc.rows) || 6));
+  }
+
+  function spanBox(list, gap, i0, n) {
+    var start = 0;
+    for (var k = 0; k < i0 && k < list.length; k++) start += list[k] + gap;
+    var size = 0;
+    for (var i = 0; i < n; i++) {
+      var v = list[i0 + i];
+      if (v === undefined) v = list[list.length - 1] || 0;
+      size += v + (i ? gap : 0);
+    }
+    return { start: start, size: size };
+  }
+
+  // Pixel box of a cell span; explicit tracks only, so no implicit row shrinks the 1fr tracks.
+  function gridCellBox(tracks, col, row, w, h) {
+    var c = spanBox(tracks.cols, tracks.gap, Math.max(0, col - 1), w);
+    var r = spanBox(tracks.rows, tracks.gap, Math.max(0, row - 1), h);
+    return { left: c.start, top: r.start, width: c.size, height: r.size };
+  }
+
+  function colAtLocal(grid, x) {
+    var sc = s.currentScene();
+    var t = gridTracks(grid, (sc && sc.cols) || 12, (sc && sc.rows) || 6);
+    for (var c = 0; c < t.cols.length; c++) {
+      var b = spanBox(t.cols, t.gap, c, 1);
+      if (x < b.start + b.size) return c + 1;
+    }
+    return t.cols.length;
   }
 
   function pixelToRow(grid, y) {
@@ -361,11 +566,10 @@
   function gridPosFromPixel(el, grid, maxCols, maxRows) {
     var gridRect = grid.getBoundingClientRect();
     var elRect = el.getBoundingClientRect();
-    var colW = gridRect.width / maxCols;
-    var rowH = gridRect.height / maxRows;
+    // maxCols/maxRows are unused: dividing by a column count ignores the gap, so it drifts.
     return {
-      col: Math.max(1, Math.round((elRect.left - gridRect.left) / colW) + 1),
-      row: Math.max(1, Math.round((elRect.top - gridRect.top) / rowH) + 1)
+      col: colAtLocal(grid, elRect.left - gridRect.left),
+      row: pixelToRow(grid, elRect.top - gridRect.top)
     };
   }
 
@@ -415,7 +619,7 @@
 
     var entries = [];
     document.querySelectorAll('.widget-extension').forEach(function (w) {
-      if (w.style.display === 'none') return;
+      if (cfHidden(w)) return;
       var cs = window.getComputedStyle(w);
       var gc = w.style.gridColumn;
       var gr = w.style.gridRow;
@@ -478,18 +682,161 @@
 
     // --- move state ---
     let dragEl = null, startCol = 1, startRow = 1, wSpan = 2, hSpan = 2;
+    let dragGhost = null; // frozen snapshot clone that follows the mouse
     let overlayable = false;
     let _wasDragged = false;
     let grabDX = 0, grabDY = 0, ghostW = 0, ghostH = 0;
+    let grabLeft = 0, grabTop = 0, ghostX = 0, ghostY = 0;
     let placeholder = null;
+    let spacer = null;
     let swapTarget = null;
     let _mode = null; // 'move' or 'resize' — set on mousedown
 
-    // --- resize state ---
+// Undo: the layout as it was when the gesture started.
+    let _historyBefore = null;
+    let _historyLabel = 'move ';
     let resizeEdges = {};
     let dragStartCol, dragStartRow, dragStartW, dragStartH;
 
     const BORDER = 12;
+
+// During a gesture the core freezes widget DOM writes; extensions must pause too (window.__coreframeDragging).
+    function setDragActive(on) {
+      try {
+        window.__coreframeDragging = !!on;
+        window.dispatchEvent(new CustomEvent(on ? 'coreframe-dragstart' : 'coreframe-dragend'));
+      } catch (e) {}
+    }
+
+    // Pitch/gap cached per grid height + row count, so only a resize pays a style read.
+    let _pitchCache = null;
+    let _dragCache = null;
+    let _geomMid = false;
+
+    function buildDragCache() {
+      var g = document.querySelector('.widget-grid');
+      if (!g) return null;
+      // Sweep leftovers from an aborted drag: a stale spacer keeps its cell occupied.
+      document.querySelectorAll('.widget-drag-placeholder, .widget-drag-spacer').forEach(function (el) { el.remove(); });
+      placeholder = null;
+      spacer = null;
+      _geomMid = false;
+      var r = g.getBoundingClientRect();
+      var sc = s.currentScene();
+      var rows = (sc && sc.rows) || 6;
+      if (!_pitchCache || _pitchCache.h !== r.height || _pitchCache.rows !== rows) {
+        var cs = window.getComputedStyle(g);
+        var gap = parseFloat(cs.rowGap || cs.gap) || 8;
+        var tracks = pxTracks(cs.gridTemplateRows);
+        if (tracks.length === 0) tracks = uniformTracks(r.height, gap, rows);
+        _pitchCache = {
+          h: r.height, rows: rows, gap: gap, tracks: tracks,
+          colTracks: pxTracks(cs.gridTemplateColumns),
+          autoRows: tracks[0] || 0
+        };
+        if (_pitchCache.colTracks.length === 0) {
+          _pitchCache.colTracks = uniformTracks(r.width, gap, (sc && sc.cols) || 12);
+        }
+      }
+      var pc = _pitchCache;
+      var pitch = pc.tracks.length > 0 ? pc.tracks[0] + pc.gap : (pc.autoRows + pc.gap || 93);
+      _dragCache = {
+        grid: g, rect: r,
+        colW: r.width / s.sceneCols(),
+        colTracks: pc.colTracks, rowTracks: pc.tracks, trackGap: pc.gap,
+        maxCol: (sc && sc.cols) || 12,
+        maxRow: rows,
+        rowPitch: pitch, rowGap: pc.gap
+      };
+      dumpDragGeometry('start');
+      return _dragCache;
+    }
+
+// One-shot geometry dump to the app log, so the next round starts from data not guesses.
+    function dumpDragGeometry(tag) {
+      var g = document.querySelector('.widget-grid');
+      if (!g) return;
+      var cs = window.getComputedStyle(g);
+      var sc = s.currentScene();
+      var r = g.getBoundingClientRect();
+      var kids = [];
+      Array.prototype.forEach.call(g.querySelectorAll('.widget-extension'), function (el) {
+        var k = window.getComputedStyle(el);
+        kids.push(k.gridRowStart + ':' + k.gridColumnStart + '=' + Math.round(el.getBoundingClientRect().height));
+      });
+      apiFetch('/api/debug/drag', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tag: tag, scene: s._activeScene,
+          sceneRows: (sc && sc.rows) || 0, sceneCols: (sc && sc.cols) || 0,
+          rect: Math.round(r.width) + 'x' + Math.round(r.height),
+          inlineRows: g.style.gridTemplateRows || '(none)',
+          rows: cs.gridTemplateRows, cols: cs.gridTemplateColumns,
+          autoRows: cs.gridAutoRows, autoFlow: cs.gridAutoFlow,
+          pxRows: pxTracks(cs.gridTemplateRows).length,
+          pxCols: pxTracks(cs.gridTemplateColumns).length,
+          derivedRow0: _pitchCache && _pitchCache.tracks[0] ? Math.round(_pitchCache.tracks[0]) : -1,
+          pitch: _pitchCache ? Math.round(_pitchCache.tracks[0] + _pitchCache.gap) : -1,
+          kids: kids.slice(0, 24)
+        })
+      });
+    }
+
+// Track-walking row lookup over the cached tracks: same result, zero style reads.
+    function pixelToRowFromCache(y) {
+      var pc = _pitchCache;
+      if (!pc || !pc.tracks.length) return Math.max(1, Math.round(y / 100));
+      var pos = 0;
+      for (var r = 0; r < pc.tracks.length; r++) {
+        var h = pc.tracks[r];
+        if (y < pos + h) return r + 1;
+        pos += h + pc.gap;
+      }
+      return pc.tracks.length + 1;
+    }
+
+    function refreshDragRect() {
+      if (!_dragCache || !_dragCache.grid) return null;
+      _dragCache.rect = _dragCache.grid.getBoundingClientRect();
+      return _dragCache;
+    }
+
+// One occupancy snapshot per frame, shared by every overlap test in it.
+    function buildOccupancy() {
+      var occ = {};
+      document.querySelectorAll('.widget-extension').forEach(function (el) {
+        if (cfHidden(el) || el.dataset.overlayable === 'true') return;
+        if (el.dataset.dragGhost === 'true') return;
+        var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+        var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+        if (!gc || !gr) return;
+        var eCol = parseInt(gc[1], 10), eSpan = parseInt(gc[2], 10);
+        var eRow = parseInt(gr[1], 10), eSpanH = parseInt(gr[2], 10);
+        for (var ec = eCol; ec < eCol + eSpan; ec++)
+          for (var er = eRow; er < eRow + eSpanH; er++)
+            occ[ec + ',' + er] = el;
+      });
+      return occ;
+    }
+
+    function mapOverlappingEls(occ, col, row, w, h, excludeEl) {
+      var seen = [];
+      for (var c = col; c < col + w; c++)
+        for (var r = row; r < row + h; r++) {
+          var el = occ[c + ',' + r];
+          if (el && el !== excludeEl && seen.indexOf(el) === -1) seen.push(el);
+        }
+      return seen;
+    }
+
+    function mapFreeExcept(occ, col, row, w, h, elA, elB) {
+      for (var c = col; c < col + w; c++)
+        for (var r = row; r < row + h; r++) {
+          var el = occ[c + ',' + r];
+          if (el && el !== elA && el !== elB) return false;
+        }
+      return true;
+    }
 
     function getGridMetrics() {
       var g = document.querySelector('.widget-grid');
@@ -505,17 +852,18 @@
     }
 
     function pixelToCol(metrics, px) {
-      var ghostLeft = px - ghostW / 2;
-      var ghostRight = px + ghostW / 2;
+      var ghostLeft = px - ghostW / 2 - metrics.rect.left;
+      var ghostRight = px + ghostW / 2 - metrics.rect.left;
+      var t = tracksOf(metrics);
+      var n = Math.min(t.cols.length, metrics.maxCol);
       var bestCol = 1;
       var bestOverlap = -1;
-      for (var c = 1; c <= metrics.maxCol - wSpan + 1; c++) {
-        var cellLeft = metrics.rect.left + (c - 1) * metrics.colW;
-        var cellRight = metrics.rect.left + (c + wSpan - 1) * metrics.colW;
-        var overlap = Math.min(ghostRight, cellRight) - Math.max(ghostLeft, cellLeft);
+      for (var c = 0; c <= n - wSpan; c++) {
+        var box = spanBox(t.cols, t.gap, c, wSpan);
+        var overlap = Math.min(ghostRight, box.start + box.size) - Math.max(ghostLeft, box.start);
         if (overlap > bestOverlap) {
           bestOverlap = overlap;
-          bestCol = c;
+          bestCol = c + 1;
         }
       }
       return bestCol;
@@ -540,6 +888,26 @@
       return bestRow;
     }
 
+// Cached twin of pixelToRowClamped: same math, reads the per-gesture snapshot.
+    function pixelToRowCached(metrics, py) {
+      var ghostTop = py - ghostH / 2;
+      var ghostBottom = py + ghostH / 2;
+      var rowPitch = metrics.rowPitch;
+      var gap = metrics.rowGap;
+      var bestRow = 1;
+      var bestOverlap = -1;
+      for (var r = 1; r <= metrics.maxRow - hSpan + 1; r++) {
+        var cellTop = (r - 1) * rowPitch;
+        var cellBottom = (r + hSpan - 1) * rowPitch - gap;
+        var overlap = Math.min(ghostBottom, cellBottom) - Math.max(ghostTop, cellTop);
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          bestRow = r;
+        }
+      }
+      return bestRow;
+    }
+
     function getOverlappingWidgets(col, row, w, h, excludeEl) {
       var result = [];
       var targetCells = {};
@@ -547,7 +915,7 @@
         for (var r = row; r < row + h; r++)
           targetCells[c + ',' + r] = true;
       document.querySelectorAll('.widget-extension').forEach(function (el) {
-        if (el === excludeEl || el.style.display === 'none' || el.dataset.overlayable === 'true') return;
+        if (el === excludeEl || cfHidden(el) || el.dataset.overlayable === 'true') return;
         var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
         var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
         if (!gc || !gr) return;
@@ -567,7 +935,7 @@
         for (var r = row; r < row + h; r++)
           targetCells[c + ',' + r] = true;
       document.querySelectorAll('.widget-extension').forEach(function (el) {
-        if (excludeList.indexOf(el) !== -1 || el.style.display === 'none' || el.dataset.overlayable === 'true') return;
+        if (excludeList.indexOf(el) !== -1 || cfHidden(el) || el.dataset.overlayable === 'true') return;
         var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
         var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
         if (!gc || !gr) return;
@@ -578,6 +946,46 @@
             if (targetCells[ec + ',' + er]) { result.push(el); return; }
       });
       return result;
+    }
+
+// Map-based twin of findFreeSpot: same placement, zero DOM queries.
+    function findFreeSpotOnMap(el, avoidEl, targetCol, targetRow, targetW, targetH, occ) {
+      var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      if (!gc || !gr || !_dragCache) return null;
+      var sw = parseInt(gc[2], 10), sh = parseInt(gr[2], 10);
+      var curCol = parseInt(gc[1], 10), curRow = parseInt(gr[1], 10);
+      var maxCol = _dragCache.maxCol, maxRow = _dragCache.maxRow;
+      var blockedCells = {};
+      for (var tc = targetCol; tc < targetCol + targetW; tc++)
+        for (var tr = targetRow; tr < targetRow + targetH; tr++)
+          blockedCells[tc + ',' + tr] = true;
+      var best = null, bestDist = Infinity;
+      for (var r = 1; r <= maxRow - sh + 1; r++) {
+        for (var c = 1; c <= maxCol - sw + 1; c++) {
+          var dist = Math.abs(c - curCol) + Math.abs(r - curRow);
+          if (dist === 0 || dist >= bestDist) continue;
+          var hitsBlocked = false;
+          for (var sc = c; sc < c + sw && !hitsBlocked; sc++)
+            for (var sr = r; sr < r + sh; sr++)
+              if (blockedCells[sc + ',' + sr]) { hitsBlocked = true; break; }
+          if (hitsBlocked) continue;
+          if (mapFreeExcept(occ, c, r, sw, sh, el, avoidEl)) {
+            bestDist = dist;
+            best = { col: c, row: r };
+          }
+        }
+      }
+      return best;
+    }
+
+    function canWidgetFitOnMap(el, col, row, occ) {
+      var gc = (el.style.gridColumn || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      var gr = (el.style.gridRow || '').match(/^(\d+)\s*\/\s*span\s+(\d+)$/);
+      if (!gc || !gr || !_dragCache) return false;
+      var w = parseInt(gc[2], 10), h = parseInt(gr[2], 10);
+      if (col + w - 1 > _dragCache.maxCol || row + h - 1 > _dragCache.maxRow) return false;
+      return mapOverlappingEls(occ, col, row, w, h, el).length === 0;
     }
 
     function canWidgetFit(el, col, row) {
@@ -622,17 +1030,58 @@
       return best;
     }
 
+    // Spacer holds the source cell and the projection is absolute: neither adds a row.
+    function ensureDragEl(metrics, startCol, startRow) {
+      if (!spacer) {
+        spacer = document.createElement('div');
+        spacer.className = 'widget-drag-spacer';
+      }
+      if (startCol) {
+        spacer.style.gridColumn = startCol + ' / span ' + wSpan;
+        spacer.style.gridRow = startRow + ' / span ' + hSpan;
+      }
+      if (spacer.parentNode !== metrics.grid) metrics.grid.appendChild(spacer);
+      if (!placeholder) {
+        placeholder = document.createElement('div');
+        placeholder.className = 'widget-drag-placeholder';
+      }
+      if (placeholder.parentNode !== metrics.grid) metrics.grid.appendChild(placeholder);
+    }
+
     function removePlaceholder() {
       if (placeholder) { placeholder.remove(); placeholder = null; }
+      if (spacer) { spacer.remove(); spacer = null; }
+    }
+
+    function nowMs() {
+      return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    }
+
+    // Perf badge in the EDIT bar: last grab/drop phase timings, readable without devtools.
+    function dragTimingReport(text) {
+      var bar = document.getElementById('mode-indicator-bar');
+      if (!bar) return;
+      var badge = document.getElementById('drag-perf-badge');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.id = 'drag-perf-badge';
+        badge.style.cssText = 'margin-left:12px;opacity:0.75;font-size:12px;';
+        bar.appendChild(badge);
+      }
+      badge.textContent = text;
     }
 
     function updateTargetIndicator(metrics, col, row, state) {
       if (!placeholder) return;
-      placeholder.style.gridColumn = col + ' / span ' + wSpan;
-      placeholder.style.gridRow = row + ' / span ' + hSpan;
-      placeholder.classList.remove('widget-drag-placeholder-occupied', 'widget-drag-placeholder-displace');
+      var box = gridCellBox(tracksOf(metrics), col, row, wSpan, hSpan);
+      placeholder.style.left = box.left + 'px';
+      placeholder.style.top = box.top + 'px';
+      placeholder.style.width = box.width + 'px';
+      placeholder.style.height = box.height + 'px';
+// Three colours: free (blue), valid-but-colliding (green), occupied (red).
+      placeholder.classList.remove('widget-drag-placeholder-occupied', 'widget-drag-placeholder-drop');
       if (state === 'occupied') placeholder.classList.add('widget-drag-placeholder-occupied');
-      else if (state === 'displace') placeholder.classList.add('widget-drag-placeholder-displace');
+      else if (state === 'drop') placeholder.classList.add('widget-drag-placeholder-drop');
     }
 
     function clearSwapTarget() {
@@ -646,9 +1095,12 @@
       el.style.width = '';
       el.style.height = '';
       el.style.zIndex = '';
+      el.style.transform = '';
+      el.style.pointerEvents = '';
       el.classList.remove('widget-dragging');
       var metrics = getGridMetrics();
-      if (metrics && metrics.grid) metrics.grid.appendChild(el);
+      // Skip the DOM move when already inside the grid: re-inserting forces a re-layout.
+      if (metrics && metrics.grid && el.parentNode !== metrics.grid) metrics.grid.appendChild(el);
       el.style.gridColumn = col + ' / span ' + w;
       el.style.gridRow = row + ' / span ' + h;
     }
@@ -706,7 +1158,7 @@
         el.classList.remove('widget-edge-hover');
         el.style.cursor = '';
       });
-      if (!widget || widget.style.display === 'none') {
+      if (!widget || cfHidden(widget)) {
         document.body.style.cursor = '';
         return;
       }
@@ -732,6 +1184,12 @@
       var edges = detectEdges(widget, e.clientX, e.clientY);
       var isEdge = edges.top || edges.bottom || edges.left || edges.right;
 
+      // Undo snapshot: the resolver rewrites the layout several times before the drop ends.
+      if (window.cfHistory && widget.dataset.extId) {
+        _historyBefore = window.cfHistory.snapshot(widget.dataset.extId, s._activeScene);
+        _historyLabel = isEdge ? 'resize ' : 'move ';
+      }
+
       if (isEdge) {
         // --- RESIZE ---
         e.preventDefault();
@@ -745,77 +1203,122 @@
         dragEl.classList.add('widget-resizing');
         document.addEventListener('mousemove', onResizeDrag, true);
         document.addEventListener('mouseup', onResizeUp, true);
+        setDragActive(true);
       } else {
         // --- MOVE ---
         _wasDragged = false;
         dragEl = widget;
         overlayable = dragEl.dataset.overlayable === 'true';
 
+        var _dt0 = nowMs();
         var metrics = getGridMetrics();
         if (!metrics) { dragEl = null; return; }
+// Snapshot geometry before any write dirties layout: one clean layout per grab.
+        buildDragCache();
 
         var wr = dragEl.getBoundingClientRect();
-        startCol = Math.max(1, Math.round((wr.left - metrics.rect.left) / metrics.colW) + 1);
+
+// Inline styles are frozen after enterEditMode, so parse them: zero style reads.
+        var gc = dragEl.style.gridColumn || '';
+        var gr = dragEl.style.gridRow || '';
+        var gcm = gc.match(/span\s+(\d+)/), grm = gr.match(/span\s+(\d+)/);
+        if (!gcm || !grm) {
+          var cs = getComputedStyle(dragEl);
+          gc = cs.gridColumn || gc;
+          gr = cs.gridRow || gr;
+          gcm = gc.match(/span\s+(\d+)/);
+          grm = gr.match(/span\s+(\d+)/);
+        }
+        wSpan = parseInt(((gcm) || [,'2'])[1], 10);
+        hSpan = parseInt(((grm) || [,'2'])[1], 10);
+
+        startCol = colAtLocal(metrics.grid, wr.left - metrics.rect.left);
         var sc = s.currentScene();
         var maxRow = (sc && sc.rows) || 6;
-        startRow = Math.max(1, Math.min(maxRow - hSpan + 1, pixelToRow(metrics.grid, wr.top - metrics.rect.top)));
+        startRow = Math.max(1, Math.min(maxRow - hSpan + 1, pixelToRowFromCache(wr.top - metrics.rect.top)));
 
-        var cs = getComputedStyle(dragEl);
-        var gc = cs.gridColumn || dragEl.style.gridColumn || 'auto / span 2';
-        var gr = cs.gridRow || dragEl.style.gridRow || 'auto / span 2';
-        wSpan = parseInt((gc.match(/span\s+(\d+)/) || [,'2'])[1], 10);
-        hSpan = parseInt((gr.match(/span\s+(\d+)/) || [,'2'])[1], 10);
+        var _dtRead = nowMs();
 
         grabDX = e.clientX - wr.left;
         grabDY = e.clientY - wr.top;
         ghostW = wr.width;
         ghostH = wr.height;
 
+        // Live drag: the widget follows the mouse via transform, so no layout per frame.
+        ensureDragEl(metrics, startCol, startRow);
+        grabLeft = wr.left; grabTop = wr.top;
+        ghostX = e.clientX - grabDX; ghostY = e.clientY - grabDY;
+        dragEl.style.gridColumn = '';
+        dragEl.style.gridRow = '';
         dragEl.style.position = 'fixed';
-        dragEl.style.left = (e.clientX - grabDX) + 'px';
-        dragEl.style.top = (e.clientY - grabDY) + 'px';
+        dragEl.style.left = grabLeft + 'px';
+        dragEl.style.top = grabTop + 'px';
         dragEl.style.width = ghostW + 'px';
         dragEl.style.height = ghostH + 'px';
         dragEl.style.zIndex = '9999';
         dragEl.style.margin = '0';
+        dragEl.style.transform = '';
+        dragEl.style.pointerEvents = 'none';
         dragEl.classList.add('widget-dragging');
-        document.body.appendChild(dragEl);
+        dragEl.classList.remove('widget-collision');
+        dragGhost = dragEl; // live element doubles as the floater
+        setDragActive(true);
+        dragTimingReport('grab ' + Math.round(nowMs() - _dt0) + 'ms [read ' +
+          Math.round(_dtRead - _dt0) + ' lift ' + Math.round(nowMs() - _dtRead) + ']');
 
         document.addEventListener('mousemove', onMove, true);
         document.addEventListener('mouseup', onMoveUp, true);
       }
     }
 
-    // --- MOVE ---
+// MOVE: rAF-throttled, at most one collision pass per frame.
+
+    let _moveRaf = 0, _pendingMoveEvent = null;
 
     function onMove(e) {
-      if (!dragEl || !_wasDragged && (Math.abs(e.clientX - (parseFloat(dragEl.style.left) + grabDX)) > 3 || Math.abs(e.clientY - (parseFloat(dragEl.style.top) + grabDY)) > 3)) {
+      if (!dragEl || !dragGhost) return;
+      _pendingMoveEvent = e;
+      if (_moveRaf) return;
+      _moveRaf = requestAnimationFrame(function () {
+        _moveRaf = 0;
+        var ev = _pendingMoveEvent;
+        _pendingMoveEvent = null;
+        if (ev) onMoveFrame(ev);
+      });
+    }
+
+    function onMoveFrame(e) {
+      if (!dragEl || !dragGhost) return;
+      if (!_wasDragged && (Math.abs(e.clientX - (ghostX + grabDX)) > 3 || Math.abs(e.clientY - (ghostY + grabDY)) > 3)) {
         _wasDragged = true;
       }
-      if (!dragEl) return;
 
-      var metrics = getGridMetrics();
+      // One layout read per frame; pitch/gap come from the grab snapshot.
+      var metrics = refreshDragRect() || _dragCache;
       if (!metrics) return;
 
       var newLeft = Math.max(metrics.rect.left, Math.min(metrics.rect.right - ghostW, e.clientX - grabDX));
       var newTop = Math.max(metrics.rect.top, Math.min(metrics.rect.bottom - ghostH, e.clientY - grabDY));
-      dragEl.style.left = newLeft + 'px';
-      dragEl.style.top = newTop + 'px';
+      ghostX = newLeft; ghostY = newTop;
+      // Transform only: left/top would lay out the heavy subtree every frame.
+      dragEl.style.transform = 'translate(' + (newLeft - grabLeft) + 'px,' + (newTop - grabTop) + 'px) scale(1.02)';
 
       var tCol = pixelToCol(metrics, newLeft + ghostW / 2);
-      var tRow = pixelToRowClamped(metrics, newTop + ghostH / 2);
-
-      if (!placeholder) {
-        placeholder = document.createElement('div');
-        placeholder.className = 'widget-drag-placeholder';
-        metrics.grid.appendChild(placeholder);
+      var tRow = pixelToRowCached(metrics, newTop + ghostH / 2);
+      if (!_geomMid && newTop > metrics.rect.top + metrics.rect.height / 2) {
+        _geomMid = true;
+        dumpDragGeometry('mid');
       }
 
-      var overlapping = getOverlappingWidgets(tCol, tRow, wSpan, hSpan, dragEl);
+      ensureDragEl(metrics);
+
+      // Single DOM query per frame; every overlap test below is a map lookup.
+      var occ = buildOccupancy();
+      var overlapping = mapOverlappingEls(occ, tCol, tRow, wSpan, hSpan, dragEl);
       clearSwapTarget();
 
       if (overlapping.length === 0) {
-        dragEl.classList.remove('widget-collision');
+        dragGhost.classList.remove('widget-collision');
         updateTargetIndicator(metrics, tCol, tRow, 'free');
       } else if (overlapping.length === 1 && !overlayable) {
         var candidate = overlapping[0];
@@ -830,7 +1333,7 @@
           for (var tc = tCol; tc < tCol + wSpan; tc++)
             for (var tr = tRow; tr < tRow + hSpan; tr++)
               blockedCells[tc + ',' + tr] = true;
-          for (var r = 1; r <= metrics.maxRow - cH + 1; r++) {
+          for (var r = 1; r <= metrics.maxRow - cH + 1 && !canDisplace; r++) {
             for (var c = 1; c <= metrics.maxCol - cW + 1; c++) {
               if (Math.abs(c - curCol) + Math.abs(r - curRow) === 0) continue;
               var hitsBlocked = false;
@@ -838,26 +1341,24 @@
                 for (var sr = r; sr < r + cH; sr++)
                   if (blockedCells[sc + ',' + sr]) { hitsBlocked = true; break; }
               if (hitsBlocked) continue;
-              var others = getOverlappingWidgets(c, r, cW, cH, candidate);
-              if (others.length === 0) { canDisplace = true; break; }
+              if (mapOverlappingEls(occ, c, r, cW, cH, candidate).length === 0) { canDisplace = true; break; }
             }
-            if (canDisplace) break;
           }
         }
         if (canSwap) {
           swapTarget = candidate;
           candidate.classList.add('widget-swap-target');
-          updateTargetIndicator(metrics, tCol, tRow, 'free');
-          dragEl.classList.remove('widget-collision');
+          updateTargetIndicator(metrics, tCol, tRow, 'drop');
+          dragGhost.classList.remove('widget-collision');
         } else if (canDisplace) {
-          updateTargetIndicator(metrics, tCol, tRow, 'displace');
-          dragEl.classList.remove('widget-collision');
+          updateTargetIndicator(metrics, tCol, tRow, 'drop');
+          dragGhost.classList.remove('widget-collision');
         } else {
-          dragEl.classList.add('widget-collision');
+          dragGhost.classList.add('widget-collision');
           updateTargetIndicator(metrics, tCol, tRow, 'occupied');
         }
       } else {
-        dragEl.classList.add('widget-collision');
+        dragGhost.classList.add('widget-collision');
         updateTargetIndicator(metrics, tCol, tRow, 'occupied');
       }
     }
@@ -865,21 +1366,28 @@
     function onMoveUp() {
       document.removeEventListener('mousemove', onMove, true);
       document.removeEventListener('mouseup', onMoveUp, true);
+      if (_moveRaf) { cancelAnimationFrame(_moveRaf); _moveRaf = 0; _pendingMoveEvent = null; }
+      // Live drag: no snapshot to discard, position already in ghostX/Y.
+      dragGhost = null;
       if (!dragEl) return;
+      var _et0 = nowMs();
 
-      var metrics = getGridMetrics();
+      var metrics = refreshDragRect() || _dragCache || getGridMetrics();
       var extId = dragEl.dataset.extId;
 
       clearSwapTarget();
       removePlaceholder();
+      // One DOM query for the whole drop; every placement test is a map lookup.
+      var occ = buildOccupancy();
+      var _etCleanup = nowMs();
 
       if (metrics) {
-        var newLeft = parseFloat(dragEl.style.left);
-        var newTop = parseFloat(dragEl.style.top);
+        var newLeft = ghostX;
+        var newTop = ghostY;
         var tCol = pixelToCol(metrics, newLeft + ghostW / 2);
-        var tRow = pixelToRowClamped(metrics, newTop + ghostH / 2);
+        var tRow = pixelToRowCached(metrics, newTop + ghostH / 2);
 
-        var overlapping = getOverlappingWidgets(tCol, tRow, wSpan, hSpan, dragEl);
+        var overlapping = mapOverlappingEls(occ, tCol, tRow, wSpan, hSpan, dragEl);
         if (overlapping.length === 0 && !overlayable) {
           placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
           if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
@@ -893,21 +1401,21 @@
             var otherId = other.dataset.extId;
 
             if (oW === wSpan && oH === hSpan) {
-              var swapFree = canWidgetFit(other, startCol, startRow);
+              var swapFree = canWidgetFitOnMap(other, startCol, startRow, occ);
               if (swapFree) {
                 placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
                 if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
                 placeWidget(other, startCol, startRow, oW, oH);
                 if (otherId) s.saveWidgetLayout(otherId, startCol, startRow, oW, oH);
               } else {
-                var altSpot = findFreeSpot(other, dragEl, tCol, tRow, wSpan, hSpan, metrics);
+                var altSpot = findFreeSpotOnMap(other, dragEl, tCol, tRow, wSpan, hSpan, occ);
                 if (altSpot) {
                   placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
                   if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
                   placeWidget(other, altSpot.col, altSpot.row, oW, oH);
                   if (otherId) s.saveWidgetLayout(otherId, altSpot.col, altSpot.row, oW, oH);
                 } else {
-                  var selfSpot = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+                  var selfSpot = findFreeSpotOnMap(dragEl, null, tCol, tRow, wSpan, hSpan, occ);
                   if (selfSpot) {
                     placeWidget(dragEl, selfSpot.col, selfSpot.row, wSpan, hSpan);
                     if (extId) s.saveWidgetLayout(extId, selfSpot.col, selfSpot.row, wSpan, hSpan);
@@ -918,14 +1426,14 @@
                 }
               }
             } else {
-              var spot = findFreeSpot(other, dragEl, tCol, tRow, wSpan, hSpan, metrics);
+              var spot = findFreeSpotOnMap(other, dragEl, tCol, tRow, wSpan, hSpan, occ);
               if (spot) {
                 placeWidget(dragEl, tCol, tRow, wSpan, hSpan);
                 if (extId) s.saveWidgetLayout(extId, tCol, tRow, wSpan, hSpan);
                 placeWidget(other, spot.col, spot.row, oW, oH);
                 if (otherId) s.saveWidgetLayout(otherId, spot.col, spot.row, oW, oH);
               } else {
-                var selfSpot2 = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+                var selfSpot2 = findFreeSpotOnMap(dragEl, null, tCol, tRow, wSpan, hSpan, occ);
                 if (selfSpot2) {
                   placeWidget(dragEl, selfSpot2.col, selfSpot2.row, wSpan, hSpan);
                   if (extId) s.saveWidgetLayout(extId, selfSpot2.col, selfSpot2.row, wSpan, hSpan);
@@ -936,7 +1444,7 @@
               }
             }
           } else {
-            var safeSpot = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+            var safeSpot = findFreeSpotOnMap(dragEl, null, tCol, tRow, wSpan, hSpan, occ);
             if (safeSpot) {
               placeWidget(dragEl, safeSpot.col, safeSpot.row, wSpan, hSpan);
               if (extId) s.saveWidgetLayout(extId, safeSpot.col, safeSpot.row, wSpan, hSpan);
@@ -960,7 +1468,7 @@
             var cand = candidates[i];
             if (cand.col < 1 || cand.row < 1) continue;
             if (cand.col + wSpan - 1 > metrics.maxCol || cand.row + hSpan - 1 > metrics.maxRow) continue;
-            var cOver = getOverlappingWidgets(cand.col, cand.row, wSpan, hSpan, dragEl);
+            var cOver = mapOverlappingEls(occ, cand.col, cand.row, wSpan, hSpan, dragEl);
             if (cOver.length === 0) {
               placeWidget(dragEl, cand.col, cand.row, wSpan, hSpan);
               if (extId) s.saveWidgetLayout(extId, cand.col, cand.row, wSpan, hSpan);
@@ -969,7 +1477,7 @@
             }
           }
           if (!placed) {
-            var lastResort = findFreeSpot(dragEl, null, tCol, tRow, wSpan, hSpan, metrics);
+            var lastResort = findFreeSpotOnMap(dragEl, null, tCol, tRow, wSpan, hSpan, occ);
             if (lastResort) {
               placeWidget(dragEl, lastResort.col, lastResort.row, wSpan, hSpan);
               if (extId) s.saveWidgetLayout(extId, lastResort.col, lastResort.row, wSpan, hSpan);
@@ -991,9 +1499,9 @@
       if (finalGc && finalGr) {
         var fCol = parseInt(finalGc[1], 10), fW = parseInt(finalGc[2], 10);
         var fRow = parseInt(finalGr[1], 10), fH = parseInt(finalGr[2], 10);
-        var finalOverlap = getOverlappingWidgets(fCol, fRow, fW, fH, dragEl);
+        var finalOverlap = mapOverlappingEls(buildOccupancy(), fCol, fRow, fW, fH, dragEl);
         if (finalOverlap.length > 0) {
-          var rescue = findFreeSpot(dragEl, null, fCol, fRow, fW, fH, getGridMetrics());
+          var rescue = findFreeSpotOnMap(dragEl, null, fCol, fRow, fW, fH, buildOccupancy());
           if (rescue) {
             placeWidget(dragEl, rescue.col, rescue.row, fW, fH);
             if (extId) s.saveWidgetLayout(extId, rescue.col, rescue.row, fW, fH);
@@ -1001,10 +1509,22 @@
         }
       }
 
+      dragGhost = null;
+      if (window.cfHistory && _historyBefore && dragEl.dataset.extId) {
+        window.cfHistory.record(_historyLabel + dragEl.dataset.extId,
+                                dragEl.dataset.extId, s._activeScene, _historyBefore,
+                                window.cfHistory.snapshot(dragEl.dataset.extId, s._activeScene));
+      }
+      _historyBefore = null;
       dragEl.classList.remove('widget-dragging', 'widget-collision');
+      var _etEnd = nowMs();
+      dragTimingReport('drop ' + Math.round(_etEnd - _et0) + 'ms [cleanup ' +
+        Math.round(_etCleanup - _et0) + ' place+save ' + Math.round(_etEnd - _etCleanup) + ']');
       dragEl = null;
       _wasDragged = false;
       _mode = null;
+      _dragCache = null;
+      setDragActive(false);
     }
 
     // --- RESIZE ---
@@ -1064,10 +1584,17 @@
       if (dragEl) {
         dragEl.classList.remove('widget-collision', 'widget-resizing');
         s.saveAllLayouts();
+        if (window.cfHistory && _historyBefore && dragEl.dataset.extId) {
+          window.cfHistory.record(_historyLabel + dragEl.dataset.extId,
+                                  dragEl.dataset.extId, s._activeScene, _historyBefore,
+                                  window.cfHistory.snapshot(dragEl.dataset.extId, s._activeScene));
+        }
       }
+      _historyBefore = null;
       dragEl = null;
       resizeEdges = {};
       _mode = null;
+      setDragActive(false);
     }
 
     function onClickSuppress(e) {
@@ -1078,6 +1605,9 @@
     document.addEventListener('mousemove', onHover);
     document.addEventListener('click', onClickSuppress, true);
     document._editCleanup = function () {
+      if (_moveRaf) { try { cancelAnimationFrame(_moveRaf); } catch (e) {} _moveRaf = 0; _pendingMoveEvent = null; }
+      _dragCache = null;
+      try { setDragActive(false); } catch (e) {}
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('mousemove', onHover);
       document.removeEventListener('mousemove', onMove, true);
@@ -1099,7 +1629,11 @@
     if (document._editCleanup) { document._editCleanup(); document._editCleanup = null; }
     const bar = document.getElementById('mode-indicator-bar');
     if (bar) bar.remove();
-    // Restore orphaned dragged widgets back to grid
+// Restore widgets orphaned by an Exit pressed mid-drag to their gesture-start cell.
+    document.querySelectorAll('[data-drag-ghost]').forEach(function (el) { el.remove(); });
+    document.querySelectorAll('.widget-extension').forEach(function (el) {
+      if (!el.dataset.dragGhost && el.style.visibility === 'hidden') el.style.visibility = '';
+    });
     document.querySelectorAll('.widget-dragging').forEach(function (el) {
       el.classList.remove('widget-dragging');
       el.style.position = '';
@@ -1114,6 +1648,11 @@
       el.style.boxShadow = '';
       el.style.borderColor = '';
       el.style.pointerEvents = '';
+      // Live drag clears grid pos at grab; restore gesture start on abort.
+      if (!el.style.gridColumn || !el.style.gridRow) {
+        el.style.gridColumn = startCol + ' / span ' + wSpan;
+        el.style.gridRow = startRow + ' / span ' + hSpan;
+      }
       // Force reflow to clear visual state immediately
       void el.offsetHeight;
       // If widget is not inside the grid, restore it
@@ -1134,7 +1673,7 @@
     });
     document.querySelectorAll('.widget-swap-target').forEach(function (el) { el.classList.remove('widget-swap-target'); });
     document.body.style.cursor = '';
-    document.querySelectorAll('.widget-drag-placeholder').forEach(function (el) { el.remove(); });
+    document.querySelectorAll('.widget-drag-placeholder, .widget-drag-spacer').forEach(function (el) { el.remove(); });
   };
 
   // keep old names as aliases for backward compat

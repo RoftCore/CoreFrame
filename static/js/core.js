@@ -1,11 +1,20 @@
-// ── CoreFrame Bootstrap ───────────────────────────────────────────
-// This file initializes the app. All logic lives in:
-//   app.js      — extension loading, polling, sidebar, widget rendering
-//   install.js  — marketplace, providers, package, install from file
-//   window.js   — window mode, F11, minimize, settings
-//   widgets.js  — widget creation, updates, charts
-//   menu.js     — sidebar menu actions
-//   utils.js    — API helpers, formatting
+// CoreFrame Bootstrap. Logic lives in app/ (lifecycle) and widgets/ (construction).
+
+// Self-scheduling health poll. 1 Hz while an extension is still loading (so the
+// dashboard appears as soon as it is ready), 5 s once everything has settled.
+// The response carries one entry per extension, so a 1 Hz poll at a thousand
+// extensions is the heaviest thing the idle app does for no visible gain.
+let cfHealthTimer = null;
+function cfHealthSchedule(ms) {
+  if (cfHealthTimer) clearTimeout(cfHealthTimer);
+  cfHealthTimer = setTimeout(function () {
+    cfHealthTimer = null;
+    Promise.resolve()
+      .then(function () { return pollExtensionUpdates(); })
+      .catch(function () {})
+      .then(function () { cfHealthSchedule(pollExtensionUpdates._nextMs || 5000); });
+  }, ms);
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.add('booting');
@@ -27,12 +36,97 @@ document.addEventListener('DOMContentLoaded', async () => {
   initResultPanel();
   initWebSocket();
 
+  // Initialize permission handlers after WebSocket is ready
+  if (window.__permissions) {
+    window.__permissions.initPermissionHandlers();
+    // Check for pending consents/migrations on startup
+    setTimeout(() => window.__permissions.checkPendingOnStartup(), 1500);
+  }
+
   const loadingEl = document.getElementById('main-content');
   loadingEl.innerHTML = '<div class="widget-grid"></div>';
 
   loadExtensionsAsync();
-  setInterval(pollExtensionUpdates, 1000);
+  cfHealthSchedule(1000);
   applyStartupMode();
+
+// Extension JS runs here, so a throw in its boot script would only show as a missing card.
+  try {
+    var _errBuf = [];
+    var _errTimer = null;
+    var _flushErrs = function () {
+      if (!_errBuf.length) return;
+      var batch = _errBuf.splice(0, _errBuf.length);
+      try {
+        if (typeof apiFetch !== 'undefined') {
+          apiFetch('/api/debug/console', { method: 'POST',
+            body: JSON.stringify({ entries: batch }) }).catch(function () {});
+        }
+      } catch (e) {}
+    };
+    var _note = function (kind, text) {
+      var src = '';
+      try {
+        var m = (new Error()).stack || '';
+        var hits = m.match(/https?:\/\/[^)\s]+\.js[^)\s]*/g);
+        src = hits && hits.length ? hits[hits.length - 1] : '';
+      } catch (_) {}
+      _errBuf.push({ k: kind, m: String(text).slice(0, 400), s: src });
+      try { clearTimeout(_errTimer); } catch (_) {}
+      _errTimer = setTimeout(_flushErrs, 800);
+    };
+    var _ce = console.error;
+    console.error = function () {
+      _note('console.error', Array.prototype.join.call(arguments, ' '));
+      return _ce.apply(console, arguments);
+    };
+    var _cw = console.warn;
+    console.warn = function () {
+      _note('console.warn', Array.prototype.join.call(arguments, ' '));
+      return _cw.apply(console, arguments);
+    };
+    window.addEventListener('error', function (ev) {
+      _note('window.onerror', ev.message + ' @ ' + (ev.filename || '') + ':' + (ev.lineno || ''));
+    });
+    window.addEventListener('unhandledrejection', function (ev) {
+      _note('unhandledrejection', (ev.reason && (ev.reason.message || ev.reason)) || 'rejection');
+    });
+} catch (e) {}
+
+// Any main-thread block over 200ms is reported with its culprit URL (pitfall 27).
+  try {
+    if (typeof PerformanceObserver !== 'undefined') {
+      var _ltBuf = [];
+      var _ltTimer = null;
+      var _ltFlush = function () {
+        if (!_ltBuf.length) return;
+        var batch = _ltBuf.splice(0, _ltBuf.length);
+        try {
+          if (typeof apiFetch !== 'undefined') {
+            apiFetch('/api/debug/longtask', { method: 'POST',
+              body: JSON.stringify({ tasks: batch }) }).catch(function(){});
+          }
+        } catch (e) {}
+      };
+      new PerformanceObserver(function (list) {
+        var es = list.getEntries();
+        for (var i = 0; i < es.length; i++) {
+          var e = es[i];
+          if (e.duration < 200) continue;
+          var src = '';
+          try {
+            var at = e.attribution && e.attribution[0];
+            src = (at && (at.containerSrc || at.containerName)) || e.name || '';
+          } catch (_) {}
+          _ltBuf.push({ d: Math.round(e.duration), src: String(src).slice(-120) });
+        }
+        if (_ltBuf.length) {
+          try { clearTimeout(_ltTimer); } catch (_) {}
+          _ltTimer = setTimeout(_ltFlush, 2000);
+        }
+      }).observe({ entryTypes: ['longtask'] });
+    }
+  } catch (e) {}
 });
 
 // ── Result panel ──────────────────────────────────────────────────
@@ -61,8 +155,11 @@ document.getElementById('btn-reload').addEventListener('click', async () => {
   const btn = document.getElementById('btn-reload');
   btn.textContent = '↻';
   btn.style.animation = 'spin 0.6s linear infinite';
-  try { await apiFetch('/api/restart', { method: 'POST' }); } catch (e) {}
-  setTimeout(() => location.reload(), 500);
+  // The endpoint answers 202 at once and drains the children behind it, so this
+  // never waits for the reload itself. The cap is a safety net for a wedged
+  // server: the button reloads even if the call never comes back.
+  try { await apiFetch('/api/restart', { method: 'POST', timeout: 3000 }); } catch (e) {}
+  setTimeout(() => location.reload(), 300);
 });
 
 // ── WebSocket ─────────────────────────────────────────────────────
@@ -71,7 +168,7 @@ function initWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}`;
   const socket = io(wsUrl, {
-    transports: ['polling'],
+    transports: ['websocket'],
     reconnection: true,
     reconnectionAttempts: 30,
     reconnectionDelay: 1000,
@@ -86,16 +183,87 @@ function initWebSocket() {
   }
   socket.on('connect', updateDot);
   socket.on('disconnect', updateDot);
+  // Pushes sent while the socket was down are gone: ask once for everything on screen.
+  socket.on('connect', function () {
+    if (typeof cfPollRefreshHot === 'function') cfPollRefreshHot();
+  });
   updateDot();
   setInterval(updateDot, 3000);
 
   socket.on('realtime_update', (data) => {
     if (!data.ext || !data.values) return;
     if (!window.extensionsData) return;
+    // No DOM writes mid-drag: values queue and flush on coreframe-dragend (pitfall 19).
+    if (window.__coreframeDragging) {
+      window.__pendingWidgetUpdates = window.__pendingWidgetUpdates || {};
+      Object.keys(data.values).forEach(id => {
+        window.__pendingWidgetUpdates[data.ext + '|' + id] = { ext: data.ext, id: id, value: data.values[id] };
+      });
+      return;
+    }
+    // Host immunity: coalesce chatty pollers (min 250ms per ext, latest wins).
+    var nowMs = Date.now();
+    window.__rtLast = window.__rtLast || {};
+    if (nowMs - (window.__rtLast[data.ext] || 0) < 250) {
+      window.__rtPending = window.__rtPending || {};
+      window.__rtPending[data.ext] = data;
+      if (!window.__rtTimer) {
+        window.__rtTimer = setTimeout(function () {
+          window.__rtTimer = null;
+          var pending = window.__rtPending;
+          window.__rtPending = {};
+          Object.keys(pending || {}).forEach(function (k) { handleRealtimeUpdate(pending[k]); });
+        }, 250);
+      }
+      return;
+    }
+    window.__rtLast[data.ext] = nowMs;
+    handleRealtimeUpdate(data);
+  });
+
+  function handleRealtimeUpdate(data) {
     Object.keys(data.values).forEach(id => {
-      const el = document.querySelector(`[data-widget-id="${id}"][data-ext-id="${data.ext}"]`);
-      if (el) updateWidgetValue(el, { value: data.values[id] });
+      const el = typeof cfPollElement === 'function'
+        ? cfPollElement(data.ext, id)
+        : document.querySelector(`[data-widget-id="${id}"][data-ext-id="${data.ext}"]`);
+      if (!el) return;
+      // Skip hidden widgets: no backend-independent work for unseen content.
+      if (cfHidden(el)) return;
+      // Off screen: hold the latest value and paint it when the card comes into view.
+      if (typeof cfPollStore === 'function' && cfPollStore(data.ext, id, data.values[id])) return;
+      updateWidgetValue(el, { value: data.values[id] });
     });
+  }
+
+  // Flush queued values on an 8ms per-frame budget: one big redraw would jolt the drop.
+  window.addEventListener('coreframe-dragend', () => {
+    const pending = window.__pendingWidgetUpdates;
+    window.__pendingWidgetUpdates = {};
+    if (!pending) return;
+    const entries = Object.keys(pending).map(k => pending[k]);
+    if (!entries.length) return;
+    let i = 0;
+    const applyOne = (p) => {
+      try {
+        const el = typeof cfPollElement === 'function'
+          ? cfPollElement(p.ext, p.id)
+          : document.querySelector(`[data-widget-id="${p.id}"][data-ext-id="${p.ext}"]`);
+        if (!el) return;
+        if (cfHidden(el)) return;
+        if (typeof cfPollStore === 'function' && cfPollStore(p.ext, p.id, p.value)) return;
+        updateWidgetValue(el, { value: p.value });
+      } catch (e) {}
+    };
+    const step = () => {
+      const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      while (i < entries.length) {
+        applyOne(entries[i++]);
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        if (now - t0 > 8 && i < entries.length) break;
+      }
+      if (i < entries.length) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   });
 
   socket.on('focus_window', () => {

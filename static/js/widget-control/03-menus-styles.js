@@ -18,12 +18,13 @@
     m.id = 'ctx-menu';
     m.className = 'ctx-menu';
     m.innerHTML =
-      '<div class="ctx-menu-item" data-action="hide">\u{1F5D1}  Hide widget</div>' +
-      '<div class="ctx-menu-item" data-action="edit">\u{270E}  Edit widget</div>' +
-      '<div class="ctx-menu-item" data-action="style" id="ctx-style-btn" style="display:none">\u{265B} Change Style</div>' +
+      '<div class="ctx-menu-header" id="ctx-menu-header" style="display:none"><span id="ctx-menu-ext-name"></span><span class="ctx-menu-version" id="ctx-menu-ext-version"></span><span class="ctx-menu-level" id="ctx-menu-ext-level"></span></div>' +
+      '<div class="ctx-menu-item" data-action="hide"><i data-feather="trash-2" width="16" height="16"></i>  Hide widget</div>' +
+      '<div class="ctx-menu-item" data-action="edit"><i data-feather="edit" width="16" height="16"></i>  Edit widget</div>' +
+      '<div class="ctx-menu-item" data-action="style" id="ctx-style-btn" style="display:none"><i data-feather="layers" width="16" height="16"></i> Change Style</div>' +
       '<div class="ctx-menu-separator"></div>' +
-      '<div class="ctx-menu-item" data-action="show" id="ctx-show-btn" style="display:none">\u{1F441}  Show hidden widgets...</div>' +
-      '<div class="ctx-menu-item" data-action="install" id="ctx-install-btn" style="display:none">\u{2795}  Install extension...</div>';
+      '<div class="ctx-menu-item" data-action="show" id="ctx-show-btn" style="display:none"><i data-feather="eye" width="16" height="16"></i>  Show hidden widgets...</div>' +
+      '<div class="ctx-menu-item" data-action="install" id="ctx-install-btn" style="display:none"><i data-feather="download" width="16" height="16"></i>  Install extension...</div>';
     document.body.appendChild(m);
 
     m.addEventListener('click', function (e) {
@@ -60,6 +61,30 @@
     document.getElementById('ctx-show-btn').style.display = Object.keys(hidden).length > 0 ? 'flex' : 'none';
     document.getElementById('ctx-install-btn').style.display = 'none';
 
+    var extId = widget.dataset.extId;
+    var extData = window.extensionsData && window.extensionsData[extId];
+    var headerEl = document.getElementById('ctx-menu-header');
+    var nameEl = document.getElementById('ctx-menu-ext-name');
+    var verEl = document.getElementById('ctx-menu-ext-version');
+    var levelEl = document.getElementById('ctx-menu-ext-level');
+    if (extData && headerEl && nameEl && levelEl) {
+      nameEl.textContent = extData.name || extId;
+      // The version decides what the user is looking at: two builds of the same
+      // extension differ only by this number.
+      if (verEl) verEl.textContent = extData.version ? 'v' + extData.version : '';
+      if (extData.permissions && extData.permissions.level >= 0 && window.__permissions) {
+        var lvl = extData.permissions.level;
+        var labels = window.__permissions.LEVEL_LABELS || {};
+        var colors = window.__permissions.LEVEL_COLORS || {};
+        levelEl.textContent = labels[lvl] || ('Level ' + lvl);
+        levelEl.style.color = colors[lvl] || 'var(--text-muted)';
+        levelEl.style.borderColor = colors[lvl] || 'var(--text-muted)';
+      } else {
+        levelEl.textContent = '';
+      }
+      headerEl.style.display = 'flex';
+    }
+
     var extData = window.extensionsData && window.extensionsData[widget.dataset.extId];
     var hasStyles = false;
     if (extData && extData.widgets) {
@@ -76,6 +101,7 @@
     menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 160) + 'px';
     menu.classList.add('visible');
+    if (typeof feather !== 'undefined') feather.replace();
   };
 
   s.openEmptyCtxMenu = function (e) {
@@ -88,9 +114,12 @@
     menu.querySelector('.ctx-menu-separator').style.display = 'none';
     document.getElementById('ctx-show-btn').style.display = hasHidden ? 'flex' : 'none';
     document.getElementById('ctx-install-btn').style.display = hasHidden ? 'none' : 'flex';
+    var headerEl = document.getElementById('ctx-menu-header');
+    if (headerEl) headerEl.style.display = 'none';
     menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');
+    if (typeof feather !== 'undefined') feather.replace();
   };
 
   //  extensions settings 
@@ -110,7 +139,7 @@
     searchDiv.innerHTML = '<input type="text" id="ext-settings-search" placeholder="Search extensions...">';
     panel.querySelector('.result-panel-header').insertAdjacentElement('afterend', searchDiv);
 
-    body.innerHTML = '<div id="ext-settings-list"></div>';
+    body.innerHTML = '<div id="ext-settings-count" class="ext-settings-count"></div><div id="ext-settings-list"></div>';
 
     function renderExtList(filter) {
       var list = document.getElementById('ext-settings-list');
@@ -128,7 +157,8 @@
         var isError = ext.loadError ? true : false;
         var icon = ext.icon || '';
         var iconHtml = window.renderExtIconHtml ? window.renderExtIconHtml(icon, id) : '<i data-feather="box"></i>';
-        var cardClass = 'ext-card' + (isError ? ' ext-card-error' : '');
+        var cardClass = 'ext-card' + (isError ? ' ext-card-error' : '') +
+                        (ext.disabled ? ' ext-card-disabled' : '');
         html += '<div class="' + cardClass + '" data-ext="' + id + '">';
         html += '<div class="ext-card-icon">' + iconHtml + '</div>';
         html += '<div class="ext-card-name">' + escapeHtml(name) + '</div>';
@@ -137,12 +167,34 @@
         } else {
           html += '<div class="ext-card-meta">v' + escapeHtml(ext.version || '?') + (ext.author ? ' &middot; ' + escapeHtml(ext.author) : '') + '</div>';
         }
-        html += '<div class="ext-card-actions"><button class="ext-card-btn ext-card-btn-danger ext-settings-del" data-ext="' + id + '">Delete</button></div>';
+        html += '<div class="ext-card-actions">';
+        if (ext.consent_granted) {
+          html += '<button class="ext-card-btn ext-card-btn-revoke ext-settings-revoke" data-ext="' + id + '">Revoke</button>';
+        }
+// Disable keeps files and registry; delete is separate and really removes it.
+        html += '<button class="ext-card-btn ext-settings-toggle" data-ext="' + id + '"' +
+                ' title="' + (ext.disabled
+                  ? 'Activate: start it again and restore its widget'
+                  : 'Disable: no widget and no background work, files kept') + '">' +
+                (ext.disabled ? 'Enable' : 'Disable') + '</button>';
+        html += '<button class="ext-card-btn ext-card-btn-danger ext-settings-del" data-ext="' + id + '">Delete</button>';
+        html += '</div>';
         html += '</div>';
       });
       html += '</div>';
       if (!count) html = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">No extensions found.</div>';
       list.innerHTML = html;
+
+      // Count first: "N installed" is the answer to "is something missing?".
+      var countEl = document.getElementById('ext-settings-count');
+      if (countEl) {
+        var allIds = Object.keys(data);
+        var off = allIds.filter(function (k) { return data[k].disabled; }).length;
+        var bad = allIds.filter(function (k) { return data[k].loadError; }).length;
+        countEl.textContent = allIds.length + ' installed \u00b7 ' + (allIds.length - off) + ' active' +
+          (off ? ' \u00b7 ' + off + ' disabled' : '') +
+          (bad ? ' \u00b7 ' + bad + ' with errors' : '');
+      }
 
       if (window.feather) window.feather.replace();
 
@@ -153,9 +205,54 @@
           s.showDeleteExtensionConfirm(eid);
         });
       });
+
+      list.querySelectorAll('.ext-settings-revoke').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var eid = btn.dataset.ext;
+          s.showRevokeConfirm(eid);
+        });
+      });
+
+      list.querySelectorAll('.ext-settings-toggle').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var eid = btn.dataset.ext;
+          var ext = (window.extensionsData || {})[eid] || {};
+          var verb = ext.disabled ? 'enable' : 'disable';
+          var name = ext.name || eid;
+          btn.disabled = true;
+          apiFetch('/api/extensions/' + encodeURIComponent(eid) + '/' + verb,
+                   { method: 'POST' }).then(function (res) {
+            if (res && res.error) {
+              btn.disabled = false;
+              s.showToast('Error: ' + res.error);
+              return;
+            }
+// Loaded and polled state both changed: reload rather than patch the DOM here.
+            location.reload();
+          }).catch(function () {
+            btn.disabled = false;
+            s.showToast('Could not ' + verb + ' ' + name);
+          });
+        });
+      });
     }
 
     renderExtList('');
+
+    // The panel used to render whatever /api/extensions returned at boot, so an
+    // extension that finished loading later was missing until a full reload.
+    // Fetch on open: the list has to describe the app as it is now.
+    apiFetch('/api/extensions').then(function (fresh) {
+      if (!fresh || fresh.error) return;
+      window.extensionsData = fresh;
+      if (typeof extensionsData !== 'undefined') extensionsData = fresh;
+      var listEl = document.getElementById('ext-settings-list');
+      if (!listEl) return;      // panel closed while the request was in flight
+      var searchEl = document.getElementById('ext-settings-search');
+      renderExtList(searchEl ? searchEl.value : '');
+    });
 
     document.getElementById('ext-settings-search').addEventListener('input', function () {
       renderExtList(this.value);
@@ -214,6 +311,64 @@
       });
     };
     document.getElementById('confirm-ext-del-no').onclick = function () {
+      if (typeof onDone === 'function') {
+        s.closeResultPanel();
+        onDone();
+      } else {
+        s.openExtensionsSettings();
+      }
+    };
+  };
+
+  s.showRevokeConfirm = function (extId, onDone) {
+    var panel = document.getElementById('result-panel');
+    var overlay = document.getElementById('overlay');
+    var title = document.getElementById('result-panel-title');
+    var body = document.getElementById('result-panel-body');
+    var ext = (window.extensionsData || {})[extId] || {};
+    var name = ext.name || extId;
+    title.textContent = 'Revoke permissions';
+    body.innerHTML =
+      '<div style="font-family:var(--font-mono);padding:16px 0;text-align:center;font-size:13px;color:var(--text-primary)">' +
+      'Revoke permissions for <strong>' + escapeHtml(name) + '</strong>? It will no longer load until you grant consent again.' +
+      '<div style="margin-top:16px;display:flex;gap:8px;justify-content:center">' +
+      '<button id="confirm-ext-revoke-yes" class="pkg-btn" style="background:var(--accent-yellow,#f39c12);color:#fff">Revoke</button>' +
+      '<button id="confirm-ext-revoke-no" class="pkg-btn">Cancel</button>' +
+      '</div></div>';
+    panel.classList.add('open');
+    overlay.classList.add('open');
+    document.getElementById('confirm-ext-revoke-yes').onclick = function () {
+      apiFetch('/api/extensions/' + encodeURIComponent(extId) + '/permissions/revoke', { method: 'POST' }).then(function (data) {
+        if (data && data.error) {
+          s.showToast('Error: ' + data.error);
+          return;
+        }
+        // Only hide from viewport, keep as paperweight: use hideWidget to persist in picker
+        var widget = document.querySelector('.widget-extension.ext-' + extId);
+        if (widget) s.hideWidget(widget);
+        else {
+          var w2 = document.getElementById('main-content');
+          if (w2) w2.querySelector('.widget-extension.ext-' + extId)?.remove();
+        }
+        s.showToast('Permissions revoked: ' + name);
+        // Reload extensions data so revoked stays as pending paperweight in extensions list and show-widgets picker
+        apiFetch('/api/extensions').then(function (newData) {
+          if (newData && !newData.error) {
+            window.extensionsData = newData;
+            if (typeof buildSidebar !== 'undefined') buildSidebar(newData);
+            // Ensure revoked widget is marked hidden, not deleted
+            s.loadState().then(function(){
+              s.applyHiddenState();
+              if (window.__widgetControl && window.__widgetControl.autoAddExtensions) window.__widgetControl.autoAddExtensions();
+              s.openExtensionsSettings();
+            });
+          } else {
+            s.openExtensionsSettings();
+          }
+        }).catch(function(){ s.openExtensionsSettings(); });
+      });
+    };
+    document.getElementById('confirm-ext-revoke-no').onclick = function () {
       if (typeof onDone === 'function') {
         s.closeResultPanel();
         onDone();
@@ -333,9 +488,60 @@
     var body = document.getElementById('result-panel-body');
     var sc = s._scenes[sid];
     title.textContent = 'Change icon - ' + sid;
-    var currentLabel = sc.label || '\u{1F4C4}';
+    var currentLabel = sc.label || 'file';
     var currentImage = sc.image || '';
-    var featherNames = ['activity','airplay','alert-circle','alert-triangle','align-center','align-justify','align-left','align-right','anchor','aperture','archive','arrow-down','arrow-down-circle','arrow-down-left','arrow-down-right','arrow-left','arrow-left-circle','arrow-right','arrow-right-circle','arrow-up','arrow-up-circle','arrow-up-left','arrow-up-right','at-sign','award','bar-chart-2','battery','battery-charging','bell','bluetooth','bold','book','bookmark','box','briefcase','calendar','camera','cast','check','check-circle','check-square','chevron-down','chevron-left','chevron-right','chevron-up','chrome','circle','clipboard','clock','cloud','cloud-drizzle','cloud-lightning','cloud-rain','cloud-snow','code','codepen','coffee','command','compass','copy','cpu','credit-card','crop','crosshair','database','delete','disc','divide','dollar-sign','download','droplet','edit','edit-2','edit-3','external-link','eye','eye-off','facebook','fast-forward','feather','figma','file','file-text','film','filter','flag','folder','frown','gift','git-branch','git-commit','git-merge','git-pull-request','github','gitlab','globe','grid','hard-drive','hash','headphones','heart','help-circle','hexagon','home','image','inbox','info','instagram','italic','key','layers','layout','life-buoy','link-2','linkedin','list','loader','lock','log-in','log-out','mail','map','map-pin','maximize','maximize-2','meh','menu','message-circle','message-square','mic','minimize','minimize-2','minus','minus-circle','monitor','moon','more-horizontal','more-vertical','move','music','navigation','navigation-2','npm','octagon','package','paperclip','pause','pause-circle','pen-tool','percent','phone','phone-call','phone-forwarded','phone-incoming','phone-missed','phone-off','phone-outgoing','pie-chart','play','play-circle','plus','plus-circle','plus-square','pocket','power','printer','radio','refresh-ccw','refresh-cw','repeat','rewind','rss','save','scissors','search','send','server','settings','share-2','shield','shopping-bag','shopping-cart','shuffle','sidebar','skip-back','skip-forward','slack','slash','sliders','smartphone','smile','speaker','square','star','stop-circle','sun','sunrise','sunset','tablet','tag','target','terminal','thermometer','thumbs-down','thumbs-up','toggle-left','toggle-right','trash-2','trending-down','trending-up','triangle','truck','tv','twitter','type','umbrella','underline','undo','unlock','upload','user','user-check','user-minus','user-plus','user-x','users','video','video-off','voicemail','volume','volume-1','volume-2','volume-x','watch','wifi','wind','x','x-circle','x-square','youtube','zap','zap-off','zoom-in','zoom-out'];
+    var featherNames = [
+      'activity','airplay','alert-circle','alert-triangle','align-center',
+      'align-justify','align-left','align-right','anchor','aperture',
+      'archive','arrow-down','arrow-down-circle','arrow-down-left','arrow-down-right',
+      'arrow-left','arrow-left-circle','arrow-right','arrow-right-circle','arrow-up',
+      'arrow-up-circle','arrow-up-left','arrow-up-right','at-sign','award',
+      'bar-chart-2','battery','battery-charging','bell','bluetooth',
+      'bold','book','bookmark','box','briefcase',
+      'calendar','camera','cast','check','check-circle',
+      'check-square','chevron-down','chevron-left','chevron-right','chevron-up',
+      'chrome','circle','clipboard','clock','cloud',
+      'cloud-drizzle','cloud-lightning','cloud-rain','cloud-snow','code',
+      'codepen','coffee','command','compass','copy',
+      'cpu','credit-card','crop','crosshair','database',
+      'delete','disc','divide','dollar-sign','download',
+      'droplet','edit','edit-2','edit-3','external-link',
+      'eye','eye-off','facebook','fast-forward','feather',
+      'figma','file','file-text','film','filter',
+      'flag','folder','frown','gift','git-branch',
+      'git-commit','git-merge','git-pull-request','github','gitlab',
+      'globe','grid','hard-drive','hash','headphones',
+      'heart','help-circle','hexagon','home','image',
+      'inbox','info','instagram','italic','key',
+      'layers','layout','life-buoy','link-2','linkedin',
+      'list','loader','lock','log-in','log-out',
+      'mail','map','map-pin','maximize','maximize-2',
+      'meh','menu','message-circle','message-square','mic',
+      'minimize','minimize-2','minus','minus-circle','monitor',
+      'moon','more-horizontal','more-vertical','move','music',
+      'navigation','navigation-2','npm','octagon','package',
+      'paperclip','pause','pause-circle','pen-tool','percent',
+      'phone','phone-call','phone-forwarded','phone-incoming','phone-missed',
+      'phone-off','phone-outgoing','pie-chart','play','play-circle',
+      'plus','plus-circle','plus-square','pocket','power',
+      'printer','radio','refresh-ccw','refresh-cw','repeat',
+      'rewind','rss','save','scissors','search',
+      'send','server','settings','share-2','shield',
+      'shield-off','shopping-bag','shopping-cart','shuffle','sidebar',
+      'skip-back','skip-forward','slack','slash','sliders',
+      'smartphone','smile','snowflake','sort','speaker',
+      'square','star','stop-circle','sun','sunrise',
+      'sunset','tablet','tag','target','terminal',
+      'thermometer','thumbs-down','thumbs-up','toggle-left','toggle-right',
+      'tool','trash','trash-2','triangle','truck',
+      'tv','twitch','twitter','type','umbrella',
+      'underline','undo','unlock','upload','upload-cloud',
+      'user','user-check','user-minus','user-plus','users',
+      'user-x','video','video-off','voicemail','volume',
+      'volume-1','volume-2','volume-x','watch','wifi',
+      'wind','x','x-circle','x-octagon','x-square',
+      'youtube','zap','zap-off'
+    ]
     var html = '<div style="font-family:var(--font-mono);padding:4px 0;">';
     html += '<div style="margin-bottom:6px;">';
     html += '<input type="text" id="icon-picker-search" placeholder="Search icons..." style="width:100%;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:5px 8px;color:var(--text-primary);font-family:var(--font-mono);font-size:11px;">';

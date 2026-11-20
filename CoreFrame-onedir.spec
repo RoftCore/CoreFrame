@@ -1,0 +1,164 @@
+# -*- mode: python ; coding: utf-8 -*-
+# Onedir variant of CoreFrame.spec. Same Analysis, same payload, same splash:
+# the only difference is EXE(exclude_binaries=True) + COLLECT, so the bootloader
+# stops unpacking ~52 MB / ~1972 files into %TEMP%\_MEI* on every launch.
+# Used for the local startup measurement; the released build still uses
+# CoreFrame.spec (onefile -> dist\CoreFrame.exe).
+import os
+import sys as _sys
+import webview
+from PyInstaller.utils.hooks import collect_all, collect_data_files
+
+_WEBVIEW_LIB = os.path.join(os.path.dirname(os.path.abspath(webview.__file__)), 'lib')
+
+# Use PyInstaller's built-in tkinter support - no custom collection needed
+# PyInstaller's hook-tkinter.py and pyi_rth__tkinter.py handle Tcl/Tk automatically
+_tcl_tk_data = []
+
+#  Fully bundle pip and its vendored deps (needed to `pip install` extension deps
+#  at runtime inside the frozen .exe). Collecting only `pip` as a hidden import
+#  leaves pip._vendor incomplete -> "Unable to locate finder for 'pip._vendor.distlib'".
+_pip_datas, _pip_binaries, _pip_hidden = collect_all('pip')
+_st_datas, _st_binaries, _st_hidden = collect_all('setuptools')
+_w_datas, _w_binaries, _w_hidden = collect_all('wheel')
+_tk_datas, _tk_binaries, _tk_hidden = collect_all('tkinter')
+
+#  Bundle the ENTIRE Python standard library (pure .py modules + C extensions).
+#  Extension widgets load their third-party deps at runtime from the shared lib
+#  (yt_dlp, spotify_scraper, ... any future widget). Those libs also import stdlib
+#  modules that a trimmed PyInstaller build never bundles (fileinput, getpass,
+#  collections.abc, encodings.*, ..., _sqlite3.pyd), so "import yt_dlp" raised
+#  ModuleNotFoundError inside the frozen .exe. Including the full stdlib makes the
+#  exe self-sufficient on ANY machine (no system Python required) and future-proof
+#  for any widget, without ever bundling third-party libs into the exe.
+def _collect_full_stdlib():
+    out = set(_sys.stdlib_module_names)
+    lib_root = os.path.dirname(os.path.abspath(_sys.modules[os.__name__].__file__))
+    for root, dirs, files in os.walk(lib_root):
+        dirs[:] = [d for d in dirs if d not in ('__pycache__', 'test', 'site-packages')]
+        rel = os.path.relpath(root, lib_root)
+        pkg = '' if rel == '.' else rel.replace(os.sep, '.')
+        for f in files:
+            if not f.endswith('.py'):
+                continue
+            if pkg:
+                out.add(pkg + ('.' if f != '__init__.py' else '') + (f[:-3] if f != '__init__.py' else ''))
+            elif f != '__init__.py':
+                out.add(f[:-3])
+    out.discard('')
+    return sorted(out)
+
+_stdlib_all = _collect_full_stdlib()
+
+# The light ext_runner is optional: built by tools/build_runner.py and skipped
+# when absent (CI without the runner step, Linux). The app boots fine without it
+# (run_coreframe._ensure_persistent_runner returns early) and just falls back to
+# the main exe per extension child.
+_runner_datas = [('runner.zip', '.')] if os.path.isfile('runner.zip') else []
+
+a = Analysis(
+    ['run_coreframe.pyw'],
+    pathex=[],
+    binaries=_pip_binaries + _st_binaries + _w_binaries + _tk_binaries,
+    datas=[
+        ('static', 'static'),
+        ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
+        (_WEBVIEW_LIB, 'webview\\lib'),
+    ] + _runner_datas + _pip_datas + _st_datas + _w_datas + _tk_datas,
+    hiddenimports=[
+        'ssl',
+        '_ssl',
+        'engineio.async_drivers.threading',
+        'eventlet',
+        'psutil',
+        'requests',
+        'orjson',
+        'PIL.Image',
+        'PIL._imaging',
+        'PIL._imagingcms',
+        'PIL._imagingft',
+        'winreg',
+        'tkinter',
+        'tkinter.filedialog',
+        'webview',
+        'webview.platforms.winforms',
+        'webview.platforms.win32',
+        'webview.platforms.edgechromium',
+        'clr',
+        'coreframe.extensions.ext_runner',
+        'hid',
+        # Full stdlib so runtime-loaded widget deps always import cleanly,
+        # with no system Python dependency. See _collect_full_stdlib() above.
+        *_stdlib_all,
+    ] + _pip_hidden + _st_hidden + _w_hidden,
+    hookspath=[],
+    hooksconfig={},
+    excludes=[
+        'numpy',
+        'pythoncom',
+        'dns.win32util',
+        'yt_dlp',
+        'SpotipyFree',
+        'spotapi',
+        'pymongo',
+        'curl_cffi',
+        'pycowsay',
+        'GPUtil',
+        'wmi',
+    ],
+    noarchive=False,
+    optimize=2,
+)
+
+pyz = PYZ(a.pure)
+
+# Bootloader splash: static image shown DURING MEIPASS extraction, before
+# any Python runs. Closed via pyi_splash.close() in run_coreframe.pyw once the
+# main window reveals (children close it immediately, they have no window).
+splash = Splash(
+    'splash.png',
+    binaries=a.binaries,
+    datas=a.datas,
+    # Single small centered loading screen (440x330). Status lines are
+    # pushed at runtime via pyi_splash.update_text(); closed via
+    # pyi_splash.close() once the main window reveals.
+    text_pos=(24, 288),
+    text_size=11,
+    text_color='#A0A0B0',
+    text_default='Starting...',
+    max_img_size=(440, 330),
+    minify_script=True,
+    # Never cover other windows (login screen, etc.): plain centered dialog.
+    always_on_top=False,
+)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    splash,
+    [],
+    exclude_binaries=True,
+    name='CoreFrame',
+    icon='CoreFrame.ico',
+    version='version_info.txt',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    splash.binaries,
+    strip=False,
+    upx=False,
+    name='CoreFrame-onedir',
+)

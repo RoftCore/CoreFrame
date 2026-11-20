@@ -65,7 +65,7 @@
         i.setAttribute('height', '18');
         btn.appendChild(i);
       } else {
-        btn.textContent = s._scenes[sid].label || '\u{1F4C4}';
+        btn.innerHTML = '<i data-feather="file" width="18" height="18"></i>';
       }
       btn.title = s._scenes[sid].name || sid;
       btn.draggable = true;
@@ -99,17 +99,88 @@
     if (typeof feather !== 'undefined') feather.replace();
   };
 
+// Switching scenes commits synchronously with zero network or extension calls.
+  s._switchGen = 0;
+  // Widgets revealed per animation frame during staged reveal.
+  s._revealPerFrame = 4;
   s.switchScene = function (sid) {
     if (sid === s._activeScene || !s._scenes[sid]) return;
-    s.saveAllLayouts();
+    // Save outgoing layout in memory (no POST here; the coalesced frame persists).
+    try { s.saveAllLayouts(true); } catch(_){}
     s._activeScene = sid;
     s.renderSceneBar();
-    s.applyHiddenState();
-    s.applySavedLayouts();
-    s.applyWidgetStyles();
-    s.persistScenes();
-    // ApplyWidgetState will trigger autoAddExtensions properly now
-    if (window.__widgetControl) window.__widgetControl.applyWidgetState();
+    var gen = ++s._switchGen;
+    // Defer heavy layout/style to next frame for instant switch
+    requestAnimationFrame(function(){
+      if (gen !== s._switchGen) return; // superseded by a newer switch
+      var now = (typeof performance !== 'undefined') ? performance.now.bind(performance) : Date.now;
+      var phases = {};
+      function mark(name, t) { phases[name] = Math.round((now() - t) * 10) / 10; }
+      var t0 = now();
+      // 1. Hide everything outside this scene first (cheap: no content cost).
+      var sw = s.sceneWidgets();
+      var ids = Object.keys(sw).filter(function (id) { return sw[id] && !sw[id].hidden; });
+      document.querySelectorAll('.widget-extension').forEach(function (w) {
+        var pos = sw[w.dataset.extId];
+        if (!pos || pos.hidden) cfHide(w);
+      });
+      mark('hide', t0);
+      s.applySavedLayouts();
+      mark('layouts', t0);
+      s.applyWidgetStyles();
+      mark('styles', t0);
+      // The incoming scene is about to be on screen: fetch its deferred assets
+      // now instead of waiting for the observer's next frame.
+      if (typeof cfPrefetchAssets === 'function') cfPrefetchAssets(ids);
+      // State-only registration of newcomers (no DOM writes here).
+      if (window.__widgetControl && window.__widgetControl.autoAddExtensions) {
+        try { window.__widgetControl.autoAddExtensions(); } catch(_){}
+      }
+      mark('autoadd', t0);
+      var mainContent = document.getElementById('main-content');
+      if (mainContent) mainContent.style.visibility = '';
+      // Single persist for the winning switch (covers all scenes incl. skipped ones)
+      s.persistScenes();
+      var commitMs = Math.round((now() - t0) * 10) / 10;
+      if (t0 && commitMs > 50) console.warn('[CoreFrame] slow scene-switch commit: ' + commitMs + 'ms (budget 50ms)');
+// Reveal in small batches: one heavy widget must not block the frame or starve input.
+      var i = 0;
+      (function revealBatch(){
+        if (gen !== s._switchGen) return; // a newer switch took over
+        var n = 0;
+        while (i < ids.length && n < s._revealPerFrame) {
+          var w = document.querySelector('.widget-extension.ext-' + ids[i++]);
+          if (w) { cfShow(w); n++; }
+        }
+        if (i < ids.length) { requestAnimationFrame(revealBatch); return; }
+// Reveal complete: everything in this scene is stale, but only what is on screen fires.
+        try {
+          if (typeof cfPollInvalidateScene === 'function') {
+            cfPollInvalidateScene(ids);
+          } else {
+            ids.forEach(function (eid) {
+              var ext = window.extensionsData && window.extensionsData[eid];
+              if (!ext || (ext.js_modules && ext.js_modules.length)) return;
+              if (typeof refreshWidget !== 'function') return;
+              (ext.widgets || []).forEach(function (wDef) { refreshWidget(eid, wDef); });
+            });
+          }
+        } catch (_e) {}
+        // All revealed: measure first paint and report telemetry (fire-and-forget).
+        try {
+          requestAnimationFrame(function(){
+            requestAnimationFrame(function(){
+              var paintMs = Math.round((now() - t0) * 10) / 10;
+              if (typeof apiFetch !== 'undefined') {
+                apiFetch('/api/debug/switch', { method: 'POST',
+                  body: JSON.stringify({ scene: sid, commit_ms: commitMs, paint_ms: paintMs, phases: phases }) }
+                ).catch(function(){});
+              }
+            });
+          });
+        } catch(_){}
+      })();
+    });
   };
 
   s.createScene = function () {
@@ -154,12 +225,12 @@
     (s._sceneOrder.length ? s._sceneOrder : Object.keys(s._scenes)).forEach(function (sid) {
       var sc = s._scenes[sid];
       var isDefault = sid === 'default';
-      var label = sc.label || '\u{1F4C4}';
+      var label = sc.label || 'file';
       var name = sc.name || sid;
       html += '<div class="ctx-hidden-item" data-scene="' + sid + '" style="margin-bottom:6px;">';
       var iconHtml = '';
       if (sc.image) {
-        iconHtml = '<img src="' + sc.image + '" style="width:22px;height:22px;object-fit:cover;border-radius:3px;vertical-align:middle;">';
+        iconHtml = '<img src="' + sc.image + '" loading="lazy" decoding="async" style="width:22px;height:22px;object-fit:cover;border-radius:3px;vertical-align:middle;">';
       } else if (typeof feather !== 'undefined' && feather.icons[label]) {
         iconHtml = '<i data-feather="' + label + '" width="18" height="18"></i>';
       } else {
@@ -248,9 +319,10 @@
       menu.id = 'scene-ctx-menu';
       menu.className = 'ctx-menu';
       menu.innerHTML =
-        '<div class="ctx-menu-item" data-action="icon">\u{1F4F7}  Change icon</div>' +
+        '<div class="ctx-menu-item" data-action="icon"><i data-feather="camera" width="16" height="16"></i>  Change icon</div>' +
+        '<div class="ctx-menu-item" data-action="size"><i data-feather="maximize-2" width="16" height="16"></i>  Size</div>' +
         '<div class="ctx-menu-separator"></div>' +
-        '<div class="ctx-menu-item" data-action="delete" style="color:var(--accent-red)">\u{1F5D1}  Delete scene</div>';
+        '<div class="ctx-menu-item" data-action="delete" style="color:var(--accent-red)"><i data-feather="trash-2" width="16" height="16"></i>  Delete scene</div>';
       document.body.appendChild(menu);
       menu.addEventListener('click', function (e) {
         var item = e.target.closest('.ctx-menu-item');
@@ -261,6 +333,8 @@
           s.showDeleteConfirmation(sceneId);
         } else if (action === 'icon') {
           s.showIconPicker(sceneId);
+        } else if (action === 'size') {
+          s.showSizeEditor(sceneId, true);
         }
         s.closeSceneCtxMenu();
       });
@@ -271,6 +345,7 @@
     menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(e.clientY, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');
+    if (typeof feather !== 'undefined') feather.replace();
   };
 
   s.closeSceneCtxMenu = function () {
@@ -310,7 +385,7 @@
     };
   };
 
-  s.showSizeEditor = function (sid) {
+  s.showSizeEditor = function (sid, fromToolmenu) {
     var panel = document.getElementById('result-panel');
     var overlay = document.getElementById('overlay');
     var title = document.getElementById('result-panel-title');
@@ -329,13 +404,14 @@
       '<label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:3px;">Rows</label>' +
       '<input type="number" id="size-editor-rows" value="' + rows + '" min="1" max="24" style="width:100%;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:5px 8px;color:var(--text-primary);font-family:var(--font-mono);font-size:13px;">' +
       '</div>' +
-      '<div id="size-editor-warning" style="display:none;margin-bottom:10px;padding:6px 10px;background:rgba(255,170,0,0.15);border:1px solid rgba(255,170,0,0.3);border-radius:4px;color:var(--text-primary);font-size:11px;line-height:1.4;">\u26A0\uFE0F  Values above 16 may look cramped or overflow. Consider reducing if elements are cut off.</div>' +
+      '<div id="size-editor-warning" style="display:none;margin-bottom:10px;padding:6px 10px;background:rgba(255,170,0,0.15);border:1px solid rgba(255,170,0,0.3);border-radius:4px;color:var(--text-primary);font-size:11px;line-height:1.4;"><i data-feather="alert-triangle" width="14" height="14"></i>  Values above 16 may look cramped or overflow. Consider reducing if elements are cut off.</div>' +
       '<div style="text-align:center;display:flex;gap:8px;justify-content:center;">' +
       '<button id="size-editor-save" class="pkg-btn" style="font-size:11px;padding:4px 14px;border-color:var(--accent-cyan);">Save</button>' +
       '<button id="size-editor-cancel" class="pkg-btn" style="font-size:11px;padding:4px 14px;">Cancel</button>' +
       '</div></div>';
     panel.classList.add('open');
     overlay.classList.add('open');
+    if (typeof feather !== 'undefined') feather.replace();
 
     function updateWarning() {
       var c = parseInt(document.getElementById('size-editor-cols').value, 10);
@@ -368,7 +444,11 @@
       });
     };
     document.getElementById('size-editor-cancel').onclick = function () {
-      s.openSceneSettings();
+      if (fromToolmenu) {
+        s.closeResultPanel();
+      } else {
+        s.openSceneSettings();
+      }
     };
   };
 
@@ -379,22 +459,41 @@
   //  settings dropdown 
 
   s._settingsMainHTML =
-    '<div class="ctx-menu-item" data-action="scenes">\u{1F5A7}  Scene settings</div>' +
+    '<div class="ctx-menu-item" data-action="scenes"><i data-feather="image" width="16" height="16"></i>  Scene settings</div>' +
     '<div class="ctx-menu-item" data-action="extensions"><i data-feather="package" width="16" height="16"></i>  Extensions</div>' +
     '<div class="ctx-menu-separator"></div>' +
     '<div class="ctx-menu-item" data-action="window"><i data-feather="square" width="16" height="16"></i>  Window settings</div>' +
     '<div class="ctx-menu-separator"></div>' +
-    '<div class="ctx-menu-item" id="autostart-item" data-action="autostart">\u{23F1}  Loading...</div>';
+    '<div class="ctx-menu-item" id="autostart-item" data-action="autostart"><i data-feather="clock" width="16" height="16"></i>  Loading...</div>';
 
   s._updateWindowHTML = function () {
     var m = typeof currentWindowMode !== 'undefined' ? currentWindowMode : 'windowed';
     return (
-      '<div class="ctx-menu-item" data-action="back" style="color:var(--text-muted);font-size:10px">\u{2190}  Back</div>' +
+      '<div class="ctx-menu-item" data-action="back" style="color:var(--text-muted);font-size:10px"><i data-feather="arrow-left" width="16" height="16"></i>  Back</div>' +
       '<div class="ctx-menu-separator"></div>' +
-      '<div class="ctx-menu-item" data-action="windowed">' + (m === 'windowed' ? '\u{2705}  ' : '') + '\u{1F5A5}  Windowed</div>' +
-      '<div class="ctx-menu-item" data-action="frameless">' + (m === 'frameless' ? '\u{2705}  ' : '') + '\u{1F5A5}  Frameless</div>' +
-      '<div class="ctx-menu-item" data-action="fullscreen">' + (m === 'fullscreen' ? '\u{2705}  ' : '') + '\u{1F5A5}  Fullscreen</div>'
+      '<div class="ctx-menu-item" data-action="windowed">' + (m === 'windowed' ? '<i data-feather="check" width="16" height="16"></i>  ' : '') + '<i data-feather="monitor" width="16" height="16"></i>  Windowed</div>' +
+      '<div class="ctx-menu-item" data-action="frameless">' + (m === 'frameless' ? '<i data-feather="check" width="16" height="16"></i>  ' : '') + '<i data-feather="monitor" width="16" height="16"></i>  Frameless</div>' +
+      '<div class="ctx-menu-item" data-action="fullscreen">' + (m === 'fullscreen' ? '<i data-feather="check" width="16" height="16"></i>  ' : '') + '<i data-feather="monitor" width="16" height="16"></i>  Fullscreen</div>'
     );
+  };
+
+  // Start-on-boot has three states, not a toggle; 'minimized' is tray-only background mode.
+  s._autostartModes = [
+    ['off', 'square', 'Off'],
+    ['on', 'monitor', 'On'],
+    ['minimized', 'minimize', 'Minimized (background)']
+  ];
+
+  s._updateAutostartHTML = function (mode) {
+    var m = mode || s._autostartMode || 'off';
+    var out = '<div class="ctx-menu-item" data-action="back" style="color:var(--text-muted);font-size:10px"><i data-feather="arrow-left" width="16" height="16"></i>  Back</div>' +
+      '<div class="ctx-menu-separator"></div>';
+    s._autostartModes.forEach(function (r) {
+      out += '<div class="ctx-menu-item" data-action="autostart-' + r[0] + '">' +
+        (m === r[0] ? '<i data-feather="check" width="16" height="16"></i>  ' : '') +
+        '<i data-feather="' + r[1] + '" width="16" height="16"></i>  ' + r[2] + '</div>';
+    });
+    return out;
   };
 
   s.openSettingsDropdown = function (e) {
@@ -417,8 +516,10 @@
         var action = item.dataset.action;
         if (action === 'window') {
           menu.innerHTML = s._updateWindowHTML();
+          if (typeof feather !== 'undefined') feather.replace();
         } else if (action === 'back') {
           menu.innerHTML = s._settingsMainHTML;
+          s._renderAutostartItem();
         } else if (action === 'scenes') {
           s.closeSettingsDropdown();
           s.openSceneSettings();
@@ -429,14 +530,24 @@
           s.closeSettingsDropdown();
           s.setWindowMode(action);
         } else if (action === 'autostart') {
-          apiFetch('/api/autostart', { method: 'POST' }).then(function (res) {
-            if (res && !res.error) s.updateAutostartItem(res);
+          menu.innerHTML = s._updateAutostartHTML();
+          if (typeof feather !== 'undefined') feather.replace();
+        } else if (action.indexOf('autostart-') === 0) {
+          var mode = action.slice('autostart-'.length);
+          apiFetch('/api/autostart', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: mode })
+          }).then(function (res) {
+            if (!res || res.error) return;
+            s._autostartMode = res.mode;
+            menu.innerHTML = s._updateAutostartHTML(res.mode);
+            if (typeof feather !== 'undefined') feather.replace();
           });
         }
       });
     }
     menu.innerHTML = s._settingsMainHTML;
-    if (typeof feather !== 'undefined') feather.replace();
+    s._renderAutostartItem();
     menu.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(rect.bottom + 4, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');
@@ -445,16 +556,33 @@
     });
   };
 
-  s.updateAutostartItem = function (res) {
+  s._autostartMode = 'off';
+  s._autostartAvailable = true;
+
+// Paint from cached state: the static HTML says "Loading..." and would stick.
+  s._renderAutostartItem = function () {
     var item = document.getElementById('autostart-item');
     if (!item) return;
-    if (res.available === false) {
-      item.textContent = '\u{23F1}  Start on boot (not available)';
+    if (s._autostartAvailable === false) {
+      item.innerHTML = '<i data-feather="clock" width="16" height="16"></i>  Start on boot';
       item.style.opacity = '0.4';
-      return;
+    } else {
+      var mode = s._autostartMode || 'off';
+      var badge = mode === 'minimized' ? 'MIN' : (mode === 'on' ? 'ON' : 'OFF');
+      var icon = mode === 'off' ? 'square' : 'check-circle';
+      item.innerHTML = '<i data-feather="' + icon + '" width="16" height="16"></i>  Start on boot' +
+        ' <span class="autostart-state' + (mode === 'off' ? '' : ' on') + '">' + badge + '</span>';
+      item.style.opacity = '1';
     }
-    item.style.opacity = '1';
-    item.textContent = res.enabled ? '\u2705  Start on boot' : '\u{2B1C}  Start on boot';
+    // Re-render icons: this runs long after the initial feather.replace().
+    if (typeof feather !== 'undefined') feather.replace();
+  };
+
+  s.updateAutostartItem = function (res) {
+    // Fall back to the old boolean for a host that predates mode.
+    s._autostartMode = res.mode || (res.enabled ? 'on' : 'off');
+    if (res.available !== undefined) s._autostartAvailable = res.available;
+    s._renderAutostartItem();
   };
 
   s.closeSettingsDropdown = function () {

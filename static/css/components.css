@@ -27,6 +27,127 @@
   box-shadow: var(--shadow-md);
 }
 
+/* ── Extension appearance ──────────────────────────────────────────
+   Core-owned. An extension picks one of these by name from its
+   extension.json ("appear_animation"); the host applies the class. The
+   default is the same for every extension, so the dashboard reads as one
+   surface instead of a dozen extensions each picking a different entrance.
+
+   Rules that matter: no animation may change layout, and all of them must
+   end in the element's natural state, so the card is interactive the
+   moment it appears.
+
+   Deliberately not gated on prefers-reduced-motion: WebView2 reports
+   reduce whenever Windows window animations are off (MinAnimate=0), which
+   is about minimizing windows, not motion sensitivity, and it silently
+   removed every entrance animation on such a machine. */
+
+/* From the left edge: the farthest point is a corner at ~112%, so it needs more. */
+@keyframes cf-appear-fill {
+  from { clip-path: circle(0% at 0% 50%); opacity: 0.3; }
+  to   { clip-path: circle(115% at 0% 50%); opacity: 1; }
+}
+
+/* Default: a circle growing from the card's own centre. A centre origin needs
+   ~71% radius to reach the farthest corner (the reference radius is
+   sqrt(w^2+h^2)/sqrt(2)), so 75% ends exactly when the card is covered instead
+   of spending half the duration on a shape that is already full. */
+@keyframes cf-appear-fill-center {
+  from { clip-path: circle(0% at 50% 50%); opacity: 0.45; }
+  to   { clip-path: circle(75% at 50% 50%); opacity: 1; }
+}
+
+@keyframes cf-appear-rise {
+  from { transform: translateY(14px) scale(0.97); opacity: 0; }
+  to   { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes cf-appear-unfold {
+  from { clip-path: inset(100% 0 0 0); opacity: 0.2; }
+  to   { clip-path: inset(0 0 0 0); opacity: 1; }
+}
+
+@keyframes cf-appear-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Animations transform/clip, which would break the drag hit-testing and the
+   pointer-events immunity used in edit mode while it plays. */
+.widget-extension.cf-appearing {
+  animation-duration: 820ms;
+  animation-delay: var(--cf-appear-delay, 0ms);
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+  animation-fill-mode: both;
+  pointer-events: none;
+}
+
+.widget-extension.cf-appearing.cf-anim-fill        { animation-name: cf-appear-fill; }
+.widget-extension.cf-appearing.cf-anim-fill-center { animation-name: cf-appear-fill-center; }
+.widget-extension.cf-appearing.cf-anim-rise        { animation-name: cf-appear-rise; }
+.widget-extension.cf-appearing.cf-anim-unfold      { animation-name: cf-appear-unfold; }
+.widget-extension.cf-appearing.cf-anim-fade        { animation-name: cf-appear-fade; animation-duration: 300ms; }
+/* Explicit opt-out for an extension that must appear instantly. */
+.widget-extension.cf-appearing.cf-anim-none        { animation-name: none; }
+
+/* ── Loading placeholder ─────────────────────────────────────────────
+   Shown for an extension that is installed and reserved in the grid but
+   not loaded yet. It occupies the extension's real size so the layout
+   does not jump when the card arrives. */
+
+.widget-extension.cf-placeholder {
+  border-color: rgba(0, 212, 255, 0.14);
+  background: var(--bg-widget);
+}
+
+.widget-extension.cf-placeholder .widget-body { opacity: 0.5; }
+
+/* A freshly built card whose extension has not painted yet. Its widgets would
+   otherwise show their raw initial state ("--", "[6]", "Loading...") for the
+   split second between the card being created and the script mounting. Hide
+   them and keep the shimmer, so every card reads as "loading" until it has
+   real content. cfClearLoadingState() drops the class on first paint. */
+.widget-extension.cf-loading .widget-body { visibility: hidden; }
+.widget-extension.cf-loading::after {
+  content: '';
+  position: absolute;
+  left: 14px; right: 14px; top: 46px; bottom: 14px;
+  pointer-events: none;
+}
+.widget-extension.cf-loading .cf-loading-bars {
+  position: absolute;
+  left: 14px; right: 14px; top: 46px;
+  pointer-events: none;
+}
+.widget-extension.cf-loading .cf-loading-bars .cf-placeholder-bar {
+  background: linear-gradient(90deg,
+    rgba(0, 212, 255, 0.07) 0%,
+    rgba(0, 212, 255, 0.16) 50%,
+    rgba(0, 212, 255, 0.07) 100%);
+  background-size: 200% 100%;
+  animation: cf-placeholder-shimmer 1.5s ease-in-out infinite;
+  margin-bottom: 7px;
+}
+
+.cf-placeholder-bar {
+  height: 7px;
+  border-radius: 3px;
+  background: linear-gradient(90deg,
+    rgba(0, 212, 255, 0.07) 0%,
+    rgba(0, 212, 255, 0.16) 50%,
+    rgba(0, 212, 255, 0.07) 100%);
+  background-size: 200% 100%;
+  animation: cf-placeholder-shimmer 1.5s ease-in-out infinite;
+  margin-bottom: 7px;
+}
+
+.cf-placeholder-bar:last-child { margin-bottom: 0; }
+
+@keyframes cf-placeholder-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .widget-header {
   display: flex;
   justify-content: space-between;
@@ -749,5 +870,294 @@
 }
 
 
+/*  Permission Modal  */
+.perm-modal {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.perm-modal-content {
+  background: var(--bg-secondary);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 24px rgba(0, 212, 255, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.perm-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.perm-modal-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.15);
+}
+
+.perm-modal-title {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.perm-modal-body {
+  margin-bottom: 20px;
+}
+
+.perm-modal-ext-name {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  margin: 0 0 12px 0;
+}
+
+.perm-modal-level {
+  display: inline-block;
+  padding: 3px 10px;
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+
+.perm-modal-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 8px 0;
+  font-family: var(--font-sans);
+}
+
+.perm-modal-method {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 8px 0;
+}
+
+.perm-modal-method code {
+  background: rgba(0, 212, 255, 0.1);
+  border: 1px solid rgba(0, 212, 255, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-cyan);
+}
+
+.perm-modal-requires {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.perm-modal-requires-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.perm-modal-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(0, 212, 255, 0.06);
+  border: 1px solid rgba(0, 212, 255, 0.12);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.perm-modal-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  margin-top: 12px;
+  background: rgba(255, 51, 85, 0.08);
+  border: 1px solid rgba(255, 51, 85, 0.2);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--accent-red);
+  line-height: 1.4;
+}
+
+.perm-modal-warning.level-system {
+  background: rgba(255, 102, 0, 0.08);
+  border-color: rgba(255, 102, 0, 0.2);
+  color: var(--accent-orange);
+}
+
+.perm-modal-warning i {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.perm-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.perm-btn {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: transparent;
+}
+
+.perm-btn-deny {
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+.perm-btn-deny:hover {
+  background: rgba(255, 51, 85, 0.1);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+.perm-btn-temp {
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+.perm-btn-temp:hover {
+  background: rgba(0, 212, 255, 0.1);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.perm-btn-grant {
+  border: 1px solid;
+  background: rgba(0, 255, 136, 0.06);
+}
+.perm-btn-grant:hover {
+  background: rgba(0, 255, 136, 0.15);
+  box-shadow: 0 0 12px rgba(0, 255, 136, 0.15);
+}
+
+/*  Migration Modal  */
+.perm-migration-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.perm-migration-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.perm-migration-option:hover {
+  background: rgba(0, 212, 255, 0.06);
+  border-color: rgba(0, 212, 255, 0.2);
+}
+
+.perm-migration-option input[type="radio"] {
+  accent-color: var(--accent-cyan);
+}
+
+.perm-migration-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 100px;
+}
+
+.perm-migration-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+}
+
+/*  Permission Badge  */
+.perm-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+/*  Permission Toast  */
+.perm-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--bg-secondary);
+  border: 1px solid rgba(255, 51, 85, 0.3);
+  border-radius: var(--radius-md);
+  padding: 10px 20px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-red);
+  z-index: 10000;
+  opacity: 0;
+  transition: all 0.3s ease;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.perm-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 /*  Settings dropdown  */
+
+
+
+/* Disabled extension: installed and listed, not running. */
+.ext-card-disabled { opacity: .45; }
+.ext-card-disabled .ext-card-name { text-decoration: line-through; }
+.ext-settings-toggle:disabled { opacity: .4; cursor: default; }
 

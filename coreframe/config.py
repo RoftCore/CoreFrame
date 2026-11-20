@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+import logging.handlers
 import threading
 
 # ── Paths ──────────────────────────────────────────────────────────
@@ -45,6 +46,16 @@ if SHARED_LIB_DIR not in sys.path:
     else:
         sys.path.insert(0, SHARED_LIB_DIR)
 
+# Add site-packages from --prefix installs
+_site_pkgs = os.path.join(SHARED_LIB_DIR, 'Lib', 'site-packages')
+if os.path.isdir(_site_pkgs) and _site_pkgs not in sys.path:
+    sys.path.insert(0, _site_pkgs)
+
+# Also check for unix-style path
+_site_pkgs_unix = os.path.join(SHARED_LIB_DIR, 'lib', 'python3.11', 'site-packages')
+if os.path.isdir(_site_pkgs_unix) and _site_pkgs_unix not in sys.path:
+    sys.path.insert(0, _site_pkgs_unix)
+
 # ── Stale binary cleanup ──────────────────────────────────────────
 
 if getattr(sys, 'frozen', False):
@@ -62,11 +73,13 @@ if getattr(sys, 'frozen', False):
 
 # ── Logging ────────────────────────────────────────────────────────
 
+# Rotating and capped: an unbounded handler grew this to 138 MB of thread dumps (pitfall 28).
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.FileHandler(LOG_PATH, encoding='utf-8'),
+        logging.handlers.RotatingFileHandler(
+            LOG_PATH, maxBytes=8 * 1024 * 1024, backupCount=3, encoding='utf-8'),
     ]
 )
 log = logging.getLogger('CoreFrame')

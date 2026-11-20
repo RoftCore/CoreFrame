@@ -3,8 +3,9 @@ import sys
 import hashlib
 import signal
 import threading
+import time
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_socketio import SocketIO
 
 from coreframe.config import log, STATIC_DIR, EXTENSIONS_DIR, REGISTRY_PATH
@@ -34,6 +35,13 @@ if getattr(sys, 'frozen', False):
 
 # ── Flask + SocketIO ──────────────────────────────────────────────
 
+# Host window-destroy hook, set by run_coreframe.pyw; called by /api/quit.
+_shutdown_callback = None
+
+# Host window-wake hook, set by run_coreframe.pyw; called by /api/window/focus.
+# A suspended renderer cannot run the JS relay, so the wake must come from the host.
+_focus_callback = None
+
 app = Flask(__name__, static_folder=STATIC_DIR)
 app.config['SECRET_KEY'] = hashlib.sha256(os.urandom(32)).hexdigest()
 socketio = SocketIO(app, async_mode='threading', cors_allowed_origins=["http://127.0.0.1:8420", "http://localhost:8420"])
@@ -45,7 +53,7 @@ _LOCAL_TOKEN = init_auth(app)
 # ── Register routes ────────────────────────────────────────────────
 
 register_auth_routes(app)
-register_api_routes(app)
+register_api_routes(app, socketio)
 register_install_routes(app, socketio)
 register_marketplace_routes(app, socketio)
 register_scene_routes(app)
@@ -59,16 +67,44 @@ from coreframe.extensions import extensions
 
 
 def _save_registry():
-    registry = {}
-    for ext_id, ext_data in extensions.items():
+    # Merge, never overwrite: rebuilding from memory alone wiped extensions.json on boot.
+    import json
+    from coreframe.extensions.state import read_json, write_json, is_disabled
+    registry = read_json(REGISTRY_PATH)
+    for ext_id, ext_data in list(extensions.items()):
         cfg = ext_data['config']
         registry[ext_id] = {
             'name': cfg.get('name', ext_id),
             'version': cfg.get('version', '1.0'),
             'author': cfg.get('author', ''),
-            'category': cfg.get('category', 'general')
+            'category': cfg.get('category', 'general'),
+            # Truth comes from extensions.state.json. Reading it back from the
+            # file being rewritten is what dropped four flags when the heal ran.
+            'disabled': is_disabled(ext_id),
         }
-    import json
+    # Heal: adopt extension dirs present on disk but missing from registry.
+    try:
+        for name in os.listdir(EXTENSIONS_DIR):
+            if name in registry:
+                continue
+            cfg_path = os.path.join(EXTENSIONS_DIR, name, 'extension.json')
+            try:
+                with open(cfg_path, encoding='utf-8-sig') as f:
+                    cfg = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if not isinstance(cfg, dict):
+                continue
+            ext_id = cfg.get('id', name)
+            registry[ext_id] = {
+                'name': cfg.get('name', name),
+                'version': cfg.get('version', '1.0'),
+                'author': cfg.get('author', ''),
+                'category': cfg.get('category', 'general'),
+                'disabled': is_disabled(ext_id),
+            }
+    except OSError:
+        pass
     new_content = json.dumps(registry, indent=2)
     try:
         with open(REGISTRY_PATH, encoding='utf-8') as f:
@@ -76,8 +112,8 @@ def _save_registry():
     except (FileNotFoundError, OSError):
         old_content = ''
     if new_content != old_content:
-        with open(REGISTRY_PATH, 'w', encoding='utf-8') as f:
-            f.write(new_content)
+        if not write_json(REGISTRY_PATH, registry):
+            return
         log.info("Registry saved: %d extensions", len(registry))
     else:
         log.info("Registry unchanged")
@@ -85,30 +121,86 @@ def _save_registry():
 
 # ── Restart / Quit ─────────────────────────────────────────────────
 
+_restart_lock = threading.Lock()
+
+
 @app.route('/api/restart', methods=['POST'])
 def api_restart():
+    if not _restart_lock.acquire(blocking=False):
+        return jsonify({'ok': False, 'error': 'restart already in progress'}), 409
+    # The reload drains every child and spawns it again: 5.8 s measured on
+    # 2026-11-09, and the join deadline allows up to 10 s more when one refuses
+    # to die. The button awaited this response before reloading, so it spun for
+    # the whole drain and looked dead. Answer now; the work runs behind it.
+    threading.Thread(target=_restart_worker, daemon=True, name='restart').start()
+    return jsonify({'ok': True, 'status': 'reloading'}), 202
+
+
+def _restart_worker():
+    try:
+        _do_restart()
+    except Exception as e:
+        log.exception("Restart failed: %s", e)
+    finally:
+        try:
+            _restart_lock.release()
+        except Exception:
+            pass
+
+
+def _do_restart():
+    import time as _time
     log.info("Restart: instant reload triggered")
 
     _ext_isolation.stop_monitor()
 
-    def _cleanup_async():
-        for ext_id, ext_data in list(extensions.items()):
-            inst = ext_data.get('instance')
-            if hasattr(inst, 'on_stop'):
-                try:
-                    inst.on_stop()
-                except Exception:
-                    pass
-        for ext_id in list(extensions.keys()):
-            _ext_isolation.mark_dead(ext_id, 'Restart')
+    # 1. Stop realtime pollers first so no orphan thread survives the reload.
+    try:
+        from coreframe.extensions.loader import stop_all_polls
+        stop_all_polls()
+    except Exception:
+        pass
 
-    threading.Thread(target=_cleanup_async, daemon=True, name='restart-cleanup').start()
-
+    # Drop the registry before the drain, not after it. A page that reloads while
+    # the children are being stopped then sees the pending manifests and paints
+    # skeletons, instead of the real cards whose processes are already dying.
+    old = list(extensions.items())
+    for ext_id, _ in old:
+        _ext_isolation.mark_dead(ext_id, 'Restart')
     extensions.clear()
     from coreframe.extensions import failed_extensions
     failed_extensions.clear()
     from coreframe.websocket import latest_update
     latest_update.clear()
+
+    # Drain old children first: parallel and bounded, so restarts never overlap.
+    def _stop_one(ext_data):
+        inst = ext_data.get('instance')
+        if hasattr(inst, 'on_stop'):
+            try:
+                inst.on_stop()
+            except Exception:
+                pass
+    stops = []
+    for ext_data in old:
+        t = threading.Thread(target=_stop_one, args=(ext_data,), daemon=True)
+        t.start()
+        stops.append(t)
+    deadline = _time.monotonic() + 10.0
+    for t in stops:
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0:
+            break
+        t.join(timeout=remaining)
+    # Grace so dying threads unwind: printing a torn-down frame segfaults (pitfall 28).
+    _time.sleep(2.0)
+    try:
+        from coreframe.extensions.bridge import SubprocessBridge
+        left = SubprocessBridge.reap_all_children(timeout=5.0)
+        if left:
+            log.warning("Restart: %d orphan children survived drain", left)
+    except Exception:
+        pass
 
     mods_to_del = [k for k in list(sys.modules.keys()) if k.startswith('extensions.')]
     for k in mods_to_del:
@@ -116,19 +208,24 @@ def api_restart():
 
     _ext_isolation.stop_monitor()
     _ext_isolation.__init__()
+    # __init__ resets _socketio and only this rebind restores it: without it every realtime widget froze after one Reload click while /api/debug/pollers still said healthy.
+    _ext_isolation.set_socketio(socketio)
     _ext_isolation.start_monitor()
     load_extensions()
 
     threading.Thread(target=_save_registry, daemon=True).start()
 
-    log.info("Restart: instant response sent, %d extensions loading async", len(extensions))
-    return jsonify({'ok': True, 'status': 'reloading'})
+    log.info("Restart: %d extensions loading behind the response", len(extensions))
 
 
 @app.route('/api/quit', methods=['POST'])
 def api_quit():
     log.info("Shutting down gracefully...")
-    socketio.stop()
+    try:
+        socketio.stop()
+    except RuntimeError as e:
+# The frozen host owns the server, so socketio has nothing to stop; uncaught it 500'd.
+        log.debug("socketio.stop skipped: %s", e)
     time.sleep(0.5)
     for ext in extensions.values():
         inst = ext.get('instance')
@@ -137,6 +234,12 @@ def api_quit():
                 inst.on_stop()
             except Exception as e:
                 print(f"[-] Extension cleanup error: {e}")
+    # The host registers a window-destroy callback; use it before signalling.
+    if _shutdown_callback:
+        try:
+            _shutdown_callback()
+        except Exception as e:
+            log.warning("Shutdown callback failed: %s", e)
     import signal
     os.kill(os.getpid(), signal.SIGTERM)
 
@@ -147,9 +250,6 @@ def _sigint_handler(signum, frame):
     log.info("Shutting down...")
     _ext_isolation.stop_monitor()
     os._exit(0)
-
-
-_shutdown_callback = None  # Set by run_coreframe.pyw
 
 
 def start_server(host='127.0.0.1', port=8420, debug=False):
@@ -164,7 +264,13 @@ def start_server(host='127.0.0.1', port=8420, debug=False):
     _logging.getLogger('werkzeug').setLevel(_logging.DEBUG if debug else _logging.WARNING)
 
     log.info("Starting server (instant mode)...")
-    threading.Thread(target=load_extensions, daemon=True, name='ext-initial-load').start()
+    def _initial_load_worker():
+        # Held until the frontend asks, so the host can reserve the grid while loading; the timeout covers minimized mode.
+        from coreframe.extensions.loader import wait_for_load_gate
+        if not wait_for_load_gate():
+            log.info("No frontend asked for extensions; starting load on timeout")
+        load_extensions()
+    threading.Thread(target=_initial_load_worker, daemon=True, name='ext-initial-load').start()
     _save_registry()
     from coreframe.websocket import realtime_broadcast
     rt_thread = threading.Thread(target=realtime_broadcast, daemon=True)

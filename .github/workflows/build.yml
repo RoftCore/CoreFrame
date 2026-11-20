@@ -16,10 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       - name: Install Linux system deps
         if: runner.os == 'Linux'
@@ -33,11 +33,21 @@ jobs:
         run: |
           pip install -r requirements.txt pyinstaller==6.17.0
 
+      # The --ext-runner child source is mirrored into run_coreframe.pyw because
+      # it must run before coreframe/__init__.py pulls in Flask. Drift means the
+      # fallback child silently diverges from the shipped runner.
+      - name: Verify ext_runner mirror
+        run: python tools/sync_ext_runner_source.py --check
+
+      - name: Build runner.zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python tools/build_runner.py
+
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          pyinstaller --noconfirm CoreFrame.spec
+        run: pyinstaller --noconfirm --clean CoreFrame.spec
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
@@ -81,11 +91,27 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    # Without this the default GITHUB_TOKEN is read-only and `gh release create`
+    # answers 403. The step used to end in `2>/dev/null || true`, so the job went
+    # green and published nothing: v1.1.0 was tagged, built, and had no release.
+    permissions:
+      contents: write
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      # The release body is the CHANGELOG section for this tag, not an empty
+      # string: a release nobody can read is a release nobody trusts.
+      - name: Extract release notes
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          awk -v tag="$TAG" '$0 ~ "^## " tag "([ ]|$)" { on=1; next } on && /^## / { exit } on { print }' CHANGELOG.md > notes.md
+          echo "notes: $(wc -l < notes.md) lines"
 
       - name: Create release
         shell: bash
@@ -93,8 +119,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF_NAME}"
+          # A failed publish has to fail the job. Re-running a tag that already
+          # has its release is the only case allowed to pass silently.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists"
+            exit 0
+          fi
           gh release create "$TAG" \
             artifacts/CoreFrame-Windows/CoreFrame.exe#CoreFrame-Windows.exe \
             artifacts/CoreFrame-Linux/CoreFrame#CoreFrame-Linux \
             --title "CoreFrame $TAG" \
-            --notes "" 2>/dev/null || true
+            --notes-file notes.md

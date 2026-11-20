@@ -1,274 +1,260 @@
 # COREFRAME — GUIDE FOR ASSISTANTS
 
-> **IMPORTANT:** This file must be updated whenever the architecture changes, extensions are added/removed, core mechanisms are modified, or new bugs/pitfalls are discovered. It is the source of truth for any AI working on the project.
+> **IMPORTANT:** update this file whenever the architecture changes, core mechanisms are modified, or a new pitfall is discovered. It is the source of truth for any AI working on the project. Authoring details live in `docs/`; keep the split: this guide is rules and invariants, `docs/` is reference.
 
 ## Branching Strategy (CRITICAL)
 
-- **`main` branch**: ONLY tested, released versions (tagged as `vX.Y.Z`). No direct pushes.
-- **`development` branch**: All feature work, bug fixes, experiments. PRs target `development`.
-- **Release flow**: `development` → tested → merge to `main` → tag `vX.Y.Z` → GitHub Actions builds release.
-- **CI/CD**: GitHub Actions builds on push to `main` and tags `v*`. Development builds run on `development` branch only.
+- **`main`**: ONLY tested, released versions (tagged `vX.Y.Z`). No direct pushes.
+- **`development`**: all feature work, bug fixes, experiments. PRs target `development`.
+- **Release flow**: `development` → tested → merge to `main` → tag `vX.Y.Z` → GitHub Actions builds the release.
+- **CI** (`.github/workflows/build.yml`) runs on push to `main`, push to `development` and on `v*` tags, on Python 3.13 and Windows + Linux. It always verifies the ext_runner mirror (see [Process model](#process-model)) and builds the exe; only the release job is tag-gated. So `development` is already built on every push: a local `py -3.13 -m PyInstaller --noconfirm CoreFrame.spec` is only needed to test a change before pushing.
 
 ## Identity
 
-Personal control center with widget panel, system monitoring, VPN control, process manager and network analysis. Vanilla SPA (no frameworks). Architecture based on self-contained extensions: the core is generic, each extension lives in its own directory with backend, frontend and CSS.
+A personal control center with a widget grid, scenes, and self-contained extensions for system monitoring, VPN, processes and network analysis. Vanilla SPA, no frameworks. The core is generic: it knows nothing about any individual extension, and each extension lives in its own directory with its own backend, frontend and CSS.
 
 ## Stack
 
-- **Backend:** Python 3.14+ (Flask + Flask-SocketIO)
-- **Frontend:** HTML, CSS, vanilla JS (no frameworks)
-- **WebSocket:** real-time per extension. Each extension with `"realtime": true` runs its own daemon thread (`_poll_extension`) that emits `realtime_update` via SocketIO respecting its `refresh_interval`. Fixed cadence with `next_tick` to prevent drift. No HTTP polling.
-- **Extensions:** dynamic loading via `importlib` from `extensions/`
-- **Widget DOM optimization:** internal hash (`_widgetHash`) prevents DOM updates if the value hasn't changed
-- **Widget click_action:** badge/text/list widgets can open menu panels on click
+- **Backend:** Python **3.13** (Flask + Flask-SocketIO). 3.13 is the only supported runtime; 3.14 segfaults natively (pitfall 24). Never build with 3.14.
+- **Frontend:** HTML, CSS, vanilla JS (no frameworks, no build step).
+- **Realtime:** one daemon thread per extension with `"realtime": true`, fixed cadence via `next_tick`, SocketIO forced to `websocket` transport on both ends. No HTTP polling for widgets.
+- **Extensions:** loaded with `importlib` from `DATA_DIR/extensions/` at runtime.
+- **Isolation:** every extension runs in its own OS process (JSON-RPC over stdio). The core never imports extension code in-process.
 
 ## Structure
 
 ```
 CoreFrame/
-├── app.py                     # Flask + SocketIO server (generic, no extension-specific code)
-├── requirements.txt
-├── extensions.json            # Auto-generated registry (DO NOT edit manually)
+├── run_coreframe.pyw          # Windows host: single-instance check, splash, tray, frameless
+├── app.py                     # 6-line back-compat shim re-exporting coreframe.app
+├── coreframe_helper.py        # UAC-elevated helper, launched via ShellExecuteW("runas")
+├── coreframe/                 # All server code
+│   ├── app.py                 # Flask app factory, /api/quit, /api/restart, socketio wiring
+│   ├── config.py              # Paths: BASE_DIR, DATA_DIR, STATIC_DIR, EXTENSIONS_DIR, ports
+│   ├── auth.py                # SHA-256 token, before_request guard for /api/*
+│   ├── host/                  # Launcher support: imported before webview, no Flask
+│   │   ├── boot.py            # config, splash, server wait, runner extract
+│   │   └── diagnostics.py     # Single-shot boot dump + 5-min rotating snapshots
+│   ├── websocket.py           # SocketIO events, realtime_update
+│   ├── utils.py               # Shared helpers
+│   ├── routes/
+│   │   ├── api/                # /api/extensions, /api/extension/<id>/<action>, health, debug
+│   │   │   ├── status.py       # registry, health, heartbeat, window focus
+│   │   │   ├── actions.py      # /api/extension/<id>/<action>
+│   │   │   ├── permissions.py  # consent, escalation, whitelist, enable/disable
+│   │   │   ├── lifecycle.py    # migrate, load, unload
+│   │   │   ├── serving.py      # /ext-static/<id>/<path> and /ext-data/<id>/<path>
+│   │   │   └── debug.py        # /api/debug/*
+│   │   ├── widgets.py         # /api/widget-state, scene widget layout
+│   │   ├── scenes.py          # /api/scenes CRUD, activate, backgrounds
+│   │   ├── static.py          # /ext-static/<id>/<path> and /ext-data/<id>/<path>
+│   │   ├── install.py         # /api/install_extension, /api/package_extension
+│   │   └── marketplace.py     # /api/marketplace/*
+│   └── extensions/
+│       ├── loader.py          # Discovery, consent gate, migration, poller threads
+│       ├── bridge.py          # Per-extension process supervision, restart, drain
+│       ├── ext_runner.py      # The child process: restrictions + JSON-RPC loop
+│       ├── permissions.py     # Permission levels, consent, escalation
+│       ├── health.py          # Heartbeats, isolation accounting
+│       ├── security.py        # Consent guards and path validation for the host
+│       └── deps.py            # Lazy pip install of extension requirements
 ├── static/
-│   ├── index.html             # SPA
-│   ├── css/
-│   │   ├── palette.css        # Color and theme variables
-│   │   ├── components.css     # Only generic CSS: base widget/sub-widget, extension-card, generic modal
-│   │   ├── layout.css         # 12-column grid, sidebar, header
-│   │   ├── utilities.css      # Helper classes
-│   │   └── reset.css
+│   ├── index.html             # SPA shell
+│   ├── css/                   # palette, layout, components, utilities, reset, widget-control, core-effects
 │   └── js/
-│       ├── core.js            # Bootstrap, extension loading, generic WebSocket, refresh
-│       ├── menu.js            # Dynamic sidebar + registerMenuHook
-│       ├── widgets.js         # createExtensionCard, createSubWidget, generic render/update
-│       └── utils.js           # apiFetch, formatBytes, getProcessIcon, escapeHtml, etc.
-├── extensions/
-│   ├── network_monitor/       # IP, VPN, DNS, ports, connections (incoming/outgoing tabs, sorting by process, 200-pagination, "See more")
-│   ├── system_monitor/        # CPU, RAM, GPU, disk (WebSocket realtime)
-│   ├── vault_manager/         # Notes with persistence
-│   └── process_manager/       # Process management (with its own static/script.js + style.css)
-└── scaffolds/
-    └── template-extension/    # Template to copy when creating extensions
+│       ├── app/                # Extension lifecycle, numbered by load order
+│       │   ├── 00-state.js     # extensionsData, widgetTimers, extensionLoadState
+│       │   ├── 01-loading.js   # loadExtensionsAsync, pollExtensionUpdates
+│       │   ├── 02-cards.js     # Card build, placeholder promotion, first-paint watcher, sidebar
+│       │   ├── 03-assets.js    # loadExtensionAssets (light then heavy)
+│       │   ├── 04-render.js    # renderWidgets
+│       │   └── 05-refresh.js   # Repaint registry, priming, refreshWidget, intervals
+│       ├── widgets/            # Widget construction and value updates, by load order
+│       │   ├── 00-state.js     # widgetHistory, _widgetHash, global dropdown closer
+│       │   ├── 01-history.js   # persistWidgetHistory, startProgressPoll
+│       │   ├── 02-appearance.js # Entrance animations, createPlaceholderCard
+│       │   ├── 03-cards.js     # createExtensionCard, loading state
+│       │   ├── 04-subwidget.js # createSubWidget, one branch per widget type
+│       │   ├── 05-value.js     # updateWidgetValue, type-aware ownership
+│       │   └── 06-format.js    # formatValue, drawMiniChart
+│       ├── core.js            # Realtime intake, widget updates, generic WebSocket
+│       ├── menu.js            # Sidebar, registerMenuHook, executeMenuAction
+│       ├── window.js          # Window mode (windowed/frameless/fullscreen)
+│       ├── permissions.js     # Consent modals and escalation prompts
+│       ├── install.js         # Marketplace / install flows
+│       ├── utils.js           # apiFetch, showToast, feather, formatBytes
+│       └── widget-control/    # Scene/layout engine, numbered by load order
+│           ├── 00-state.js    # Shared state + cfHidden/cfHide/cfShow (pitfall 29)
+│           ├── 01-scenes.js   # Scene switching
+│           ├── 02-layout.js   # Grid layout, placement, drag/drop
+│           ├── 03-menus-styles.js
+│           ├── 04-init.js     # Bootstrap
+│           └── 05-history.js  # Undo/redo for layout changes
+├── extensions/                # Dev copy of extensions only; runtime loads from DATA_DIR
+├── scaffolds/template-extension/
+├── tools/
+│   ├── build_runner.py        # Builds the lightweight runner into runner.zip
+│   └── sync_ext_runner_source.py  # Mirrors ext_runner.py into run_coreframe.pyw
+├── runner.spec, runner.zip, runner_version_info.txt   # The child-process build
+├── coreframe_helper.spec       # The elevated helper build
+├── hooks/                      # PyInstaller hooks for gi.repository.WebKit2
+├── CoreFrame.spec, version_info.txt, CoreFrame.ico, splash.png
+├── docs/                      # EXTENSIONS.md, BRIDGE.md, EXTENSION_NOTES.md
+├── requirements.txt, extensions.json (generated), coreframe.json, widget_state.json
+└── AGENTS.md, README.md, CHANGELOG.md
 ```
+
+`extensions.json` and `widget_state.json` are generated at runtime: never edit them by hand. Both live in `DATA_DIR`, and since neither is tracked any more, a copy at the repo root is a leftover from an older layout - not the live one. `extensions.state.json` is **not** generated: it holds the user's disabled choices (`coreframe/extensions/state.py`), survives every rebuild of `extensions.json`, and keeps a `.bak`. Pitfall 47 has the failure it was created for.
 
 ## Architecture rules (IMPORTANT)
 
-1. **The core contains NO code or CSS of any specific extension.** Zero references to extension names, specific classes, or if/else per extension. If an extension is deleted, no trace should remain in the core.
+1. **The core contains NO code or CSS of any specific extension.** Zero references to extension names, specific classes, or per-extension if/else. If an extension is deleted, no trace should remain in the core — this includes this guide (extension internals belong in the extension, or `docs/EXTENSION_NOTES.md`). The one exception is `extensions/fortune_cookie`, the demo extension force-added past `extensions/*` in `.gitignore` and bundled by `CoreFrame.spec` and the Linux CI job so a fresh checkout is not empty; nothing under `coreframe/` or `static/` refers to it, which is what keeps it an exception rather than a precedent.
+2. **Each extension is self-contained.** Backend (`main.py`), frontend (`static/*.js`) and styles (`static/*.css`) live in its own directory, declared via `js_modules` / `css_modules` in `extension.json`.
+3. **The core provides generic mechanisms:** 12-column grid, extension card, sub-widgets, realtime transport, menu hooks, scenes, permission levels, process supervision. No per-extension knowledge.
+4. **Extensions run out of process.** In-process execution is not an option: a crash, hang or native fault in one extension must never take the host down (pitfalls 21, 26, 28).
+5. **Data lives in `DATA_DIR`, not in the extension folder.** `config.get('data_dir')` points at `Documents/CoreFrame/data/<id>/`. Packaged or downloaded media goes there and is published with `"serve_data": true` → `/ext-data/<id>/<path>`.
 
-2. **Each extension is self-contained.** Its backend (`main.py`), frontend (`static/script.js`) and styles (`static/style.css`) live in its directory. They are declared via `js_modules` and `css_modules` in `extension.json`.
+## Code style
 
-3. **The core provides generic mechanisms:** 12-column grid, extension card (`createExtensionCard`), sub-widgets (text, badge, list, chart, terminal, button), polling via `startWidgetIntervals`, generic WebSocket (no hardcoding), hook system for menus (`registerMenuHook`).
+- **Split code into multiple files.** Structured and ordered; use folders when needed.
+- **Minimal comments:** max one line, at the start of a function or only where essential. Compact, in English, one sentence.
+- **English in code artifacts.** Comments, function and variable names, error messages, logs and single-language UI text are English. No exceptions.
+- **Multilingual content is fine when translation is a feature of the extension:** phrase tables, a language selector, localized labels, bilingual prompts. That is product behaviour, not a style violation. The test: is the Spanish *content the extension ships to the user on purpose* (keep it) or is it *the code speaking* (translate it)?
+- **No native browser popups:** `alert()`, `confirm()` and `prompt()` are blocked in the pywebview/WebView2 host — they never appear and they stall the caller. Use the core modal pattern (`.pkg-overlay` + `.pkg-dialog` with `.pkg-header`/`.pkg-body`/`.pkg-footer` from `layout.css`, click-outside to dismiss) or a scoped overlay of your own. Never depend on native dialogs.
+- **Python must stay compact:** past ~300 lines, evaluate splitting. Keep it whole only if it is one cohesive concern.
+- **HTML may stay in a single file.** JavaScript may run longer, but split it by logic when it grows.
+- **Never edit files with `Get-Content | Set-Content` or `Out-File`** on this project: PowerShell 5.1 round-trips mangle UTF-8 (BOM + mojibake) and once silently corrupted three files' user-visible text. Use the editor tools and verify with a byte-level check (pitfall 30).
 
-## Menu system (hooks)
+## Process model
 
-Extensions register handlers for menu actions via `registerMenuHook(extId, action, async function)`:
+Every extension gets its own process. `bridge.py` supervises them; the child is `runner.zip`'s `CoreFrame.exe`, or the main exe with `--ext-runner <config>` when the runner is absent.
 
-```js
-registerMenuHook('network_monitor', 'vpn_control', async (panelBody) => {
-  panelBody.classList.add('vpn-panel-body');
-  // fetch data + render
-});
-```
+- The child reads a temp JSON config (`config`, `ext_path`, `restrictions`, `coreframe_config`), applies its restrictions **before** importing extension code, sends `{"result": "ready", "id": 0}`, then serves JSON-RPC on stdio.
+- **The child source is mirrored, not imported.** `coreframe/extensions/ext_runner.py` is the only editable copy; `run_coreframe.pyw` embeds a byte-identical copy because `--ext-runner` must run before any heavy import. (`coreframe/__init__.py` is lazy now — pitfall 39 — so importing `coreframe.config` is cheap, but the child still must not import `coreframe` at all: it runs before `webview`, `WinForms` and the server exist, and inside the exe `sys.path` is not the repo.) After editing the runner, run `python tools/sync_ext_runner_source.py`; CI runs it with `--check` and fails on drift.
+- **The pipes are UTF-8 on both ends.** `bridge.py` passes `encoding='utf-8', errors='replace'` to `Popen`, and the runner reconfigures `sys.stdin` / `sys.stdout` the same way before its first write — otherwise every non-ASCII character in a widget value arrives as `U+FFFD` (pitfall 42).
+- Full protocol, config format and examples: `docs/BRIDGE.md`.
 
-The core (`menu.js:executeMenuAction`) checks if a registered hook exists. If so, it executes it. Otherwise, it makes a generic fetch and displays JSON.
+## Permissions
 
-## WebSocket (real-time — one thread per extension)
+Levels 0–5 (`basic`, `storage`, `user_files`, `network`, `system`, `admin`) are declared per extension and enforced **in the child process** (file access allowlist, socket blocking, subprocess blocking, module purge). Levels 3+ require user consent on first start, stored per extension. Escalation is a runtime request via a `extension_escalation_request` event. Details and the correct way to request elevation: `docs/EXTENSIONS.md`.
 
-The backend runs `realtime_broadcast()` in a daemon thread. It scans extensions and launches one daemon thread per extension with `"realtime": true`, `refresh_interval > 0` and widgets. Each thread loops independently:
+## Realtime
 
-```python
-def _poll_extension(ext_id, ext_data, interval_ms):
-    interval = interval_ms / 1000.0
-    next_tick = time.monotonic()
-    while True:
-        tick = time.monotonic()
-        values = {wDef['id']: inst.action() for wDef in widgets}
-        if values:
-            socketio.emit('realtime_update', {'ext': ext_id, 'values': values})
-        next_tick = max(next_tick + interval, tick + interval)
-        remaining = next_tick - time.monotonic()
-        if remaining > 0: time.sleep(remaining)
-```
+`realtime_broadcast()` starts one daemon thread per extension with `"realtime": true`, `refresh_interval > 0` and widgets. Each thread keeps fixed cadence with `next_tick = max(next_tick + interval, tick + interval)`, so a slow iteration never accumulates drift and never blocks other extensions. Widget actions inside one tick run **concurrently** on a per-poller pool (`websocket._run_action`): serially, the slowest widget held the whole tick and fast ones sat on `--` for seconds. The frontend applies values in `core.js`; extensions marked `realtime: true` are skipped by the HTTP poller. Poller threads must honour the restart drain (pitfall 26).
 
-Benefits:
-- Each extension updates at its own pace without blocking others.
-- `next_tick` maintains fixed cadence even if a single iteration takes longer than the interval.
-- No accumulated drift.
+A poller exits when its widget is hidden in every scene, so `loader.py` runs a `poll-supervisor` thread that restarts the ones whose widget became visible again (`resume_hidden_polls`, gated on `_poll_exit_reason` so a poller that died for any other reason is left alone). There is no endpoint to tell the backend about visibility: scene switches, unhide and adding a widget to a scene all change it silently.
 
-The frontend (`core.js`) iterates `data.values` and looks for `[data-widget-id="{id}"][data-ext-id="{ext}"]` elements.
+## Startup and appearance
 
-Extensions with `"realtime": true` in `extension.json` make the core skip HTTP polling (`startWidgetIntervals` skips those with `realtime: true`).
+The initial extension load waits on a gate opened by the first `GET /api/extensions`, with `LOAD_START_TIMEOUT` as a fallback for minimized mode (no frontend to ask). Without the gate the extensions finished before the webview asked, so the host had no pending entries to reserve and every card appeared in one frame.
 
-SocketIO is configured with `transports: ['websocket']` on the client to avoid HTTP polling and eliminate accumulated TIME_WAIT.
+`GET /api/extensions` reports not-yet-loaded extensions with `pending: true` and their real manifest, using `loader.pending_manifests()` — which shares `_scan_candidates()` with `load_extensions()` so it can never promise a load that will not happen. The host renders `createPlaceholderCard()` for those and swaps the real card in place, never growing the grid. `cfApplyAppearAnimation()` plays the host-owned entrance (`components.css`), staggered by grid position via `CF_APPEAR_STAGGER_MS`; extensions may name one with `appear_animation`, they cannot define their own. Skeletons honour `CF_PLACEHOLDER_MIN_MS` so a fast extension does not turn them into a flicker.
 
-## Extension System
+## Menus and hooks
 
-### Minimum structure
+`registerMenuHook(extId, action, fn)` registers a sidebar panel handler. `menu.js:executeMenuAction` runs the hook when one exists, otherwise it falls back to a generic fetch and renders the JSON. `click_action` on `badge` / `text` / `list` widgets wires the same path.
 
-```
-extensions/my_extension/
-├── extension.json        # Metadata, widgets, js_modules, css_modules
-├── main.py               # Extension class with methods per action
-└── static/
-    ├── script.js         # (optional) Extension-specific frontend logic
-    └── style.css         # (optional) Extension-specific styles, prefixed .ext-{id}
-```
+## Widgets
 
-### extension.json
+Generic sub-widget types: `text`, `badge`, `list`, `chart`, `terminal`, `button`. Data arrives through `updateWidgetValue(el, response)` in `widgets/05-value.js`. Per-type payload shapes, the full `extension.json` reference and the HTTP API are in `docs/EXTENSIONS.md`.
 
-```json
-{
-  "id": "my_extension",
-  "name": "My Extension",
-  "icon": "icon-name",
-  "version": "1.0",
-  "author": "",
-  "category": "general",
-  "realtime": false,
-  "refresh_interval": 5000,
-  "js_modules": ["script.js"],
-  "css_modules": ["style.css"],
-  "menu_items": [
-    { "action": "do_something", "label": "Do something" }
-  ],
-  "widgets": [
-    { "id": "my_widget", "type": "text", "label": "My Widget", "action": "my_action" }
-  ]
-}
-```
+## API
 
-- `realtime` (bool): if `true`, the core skips HTTP polling for this extension (handled by WebSocket).
-- `js_modules`: array. The core loads each module via dynamic `<script>` from `/ext-static/{id}/{mod}`.
-- `css_modules`: array. Each extension MUST use its own CSS for specific styles. Do not inject into core files.
-- `menu_items`: sidebar entries. `action` maps to an `Extension` class method or a hook registered via `registerMenuHook`.
-- `widgets`: grid widgets. The action is called as `/api/extension/{id}/{action}`.
+- `GET|POST /api/extension/<id>/<action>` — extension actions (`GET` = no args, `POST` = JSON body as `data`).
+- `GET /api/extensions` — registry, `GET /api/extensions/<id>` — detail, `POST /api/extensions/<id>/load|unload` — process control.
+- `GET /api/scenes`, `POST /api/scenes/activate`, `GET|PUT /api/scenes/<id>` — scene layout.
+- `GET /api/widget-state` — grid placement.
+- `GET /ext-static/<id>/<path>` — extension assets, immutable caching for images, `no-store` for `.js`/`.css`/`.html`.
+- `GET /ext-data/<id>/<path>` — extension data dir, only when the manifest sets `serve_data`, with Range/206 support.
 
-### main.py
-
-```python
-class Extension:
-    def __init__(self, config):
-        self.config = config
-
-    def my_action(self):
-        return {"value": 42}
-```
-
-Methods can receive `GET` (no args) or `POST` (with `data` from JSON body). They always return a serializable dict.
-
-### CSS Naming
-
-Extensions use prefixed classes `ext-{id}` to avoid collisions:
-- `ext-system_monitor` → `.ext-system_monitor .widget-body`
-- `ext-network_monitor` → `.vpn-panel-body`, `.net-inspector-body`
-- `ext-process_manager` → `.ext-pm-modal-body`, `.ext-pm-modal-table`
-
-### Widget click_action
-
-Widgets of type `badge`, `text` and `list` can include `"click_action"` in `extension.json` to open the corresponding menu panel on click. The core (`widgets.js:createSubWidget`) assigns the listener automatically when it detects the field.
-
-```json
-{ "id": "vpn_status", "type": "badge", "label": "VPN", "action": "vpn_status", "click_action": "vpn_control" }
-```
-
-The core exposes `window.extensionsData` globally (`core.js`) so the click handler can resolve the panel.
-
-### Widget types (generic core sub-widgets)
-
-| type | Description | Expected Data |
-|------|-------------|---------------|
-| text | Simple value (e.g. IP) | string or number |
-| badge | Status with 2 colors (ok/warn) | `{ status, text }` |
-| list | Item list | `[{ label, value }]` |
-| chart | Sparkline with history | number |
-| terminal | Raw output with monospace font | string |
-| button| Action button | — |
-
-Updated data arrives via `updateWidgetValue(el, response)` which parses `response.value` based on the element's `data-type`.
-
-### Extension JS load cycle
-
-1. `DOMContentLoaded` → `apiFetch('/api/extensions')` → `extensionsData = data`
-2. `buildSidebar(data)` → renders menu + hooks
-3. `renderWidgets(data)` → renders cards with sub-widgets (uses `widgets.js`)
-4. `loadExtensionAssets(data)` → dynamically loads `js_modules` and `css_modules`
-5. The extension script runs and can:
-   - Register hooks: `registerMenuHook(extId, action, fn)`
-   - Initialize state: variables, intervals, event listeners
-   - Use global `extensionsData` (already populated) or the `waitForInit` pattern
-
-### Auto-start pattern for extension JS
-
-```js
-(function waitForInit() {
-  if (typeof extensionsData !== 'undefined' && Object.keys(extensionsData).length) {
-    initMyExtension();
-    setInterval(refreshMyExtension, 3000);
-    return;
-  }
-  setTimeout(waitForInit, 200);
-})();
-```
-
-### Network Monitor specifics
-
-- **Transport:** WebSocket (migrated from HTTP polling). Uses `"realtime": true` in extension.json.
-- **VPN panel:** renders instant skeleton, loads config → status → providers in parallel
-- **VPN cache (`_vpnCache`):** Pre-fetched promises when the script loads; the panel reuses already resolved promises. The backend caches VPN detection for 30s (`_detect_vpns()` in `main.py`).
-- **PID → Process name:** `_pid_name_map()` runs `tasklist /NH /FO CSV` (single call per refresh) instead of `psutil.Process()` per PID (avoids access-denied + race conditions on Windows).
-- **Connection tabs:** two tabs (Incoming/Outgoing) in `#net-tab-content`, rendered with `renderTable()` helper.
-- **Sorting:** outgoing connections sorted: those with processes first, `(pid:…)` entries last.
-- **Pagination:** 200 rows by default, "See more" button that expands to all (via `showingAll` flag + re-render). Resets to 200 when switching tabs.
-- **Click action widgets:**
-  - VPN badge → `"click_action": "vpn_control"` → opens VPN panel
-  - Open ports → `"click_action": "show_ports_panel"` → opens panel with ports + connections
-
-### API
-
-- `GET /api/extensions` → list of extensions with metadata, widgets, js_modules, css_modules
-- `GET /api/extension/{id}/{action}` → executes action (GET)
-- `POST /api/extension/{id}/{action}` → executes action with body data
-- `GET /ext-static/{id}/{path}` → serves files from `extensions/{id}/static/`
-
-All `/api/*` routes require `X-CoreFrame-Token` (obtained from `/api/token`).
-
-## Process Manager (reference)
-
-- **CSS prefix:** `ext-pm-` (hidden floating panel), `ext-pm-modal-` (fullscreen modal)
-- **IDs:** `ext-pm-panel` (hidden via CSS), `ext-pm-toggle`, `ext-pm-search`, etc.
-- **JS:** `extensions/process_manager/static/script.js` (loaded via `js_modules`)
-- **CSS:** `extensions/process_manager/static/style.css`
-- **Hook:** `registerMenuHook('process_manager', 'get_processes', fn)` that opens the modal from the menu
-- **Real icons:** extracted via `ctypes` (CreateDIBSection + DrawIconEx) + Pillow in the backend, cached with LRU of 256 entries
-- **Grouping:** processes grouped by name (like Windows Task Manager). Group header row with `▶` expand arrow, children rendered inline with `display:none` when collapsed.
-- **Click behavior:** single click on group header → expand/collapse; double click on child row → context menu with details + End Task.
-- **Icon cache:** `_iconCache` keyed by **process name** (not PID). Only one API call per name via `get_icon_by_name` endpoint. Group header and children share the same icon.
-- **Kill group:** multi-process group headers have `✕` button that kills all instances with confirmation (`killGroupProcesses`). Single-process rows have individual `✕`.
-- **Auto-refresh:** 3s interval via `setInterval(refreshProcessPanel, 3000)`. State preserved across refreshes via `_expandedGroups` and `_iconCache`.
-- **Modal:** `showProcessManagerModal()` opens fullscreen overlay with grouped table, sortable columns, search filter.
+All `/api/*` routes require the `X-CoreFrame-Token` header (fetch it from `/api/token`).
 
 ## Security
 
-- Bind to `127.0.0.1` (no external access)
-- CORS restricted
-- SHA-256 token generated at startup, required on all API calls
-- `Connection: keep-alive` on HTTP responses (asset serving)
-- SocketIO with `transports=['websocket']` on server and client — zero HTTP polling
+- Binds to `127.0.0.1`; CORS limited to the local origin.
+- Single instance: the host probes `/api/token` at startup, brings the existing window to the front and exits if a server is already alive. Skipped for `--ext-runner` children.
+- SHA-256 token generated at startup, required on every `/api/*` call.
+- Static assets served with `Connection: keep-alive`; SocketIO is `websocket`-only on both ends.
 
 ## Known pitfalls
 
-1. **Restart loop with `debug=True`:** writing `extensions.json` triggers Flask reloader to restart. Fixed: only write if content changed (`app.py:182-193`).
-2. **Missing Pillow in venv:** `process_manager` fails silently without `PIL`. Listed in `requirements.txt`, `run.bat` installs it automatically.
-3. **Outdated server:** old server doesn't reflect file changes. Kill process and restart.
-4. **Browser cache:** after changes, Ctrl+F5.
-5. **Duplicated CSS Modules:** if an extension is disabled, its `css_modules` is not loaded (the core iterates active extensions). No automatic cleanup of orphaned styles in the DOM.
-6. **`psutil.Process(pid).name()` fails with access-denied on Windows for some system processes.** Solution: use `tasklist /NH /FO CSV` and parse CSV, don't call `psutil` per PID.
-7. **VPN status slow (>30s) if external providers are called without cache.** Solution: `_vpnCache` with pre-fetched promises when script loads; panel reuses already resolved promises.
-8. **"See more" button didn't expand:** `showTab()` reset `showingAll = false` at start, overwriting the flag. Solution: `expand` parameter in `showTab(tab, expand)` that skips the reset.
-9. **TIME_WAIT accumulated from HTTP polling:** each widget opened a new HTTP connection. Solution: migrate to generic WebSocket (`realtime_broadcast()` in `app.py`). All extensions with `"realtime": true` use the persistent socket. Zero periodic HTTP connections.
-10. **SocketIO polling transport:** by default SocketIO uses `['polling', 'websocket']`, starting with HTTP polling → TIME_WAIT. Solution: force pure WebSocket on client (`transports: ['websocket']`).
-11. **`refresh_interval` in ms vs seconds:** the interval in `extension.json` is in milliseconds, but `time.time()` returns seconds. Using `interval` directly as seconds caused system_monitor (2000ms) to update every 2000s instead of every 2s. Solution: divide by 1000 (`interval / 1000.0`).
-12. **Single blocking thread:** the original `realtime_broadcast` loop processed all extensions sequentially. If `get_open_ports` took 3s, it froze system_monitor. Solution: one daemon thread per extension (`_poll_extension`).
-13. **Timing drift:** fixed `time.sleep(1)` + loop overhead accumulated delay. Solution: `next_tick = max(next_tick + interval, tick + interval)` which maintains fixed cadence even if an iteration takes longer.
-14. **Restart button spins forever:** old `setTimeout(() => location.reload(), 1000)` assumed server is back in 1s, but restart + extension loading can take 5-30s. Solution: poll `/api/token` every 1s until the server responds, then `location.reload()`.
-15. **Child rows not expandable:** `renderPanelGroupRows`/`renderWidgetGroupRows` only rendered children when `isExpanded` was true. On click, no DOM existed to show. Solution: always render children with `style="display:none"` when collapsed, toggle via inline style.
+1. **Restart loop with `debug=True`:** writing `extensions.json` triggers the Flask reloader. Fixed by writing only when content changed (`coreframe/app.py`, registry save).
+2. **Missing Pillow:** extensions using PIL fail at import with a cryptic `_imaging` error. It ships in `requirements.txt` and in the frozen bundle; a `lib/` directory holding a *different* Python's wheels is the usual cause — reinstall the dep with the same interpreter the children run (`py -3.13 -m pip install --target ...`).
+3. **Outdated server:** an old process does not reflect file changes. Kill it and restart.
+4. **Browser cache:** after frontend changes press Ctrl+F5. Extension JS/CSS also serve `no-store` with a `?v=<boot-timestamp>` cache buster — a stale bundle looks exactly like "the fix didn't work".
+5. **Duplicated CSS modules:** a disabled extension's `css_modules` is not loaded and orphaned styles stay in the DOM. No automatic cleanup.
+6. **`psutil.Process(pid).name()` raises access-denied** for some system processes on Windows. Use `tasklist /NH /FO CSV` instead of per-PID calls.
+7. **Slow first paint when a panel fetches everything up front:** prefetch into a promise cache when the script loads and reuse the resolved promises; the backend caches its own detection.
+8. **A "show all" flag reset by the tab switcher:** pass an explicit `expand` argument so switching tabs does not clear the flag.
+9. **TIME_WAIT from HTTP polling:** every widget opened its own connection. Use `"realtime": true` and the persistent socket.
+10. **SocketIO polling transport:** the default is `['polling', 'websocket']`, which starts with HTTP polling. Force `transports: ['websocket']` on the client.
+11. **`refresh_interval` is in milliseconds:** treat it as seconds and a 2000 ms widget updates every 2000 s. Divide by 1000.
+12. **Single blocking thread:** the original sequential realtime loop froze every extension when one action was slow. One thread per extension.
+13. **Timing drift:** `sleep(1)` plus loop overhead accumulates. Use `next_tick = max(next_tick + interval, tick + interval)`.
+14. **The Reload button must never wait for the restart to finish:** `POST /api/restart` drains every child and reloads the extensions, measured at 5.8 s on 2026-11-09, and the join deadline allows 10 s more when a child refuses to die. The button awaited that response before calling `location.reload()`, so the spinner outlasted the user's patience and read as "it does not reload" while the reload was in fact running. The route now answers **202 at once** and runs `_do_restart()` on a daemon thread (`_restart_worker`, which also releases `_restart_lock`), the frontend caps the call at 3 s and reloads 300 ms later. Two consequences worth keeping: the registry is cleared **before** the drain, so a page that comes up mid-restart gets `pending_manifests()` and paints skeletons instead of cards whose processes are already dying; and every caller of `/api/restart` must treat it as fire-and-forget - the restart has not finished when the response arrives.
+15. **Collapsed rows not expandable:** children were only rendered when expanded, so there was nothing to show. Always render them and toggle visibility.
+16. **Frameless flicker on startup:** `webview.create_window(frameless=False)` followed by `WindowState='maximized'` flashes a frame. Guard the timer callbacks with a flag set by the first successful `_apply_initial_frameless()`.
+17. **Native drag in frameless mode:** pywebview's `easy_drag=True` lets any area drag the window. Pass `easy_drag=False`.
+18. **Widget drag jank (superseded blanket rule):** the old `pointer-events: none` on all non-dragged cards is REMOVED — the coordinate-based engine never hit-tests, so the rule was pure full-document recalc. Only the dragged element gets `pointer-events: none`.
+19. **Drag/drop lag with heavy widgets:** `onMove` ran on every mousemove with no throttle, re-queried the grid per candidate cell, and live updates rewrote DOM mid-drag. Host-immunity protocol: `window.__coreframeDragging` + `coreframe-dragstart/dragend`, rAF-throttled moves, per-gesture geometry cache, single per-frame occupancy map, realtime queue flushed in 8 ms slices, drag via `transform` (compositor only, no deep clone), `content-visibility: auto` on cards.
+20. **pywebview `SetWindowPos` ctypes crash:** `winforms.py` passes `None` for cx/cy and ctypes rejects it → `ArgumentError` flood → WinForms congestion → `Timeout (0:00:15)!` → heartbeat failures → death. Fixed by monkey-patching `BrowserForm.move` in `run_coreframe.pyw` to pass `0`. **Any change to `run_coreframe.pyw` needs a rebuild** — the host is compiled into the exe.
+21. **Runner segfault on shutdown:** isolated runners died inside C calls during interpreter teardown because `on_stop` never ran on stdin EOF. The runner now calls `instance.on_stop()` plus a short grace in a `finally`. Extensions must join their threads and close handles there; daemon threads alone do not save you. Remember the runner source is mirrored (see [Process model](#process-model)).
+22. **`/api/restart` NameError:** the module used `jsonify` without importing it, so restart always 500'd and the user piled up manual relaunches.
+23. **NEVER create the window with `frameless=True`:** on some machines WebView2 wedges and pywebview's `loaded` never fires, leaving a half-born app (server up, no window, watchdog silent). Always `create_window(frameless=False)` and let the existing `_apply_initial_frameless()` (BeginInvoke, center-then-maximize) do the switch after the show. Manual F11 uses the same path and always works, which is why it looks like "only boot fails".
+24. **Build ONLY with Python 3.13 (`py -3.13`), NEVER 3.14:** the pre-release interpreter segfaults natively (`0xc0000005`, a different offset each time) under load. Rebuilding with 3.13 turned four crashes in three days into zero. `pip` is fine; only `npm` is banned.
+25. **The watchdog must never touch the STA synchronously:** forcing a COM property on the WebView2 control or a synchronous `Invoke` blocks forever when the STA is wedged — which is exactly the case the watchdog exists for. Post both with `BeginInvoke`. On the watchdog path, nothing may block.
+26. **A dead extension must never take down the host:** `/api/restart` used to leave realtime pollers running forever (one leak per restart per extension), kill children fire-and-forget while new ones spawned, and allow concurrent restarts. Now: `loader.stop_all_polls()` with per-tick re-resolution of the stop event, error logs throttled to 1/60 s, restart serialized under a lock (409 when busy) with a bounded parallel drain before reload, and health backoff plus session quarantine. `bridge` also reaps children that were spawned before a failed handshake. **On the restart path, stop everything old before starting anything new.**
+27. **One widget must not jank the UI:** extension JS and data share the host's main thread. The core coalesces realtime per extension (250 ms, latest wins), hashes huge values cheaply (length + head + tail past 200 KB), caps lists at 300 rows and the terminal at 100 KB. A synchronous infinite loop in widget JS is *not* fixable from the core (only iframe sandboxing would); that is the accepted risk of the trust model.
+28. **The segfault site was the traceback printer:** export-table forensics put every crash at `PyTraceBack_Print+0xC` — the process died while *printing* a traceback, with all threads idle. `faulthandler.dump_traceback_later(15, repeat=True)` walked every thread through frame printing forever. Never run repeating full-stack dumps in production: a single-shot boot net plus sparse rotating snapshots (`stacksnap*.log`) is enough.
+29. **Never ask "is this widget hidden?" by reading `style.display`:** `display:none` drops the box tree and Chromium discards the decoded images with it, so revealing a heavy widget pays a full re-decode. Measured: a 16-photo gallery cost `paint_ms` 824–1085 on **every** scene switch while the core's own commit was 1.9 ms, with zero backend calls (pure raster/decode). Off-scene widgets move off-viewport with `.cf-offscene` (keeps the decode, skips raster, touches no inline style — drag owns `transform`). Contract: **`cfHidden(el)` / `cfHide(el)` / `cfShow(el)`** in `00-state.js`; a widget that must be torn down opts out with `"keep_alive": false`. Adding a new `style.display` read on a widget is the bug.
+30. **PowerShell 5.1 corrupts UTF-8 on round-trips:** `Get-Content | Set-Content -Encoding UTF8` injects a BOM and re-encodes every non-ASCII character as mojibake (an em dash becomes three bytes of garbage), and byte-slicing a file with `Out-File` shifts offsets. It has silently broken `Cargando aplicación...` on the splash and 88 lines of Python. Edit with the editor tools, write with an explicit `UTF8Encoding($false)`, and scan the result for BOM/mojibake before committing — never quote the corrupted bytes inside a file you are about to scan.
+31. **`diff` in PowerShell is `Compare-Object`, not a diff:** it reported "0 differences" between two files that differed by 27 real lines. Never trust it for change detection — use `git diff --no-index`, or do the comparison in Python with the same decoding the real consumer uses. And validate measurements, not just that the script ran. The nastier version of this bug is a **verification script whose cache is keyed too coarsely** (a per-file count instead of per-pattern): every later assertion then compares against a stale number, passes without ever looking for its own pattern, and the `replace` becomes a silent no-op. Key assertions to the exact thing being asserted, and re-read the file afterwards to confirm the new text is there.
+32. **A dead poller with live values looks healthy everywhere:** `_socketio` lived on the `ExtensionIsolation` instance, and `/api/restart` re-ran `__init__()` on it, which reset the handle to `None` while pollers kept filling `latest_update`. Every signal said fine and no client received anything. `_do_restart` now re-binds the handle, `/api/debug/pollers` reports `socketio_bound`, and a missing handle logs once per poller instead of failing silently.
+33. **`extension_restart` had no listener:** `_schedule_restart` only emitted an event, so a degraded extension sat in `loading` forever — `_check_health` inspects healthy/degraded/dead, so it was never retried and never quarantined. The reload now happens server-side, and `start_load` takes `restart_count`/`quarantined` so a fresh `ExtensionHealth` cannot reset the `MAX_RESTARTS` budget.
+34. **Dynamic `<script>` injection has no order:** `document.body.appendChild(script)` makes a classic script async by default, so `js_modules` ran in fetch-completion order and cross-file references hit `ReferenceError` depending on timing. `script.async = false` in `loadExtensionAssets` and the install path restores declaration order.
+35. **Exit reasons are matched by prefix:** a poller stopped by a hidden widget records `hidden in every scene`; an equality test against `hidden` never matched and the supervisor resumed nothing, leaving the widget frozen while looking correct.
+36. **The core must not drive a `js_modules` widget:** `refreshAllWidgets` and `startWidgetIntervals` both skip extensions whose JS owns the content. The guard existed in the first and was missing in the second, so a JS extension had its rendered table overwritten with the raw action payload every refresh.
+37. **Split frontend files, but keep every symbol global:** `app.js` and `widgets.js` are now directories of numbered modules loaded by `index.html` in order. They stay classic scripts sharing one global scope, so each top-level `let`/`const`/`function` must be declared in exactly one module — a name declared twice is a `SyntaxError` that kills the whole page, and the modules never define anything as `window.*` except the hooks extensions call. Renaming a symbol means editing every consumer, so prefer splitting over renaming.
+38. **A cached `index.html` outlives the file layout it names:** after splitting, a window that still holds the old shell requests the removed `app.js` and gets a 404 with no visible error. Reload the window once after any change to the script tags.
+
+39. **`coreframe/__init__.py` is lazy on purpose (PEP 562):** it resolves `app` / `socketio` / `start_server` on first attribute access. Importing a leaf module such as `coreframe.config` used to drag in Flask and cost 4.9 s, which is why the launcher carried its own copy of the `DATA_DIR` resolution. It is 275 ms now. Two copies of that path once risked the launcher and the server writing to different directories; `DATA_DIR` has exactly one source, `coreframe/config.py`.
+40. **Promoting a placeholder keeps the skeleton element, so the real card's presentation is lost:** `addExtensionToUI` builds the finished card and then swaps only its `.widget-body` into the existing node. The skeleton has a fixed `className`, so `ext.scroll`, `widget-overlayable`, `data-overlayable` and the `gridColumn`/`gridRow` of the real card never reach the DOM. `scroll: "y"` silently did nothing for any extension that showed a skeleton first — which is why it worked when running from source and not from the exe, since the boot timing decides whether the card is built directly or through a placeholder. Copy the card-level class, geometry and overlay dataset from the new card before swapping the body.
+41. **The embedded runner block is generated:** `_EXT_RUNNER_SOURCE` in `run_coreframe.pyw` is rewritten by `tools/sync_ext_runner_source.py`. Editing it by hand is lost on the next run, and CI's `--check` fails the build. Edit `coreframe/extensions/ext_runner.py` instead (pitfall 20, [Process model](#process-model)).
+42. **The window-management core stays in `run_coreframe.pyw` on purpose:** its functions share live state (`window`, `_current_mode`, `_boot_mode_applied`) through module globals, so splitting it means a state-namespace refactor that would have to be verified against the frozen exe, not just the source tree. The self-contained helpers moved to `coreframe/host/` instead and are bound under their original names, so all 43 `_trace` call sites are unchanged. Split the rest only behind a cold-boot test of the built exe.
+
+43. **The child pipes had no encoding pinned, so `·` became `�`:** the child's `sys.stdout` encodes with the ANSI codepage (cp1252, measured) while `Popen(text=True)` without `encoding=` decodes as UTF-8 with `errors='replace'`. Every non-ASCII character an extension returned was replaced by `U+FFFD` — `100% � 3200 DPI`, `MSD-ONE � Main` — with no error logged anywhere, and the extensions were blameless. Measured with a three-line `Popen` probe: the raw byte on the wire was `\xb7`, decoded back as `\ufffd`. Pin UTF-8 on both ends; the child half is mirrored, so re-run the sync tool.
+44. **`--` does not always mean "no value":** `formatValue` collapsed any object without a `label` to the empty marker, so a widget whose action answered with a real payload (`get_config` returning a settings dict) looked exactly like a timeout or a dead extension. A structure in a `text` widget now renders as key/value rows — `.list-item` markup, 12 rows max then `+N more`, every value HTML-escaped, nested objects as truncated JSON — and `chart` keeps its single line. An object with `label` is unchanged. Test it with a node stub against the real file: `node --check` passes a module whose global is simply missing.
+45. **A `stderr=subprocess.PIPE` with no reader is a deadlock, not a log:** `bridge.py` only reads the child's stderr after the process has exited, and a Windows pipe buffer is finite. An extension that writes more than it (a library printing warnings in a loop) blocks on the write and dies as "unresponsive" instead of "noisy" - same failure shape as the poller leaks in pitfall 26, and it will read as an extension bug. Not fixed yet: drain it on a daemon thread into a bounded buffer and log the tail.
+
+46. **Windows will not rename an extension directory while a runner holds it as its cwd:** `SubprocessBridge` starts the child with `cwd=ext_path`, so while that process lives the directory is locked and `os.replace(dir, backup)` dies with `WinError 32`. Stopping the tracked instance is not enough: an initial `load_extensions()` that races with an install leaves an orphan runner nobody owns any more, and the update fails right after the download - old version intact, no update. `_kill_locks()` in `routes/marketplace.py` walks `SubprocessBridge._live_children`, asks `psutil` for each cwd and kills the ones inside the target; the rename then retries six times. Same family as pitfall 26: stop everything old before touching files. Two more rules for that path: a `main.py` with no class named `Extension` fails the load with `Module has no Extension class`, and a replacement that fails must **reload** the restored version - putting the files back without loading them leaves the user with a dead extension. Measured 2026-10-22 on a fixture extension.
+
+47. **`disabled` is user state and must not live in the generated registry:** `extensions.json` is rewritten on every boot by `_save_registry()` and by every install/version path, and a write that is not atomic (`open(path, 'w')` truncates first) leaves an empty file. On 2026-10-22 10:45 that file was unreadable, the boot healed it from the manifests (25 entries), and `audio_recorder`, `msd_deck`, `overlay_windows` and `spotify_player` - disabled since 2026-10-15 - all came back and started by themselves. The flag now lives in `extensions.state.json` (`coreframe/extensions/state.py`), written atomically with a `.bak`, migrated automatically from the old registry, and never rebuilt from memory; `extensions.json` only mirrors it for readers. Rules: never write that JSON with `open(path, 'w')` (use `state.write_json`), never treat an unreadable registry as empty when overwriting (`read_json_status`), and never read the flag back from the file being rewritten. Complement: `/api/extensions` now also lists directories that carry `extension.json` but no `main.py` with a `loadError`, because they used to disappear from every surface while still sitting on disk.
+
+48. **A version switch of a legacy manifest used to roll itself back:** a published build without a `permissions` field is not a broken build - the loader parks it in `pending_migration` and returns `False`, which `_bg_install_mkt` read as a failure, restored the backup and left `loadError` empty, so the log said only `Install of ... failed: Unknown error` and the manifest still showed the old version. Legacy and level-bump refusals are now prompts: keep the new files, record the version, emit `needs_migration` / `needs_consent`, and let `permissions.js` drive the modal. The zip wrapper is the directory holding `extension.json`, stripped only when **every** entry lives under it - the old "first path segment of the first slashed entry" rule read a flat archive's `formats/__init__.py` as a wrapper and flattened `formats/*.py` into the extension root. Measured 2026-10-22 on `metadata_stripper` 1.1 → 1.0 → 1.1 on the frozen exe.
+
+49. **The bridge waited for its child by polling:** `_call` re-read `_read_buffer` every 10 ms, so a trivial action cost 10-12 ms of dead time and every in-flight call kept a 100 Hz loop alive. The reader thread now publishes the reply into a `Condition` (`_resp_cv`, built on `_reader_lock`) and the caller waits on it, so the bridge costs ~2 ms: measured on the i5-8250U, `/api/token` 6.5 ms for a bare request, `get_status` 8.3 ms through the child, and an idle `pty_poll` (thread-pool path) 15 ms. When an action looks slow, measure the three layers separately - HTTP floor, inline child call, pooled child call - before touching the extension.
+
+50. **A minimized window kept the whole renderer alive:** `window.minimize()` only sets `WindowState = Minimized`, so the renderer stayed fully resident (measured 212 MB private on a fresh boot, the bulk of a 412 MB WebView2 tree). WebView2 releases it only through `CoreWebView2.TrySuspendAsync()`, which refuses with `ERROR_INVALID_STATE` unless the controller is invisible, and pywebview exposes neither the controller nor suspend. Four invariants, all verified on the frozen exe 2026-10-24: (a) `CoreWebView2Controller` is not public on the WinForms wrapper - `WebView2` has `CoreWebView2` but no `CoreWebView2Controller`, so it is reached through the private field `_coreWebView2Controller` by reflection, with `ctl.Visible = False` as fallback; (b) **every touch of `CoreWebView2` must run on the STA thread** - off it, the accessor throws `CoreWebView2 can only be accessed from the UI thread` wrapping `E_NOINTERFACE`, which is exactly what `webview.start()`'s callback thread does; go through `BeginInvoke`, never call `TrySuspendAsync` from the worker; (c) `Task<bool>` is awaited on a daemon thread (`Wait(4000)` + `IsCompleted`), never on the UI thread, and a `False`/timeout is normal, not an error; (d) minimize/restore can cross, so a generation counter (`_renderer['gen']`) invalidates a suspend that is still in flight - without it a restore inside the 4 s window leaves the state stuck at `asleep` and every later minimize silently does nothing. Result: renderer 212 -> 93 MB and tree 412 -> 248 MB while minimized, back to 113/360 MB on restore; a 65 s suspend drops the socket (`/api/health` clients 1 -> 0) and the client reconnects on resume (1 again), extensions untouched. **Consequence for the wake path:** a suspended renderer runs no JS, so `/api/window/focus` cannot rely on the `focus_window` socket relay - that route is also the second-instance handshake, so double-clicking the shortcut while minimized did nothing. The host now registers `_focus_callback` on `coreframe.app` (same pattern as `_shutdown_callback`) and the route wakes the window from Python before emitting the socket event.
+
+51. **A stale `TCL_LIBRARY` makes PyInstaller think tkinter is missing:** the build died with `Your platform does not support the splash screen feature, since tkinter is not installed` while `py -3.13 -c "import tkinter"` worked fine. `PyInstaller.utils.hooks.tcl_tk._get_tcl_tk_info()` runs `tkinter.Tcl()` in an isolated subprocess, so an inherited `TCL_LIBRARY`/`TK_LIBRARY` pointing at a frozen run's `_MEIxxxxxx\_tcl_data` (that folder is deleted on exit, or never had `init.tcl`) raises `TclError`, which the helper reports as "tkinter unavailable" - and the message names the wrong culprit. Clear both variables in the same shell that runs PyInstaller, and check `Test-Path "$env:TCL_LIBRARY\init.tcl"` before blaming the interpreter.
+
+52. **Restoring a maximized window fires `maximized`, not `restored`:** the renderer sleep worked, but the window came back **blank** and only the title bar's maximize/restore button brought the content back. `on_resize` raises `restored` only when `WindowState == Normal` and the previous state was Minimized/Maximized; this app runs maximized (`GetWindowPlacement` showCmd = 3), so a taskbar restore lands on **Maximized** and only `maximized` fires. The wake handler was bound to `restored` alone, so `_renderer_awake` never ran, the controller stayed `IsVisible = False`, and the user saw an empty rectangle. Clicking the maximize button forces Normal → `restored` → wake, which is exactly why only that button worked. Bind the wake to **both** events (a Normal-state window still uses `restored`). Two things this bug settled, both measured on the frozen exe: `Resume()` + `IsVisible = True` **is** enough to repaint - `POST /api/window/focus` restored the content with no resize at all (7 flat colours / sd 4.8 → 305 colours / sd 40.6), so no bounds nudge or `NotifyParentWindowPositionChanged` is needed; and the renderer does resume on its own when the window comes back (the socket reconnected), so a blank window does **not** prove the renderer is still asleep. Verify this class of bug by screenshotting the window rect and comparing colour count / luminance deviation, not by reading the log: the log looked healthy while the window was empty.
+
+53. **One `setInterval` per widget is a denial-of-service at scale:** `startWidgetIntervals` used to arm a timer per widget (default 5 s), so 1000 widgets = 200 fetches/s whether anyone was looking or not, plus per-wake DOM writes across the whole grid. Replaced by a single shared scheduler in `static/js/app/06-poller.js` (`cfPollRebuild` / `cfPollRun`). Rules: (a) only widgets whose card intersects the viewport are fetched (`IntersectionObserver` with a 400px margin); (b) nothing fires while the window is hidden or mid-drag; (c) an untouched on-screen card decays to a slow lane after `CF_POLL_IDLE_AFTER_MS` and caps at `CF_POLL_IDLE_MAX_MS`; (d) touching a card restores full cadence and refreshes it on the spot, so interaction is instant because the DOM is already there; (e) realtime extensions are pushed by the socket and are not polled over HTTP at all; (f) `js_modules` extensions are never touched by the scheduler — they own their cards (pitfall 36). Any new widget-refresh code must route through `refreshWidget` (which consults `cfPollGate`) and never arm its own `setInterval` on a widget.
+
+54. **Loading every extension's CSS/JS at boot is the scaling wall, not the DOM:** measured in headless Chromium (Edge 156), 3.000 cards build in 127 ms, lay out in 144 ms and hold 15k nodes, so the DOM is not the problem; the stylesheets are. 1.000 extension sheets cost 412 ms and 3.000 cost 8.1 s - superlinear, because every sheet is a fresh style recalculation over the whole tree. Hence `static/js/app/03-assets.js` loads an extension's assets only when its card approaches the viewport (one shared `IntersectionObserver`, `rootMargin: '150% 0px 150% 0px'`), and `switchScene` calls `cfPrefetchAssets(ids)` so the incoming scene does not wait a frame. Rules: never load assets for a card you are not about to show, never reintroduce a "load everything then hide it" pass, and keep the skeleton up while the assets are deferred - `cfLoadExtAssetsNow` re-marks the loading state if the 8 s failsafe already cleared it. Four related pieces of the same scale pass, each one O(n) where the old code was O(n²): `cfFeatherReplace()` coalesces `feather.replace()` (one full-document scan per card before); `cfWatchForFirstPaint` shares one `MutationObserver` and one sweep timer instead of one of each per card; `CF_APPEAR_MAX_ANIMATED` caps entrance animations at 48 cards per build; and `cfIdleObserver` pauses CSS animations on off-screen cards. **Do not apply `loading="lazy"` to images an extension paints** - an extension that draws an `<img>` into a canvas gets a late load and a blank canvas for good; use `decoding="async"` there and reserve `lazy` for core-drawn icons. Finally, the health poll backs off (`cfHealthSchedule`, 1 s while loading, 5 s settled): a 1 Hz `/api/extensions/health` returns one entry per extension and is the heaviest thing an idle dashboard does.
+
+55. **An `IntersectionObserver` created and disconnected in the same task never delivers again, and the gate it feeds deadlocks the poller:** `cfPollRebuild` called `cfPollObserver()` and then `cfPollRegisterAll()`, whose first act is `cfPollReset()` → `disconnect()`. The reference stayed cached, so `cfPollObserver()` kept returning the corpse and every later `observe()` was a no-op. Consequence, measured on the live window 2026-11-05: `cfPollStats()` reported `hot: 0` for twenty cards - seven of them plainly on screen - `lastAgo: null` on every entry, and `system_monitor` / `network_monitor` frozen on `--` and `Loading...`. `cfPollGate` returns `!!e.hot`, so a card that is never `hot` never makes its first request; realtime extensions suffer the same way because `cfPollStore` parks their socket values in `pendingValue` until `cfPollSetHot` flushes them. Forcing `unobserve` + `observe` on one card turned `hot` 0 → 4 and painted the values instantly, which is the tell. Two rules: (a) **never keep a disconnected observer** - `cfPollReset` now sets `cfPollIO = null` so the next `cfPollObserver()` builds a fresh one; (b) **never make correctness depend on the observer firing** - Chromium only queues an entry when it computes an intersection, and it skips that while the window is occluded or before the first render, so a boot behind another window can leave the observer silent forever with nothing to notify. Visibility is settled from geometry (`cfPollVisible`, one layout for the whole batch), applied in `cfPollObserve`, re-settled in `cfPollInvalidateScene` after a switch, and recomputed by the debounced `cfPollRecheck` on `resize` and `visibilitychange`. `.cf-idle` uses the same fallback (`cfIdleApply`), or an off-screen card stays paused after coming back.
+
+56. **A laptop suspend degrades the whole fleet and quarantines it for the session:** `_monitor_loop` measures with `time.monotonic()`, which keeps counting while the machine sleeps, and `MAX_HEARTBEAT_AGE` is 60 s. The first tick after a resume therefore sees every heartbeat hours old, marks the whole fleet degraded at once, auto-restarts it on a machine still warming up, and any extension already at `MAX_RESTARTS` is quarantined - permanently, because nothing ever clears the flag. Log 2026-11-10: nothing between 09:28 and 10:03, then 25 lines at 10:03 and 23 at 10:26, all of them `heartbeat timeout` / `quarantined`; `/api/extensions/health` reported 15 dead out of 20 while those same extensions answered `/api/extension/<id>/<method>` in milliseconds. Two rules: (a) **a long monitor tick is a suspend, not a death** - `_check_health(gap)` compares consecutive ticks and, past `SUSPEND_GAP` (30 s), re-stamps `last_heartbeat` and shifts `last_restart_attempt` by the gap instead of degrading; a child that really died while the lid was closed still times out 60 s later; (b) **quarantine must be revocable** - a heartbeat from a quarantined extension now clears the flag and the restart budget, because a process that is still talking never died. Verified by suspending the real process with `NtSuspendProcess` for 96 s: `monitor tick gap 96s (suspend/resume), 20 heartbeats re-stamped`, zero timeouts, zero quarantines.
+
+57. **A budget below the method's real cost is a permanently red widget:** `bridge.call` hardcoded `get_processes` at 4 s while the extension needs 6-12 s to walk the process table, so the call could never succeed and every visible poll painted `Timeout: get_processes no responde (4.0s) - widget en degradado`. Measured 2026-11-09 and 10: 4144 ms with the error; with a 30 s budget the same call returns 25-44 KB in 8.6-11.8 s, and 17 s on the first cold call while the page's own poll runs. Budgets now come from `_SLOW` (30 s) and, better, from the extension's own manifest - `"timeouts": {"get_processes": 20}` in `extension.json` - so the next slow method is declared by the extension instead of guessed in core.
+
+58. **A release job that swallows its own failure is a release that does not exist:** v1.1.0 was tagged, the Windows and Linux builds passed, the `release` job went green, and GitHub had no release. The default `GITHUB_TOKEN` is read-only, so `gh release create` answered 403; the step ended in `2>/dev/null || true`, which turned `[ERROR] HTTP 403` into a zero exit code. Two rules: (a) a job whose job is to publish must have `permissions: contents: write`, because the default token cannot create a release; (b) never mask the exit code of the one command the job exists for - check `gh release view "$TAG"` first and let everything else fail the job. Verified after the fix: tag `v1.1.0` rebuilt, release published with both assets and the CHANGELOG as its body.
+
+## Related documents
+
+- `docs/EXTENSIONS.md` — authoring reference: manifest, widget types, permissions, HTTP API, publishing.
+- `docs/BRIDGE.md` — child-process protocol, config format, runner mirror, language examples.
+- `docs/EXTENSION_NOTES.md` — extension-specific knowledge kept out of this guide. Unverified snapshots: check the extension source before relying on them.
+- `CHANGELOG.md` — released changes, newest first.

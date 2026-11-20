@@ -99,9 +99,7 @@
       sw[extId] = { col: col, row: row, w: w, h: h, hidden: hidden };
       col += w;
     }
-    // NOTA: no persistir aquí — si la escena está vacía (API corruption),
-    // esto SOBREESCRIBIRÍA el fichero con datos incompletos.
-    // persistScenes solo debe llamarse cuando el usuario modifica el estado.
+    // No persist here: an empty scene would overwrite the state file.
   }
 
   if (document.readyState === 'loading') {
@@ -118,9 +116,7 @@
     if (!window.extensionsData || !Object.keys(window.extensionsData).length) return;
     if (!document.querySelector('.widget')) return;
     _applyPending = true;
-    // Snapshot which extensions exist at page load — autoAddExtensions
-    // will skip these (unless first run), preventing all widgets from
-    // appearing when only a subset was saved in the scene.
+    // Snapshot at page load so autoAddExtensions skips them and only saved widgets appear.
     if (_knownExtensions === null) {
       _knownExtensions = {};
       for (var extId in window.extensionsData) {
@@ -131,8 +127,8 @@
     s.applyHiddenState();
     s.applySavedLayouts();
     s.applyWidgetStyles();
-    var mc = document.getElementById('main-content');
-    if (mc) mc.style.visibility = '';
+    var mainContent = document.getElementById('main-content');
+    if (mainContent) mainContent.style.visibility = '';
   }
 
   function ensureApplied() {
