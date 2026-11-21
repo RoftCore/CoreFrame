@@ -153,7 +153,11 @@ function addExtensionToUI(extId, ext) {
         if (existing) {
           // The placeholder element survives the swap, so everything the real card was
           // built with (scroll, overlayable, grid size) is lost unless copied over.
+          // The rewrite also drops .cf-offscene, and the slot is already in the grid:
+          // without this, a card that belongs to another scene paints for a frame.
+          const wasHidden = typeof cfHidden === 'function' && cfHidden(existing);
           existing.className = card.className;
+          if (wasHidden && typeof cfHide === 'function') cfHide(existing);
           existing.style.gridColumn = card.style.gridColumn;
           existing.style.gridRow = card.style.gridRow;
           existing.style.minWidth = card.style.minWidth;
@@ -174,6 +178,8 @@ function addExtensionToUI(extId, ext) {
           if (!claimed) loadExtensionAssets({ [extId]: ext });
           cfMarkExtensionLive(extId);
           cfStartExtensionClocks(extId, ext, existing);
+          // Same tail as the new-card path: a swapped-in card still needs the scene state.
+          if (window.__widgetControl) window.__widgetControl.applyWidgetState();
           return;
         }
         grid.appendChild(card);
