@@ -92,6 +92,9 @@ function _createExtensionCardInner(ext) {
 function cfMarkLoadingState(card, widgetCount) {
   if (!card || card.classList.contains('cf-loading')) return;
   card.classList.add('cf-loading');
+  // One group only: the clear used to match just the first (pitfall 65).
+  var stale = card.querySelectorAll('.cf-loading-bars');
+  for (var i = 0; i < stale.length; i++) stale[i].remove();
   const bars = document.createElement('div');
   bars.className = 'cf-loading-bars';
   const count = Math.max(1, Math.min(widgetCount || 1, 6));
@@ -104,11 +107,11 @@ function cfMarkLoadingState(card, widgetCount) {
   card.appendChild(bars);
 }
 
-// Reveal a loading card once it has real content.
+// Reveal a loading card; no class guard, or a dropped .cf-loading strands its bars (pitfall 65).
 function cfClearLoadingState(card) {
-  if (!card || !card.classList.contains('cf-loading')) return;
+  if (!card) return;
   card.classList.remove('cf-loading');
-  const bars = card.querySelector('.cf-loading-bars');
-  if (bars) bars.remove();
+  var bars = card.querySelectorAll('.cf-loading-bars');
+  for (var i = 0; i < bars.length; i++) bars[i].remove();
 }
 

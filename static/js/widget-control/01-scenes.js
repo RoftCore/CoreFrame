@@ -129,8 +129,7 @@
       mark('layouts', t0);
       s.applyWidgetStyles();
       mark('styles', t0);
-      // The incoming scene is about to be on screen: fetch its deferred assets
-      // now instead of waiting for the observer's next frame.
+      // The incoming scene is about to be visible: fetch its assets now, not on the next frame.
       if (typeof cfPrefetchAssets === 'function') cfPrefetchAssets(ids);
       // State-only registration of newcomers (no DOM writes here).
       if (window.__widgetControl && window.__widgetControl.autoAddExtensions) {

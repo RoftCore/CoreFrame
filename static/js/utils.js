@@ -100,10 +100,7 @@ function getProcessIcon(name) {
   return '⚪';
 }
 
-// feather.replace() walks the whole document looking for [data-feather]. Called
-// once per card while the dashboard is built, that is O(n^2): with a thousand
-// extensions it is a thousand full-document scans. Coalescing every request made
-// in the same task into one pass keeps it O(n).
+// One feather.replace() per task: calling it per card made the boot O(n²) (pitfall 54).
 let _cfFeatherQueued = false;
 function cfFeatherReplace() {
   if (_cfFeatherQueued) return;
@@ -115,9 +112,7 @@ function cfFeatherReplace() {
   }, 0);
 }
 
-// Extension-painted images: async decode keeps the main thread clear and costs
-// nothing. loading="lazy" is deliberately NOT applied here: an extension that
-// draws an <img> into a canvas would get a late load and a blank canvas for good.
+// Decode extension images async; never lazy, or a canvas that draws one stays blank (pitfall 54).
 function cfAsyncImages(root) {
   if (!root || !root.querySelectorAll) return;
   const imgs = root.querySelectorAll('img:not([decoding])');

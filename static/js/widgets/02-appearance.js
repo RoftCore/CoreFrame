@@ -19,8 +19,7 @@ const CF_APPEAR_ANIMATIONS = {
   none: 'cf-anim-none',
 };
 
-// Entrance budget: how many cards of a grid build may animate. Reset before the
-// build, released afterwards so a card that arrives later still animates.
+// Entrance budget: how many cards of a grid build may animate. Reset before the build, released afterwards so a card that arrives later still animates.
 let cfAppearBudget = -1;
 function cfAppearReset() { cfAppearBudget = CF_APPEAR_MAX_ANIMATED; }
 function cfAppearEnd() { cfAppearBudget = -1; }
@@ -29,9 +28,7 @@ function cfApplyAppearAnimation(el, ext) {
   if (!el || el.dataset.cfAppeared === '1') return;
   // Marked before the animation: this flag stops a re-render replaying the entrance.
   el.dataset.cfAppeared = '1';
-  // Only the first screens animate. A card below the fold is not visible while
-  // its entrance plays, so the class, the stagger and the 900 ms failsafe timer
-  // are pure cost. Late arrivals (budget = -1) keep their animation.
+  // Only the first screens animate: a card below the fold pays for an entrance nobody sees.
   if (cfAppearBudget === 0) return;
   if (cfAppearBudget > 0) cfAppearBudget--;
   const requested = (ext && ext.appear_animation) || CF_APPEAR_DEFAULT;

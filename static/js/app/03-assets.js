@@ -1,13 +1,4 @@
-// ── Asset loading ─────────────────────────────────────────────────
-// An extension whose card is not near the viewport does not need its CSS or its
-// JS yet. Loading every stylesheet at boot is the most expensive thing the page
-// does at scale: measured 400 ms for 1.000 sheets and 8 s for 3.000, and the
-// curve is superlinear. The card keeps its skeleton until its assets land, which
-// is exactly what a slow extension already looks like today.
-//
-// The old light/heavy split and its 500 ms delay are gone: with demand loading
-// only the cards around the viewport load, which is the same budget the light
-// ones already used.
+// Asset loading: an extension's CSS/JS only loads when its card nears the viewport (pitfall 54).
 
 const CF_ASSET_MARGIN = '150% 0px 150% 0px';   // a screen and a half ahead
 let cfAssetIO = null;
@@ -36,8 +27,7 @@ function cfAssetObserver() {
 }
 
 function cfLoadExtAssetsNow(extId, ext) {
-  // A card can have lost its shimmer to the 8 s failsafe while its assets were
-  // still deferred. Show it again instead of an empty body while they load.
+  // The 8 s failsafe may have cleared the shimmer while assets were still deferred.
   var card = cfAssetCard(extId);
   if (card && (ext.js_modules || []).length && typeof cfCardBodyClaimed === 'function' &&
       !cfCardBodyClaimed(card) && typeof cfMarkLoadingState === 'function') {
@@ -58,8 +48,7 @@ function cfLoadExtAssetsNow(extId, ext) {
       if (ext.script_scope === 'module') script.type = 'module';
       else script.async = false;
       script.src = src;
-      // Ask for a repaint once the code has actually run: a notification sent at
-      // append time races the script, and the handler is registered while it loads.
+      // Ask for a repaint once the code has actually run: a notification sent at append time races the script, and the handler is registered while it loads.
       script.onload = function () {
         if (typeof cfNotifyCardRerender === 'function') cfNotifyCardRerender(extId);
       };
@@ -93,9 +82,7 @@ function loadExtensionAssets(data) {
   }
 }
 
-// Scene switch: the cards are about to be visible, so do not wait for the
-// observer to fire on the next frame. Also used by any caller that knows a
-// widget is about to be shown.
+// Scene switch: the cards are about to be visible, so skip waiting for the observer.
 function cfPrefetchAssets(extIds) {
   for (var i = 0; i < (extIds || []).length; i++) {
     var extId = extIds[i];

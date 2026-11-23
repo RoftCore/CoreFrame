@@ -1,8 +1,4 @@
-// ── Demand-driven widget refresh ─────────────────────────────────
-// One scheduler for every core-owned widget instead of one setInterval each.
-// Rules: only widgets in the viewport are fetched; nothing is fetched while the
-// window is hidden; an untouched card decays to a slow lane; a card that scrolls
-// back into view refreshes on the spot, so it never shows stale data for long.
+// Demand-driven refresh: one scheduler, viewport only, decayed when idle (pitfall 53).
 
 const cfPollRegistry = {};   // "ext|widgetId" -> entry
 const cfPollExt = {};        // extId -> [key], so a touch/visibility change is O(card)
@@ -23,15 +19,7 @@ const CF_POLL_IDLE_FACTOR = 4;       // slow lane = cadence * factor...
 const CF_POLL_IDLE_MIN_MS = 15000;   // ...never faster than this...
 const CF_POLL_IDLE_MAX_MS = 60000;   // ...and never slower than this
 
-// Visibility from geometry, not from the observer.
-// An IntersectionObserver only queues an entry when the target's intersection is
-// computed, and Chromium skips that computation while the window is occluded or
-// before the first render. Connecting an observer and disconnecting it in the same
-// task (cfPollReset did exactly that) leaves every later observe() silently dead:
-// measured on 2026-11-05 the poller reported hot=0 for twenty cards, including
-// seven in plain view, so cfPollGate refused every fetch and the cards sat on "--"
-// until the page was forced to re-observe. The rect is authoritative and costs one
-// layout for the whole batch; the observer stays as the fast path.
+// Geometry, not the observer: a disconnected observer never fires again (pitfall 55).
 function cfPollVisible(card) {
   if (!card || !card.isConnected) return false;
   const r = card.getBoundingClientRect();
@@ -146,9 +134,7 @@ function cfPollReset() {
   for (const k in cfWidgetEls) delete cfWidgetEls[k];
   for (const k in cfCardEls) delete cfCardEls[k];
   if (cfPollTimer) { clearTimeout(cfPollTimer); cfPollTimer = null; }
-  // Drop the reference as well as the targets. A disconnected observer that is
-  // kept alive and re-observed never delivers again, and cfPollObserver() would
-  // hand that corpse to every later caller.
+  // Drop the reference too: a disconnected observer kept alive never delivers again (pitfall 55).
   if (cfPollIO) { try { cfPollIO.disconnect(); } catch (e) {} cfPollIO = null; }
 }
 
@@ -171,9 +157,7 @@ function cfPollSetHot(extId, hot) {
   }
 }
 
-// A realtime value that arrived while the card was off screen is applied on arrival,
-// instead of being written into an unseen DOM a thousand times.
-// Returns true when the poller took the value, false when the caller should apply it now.
+// Park an off-screen value until the card is hot; true means the poller kept it.
 function cfPollStore(extId, widgetId, value) {
   const e = cfPollRegistry[cfPollKey(extId, widgetId)];
   if (!e) return false;
@@ -206,11 +190,7 @@ function cfPollObserver() {
   return cfPollIO;
 }
 
-// ── Idle freeze ──────────────────────────────────────────────────
-// A card out of view keeps its box tree (so decoded images survive) but has no
-// reason to keep its CSS animations ticking: the compositor still advances them
-// for a subtree nobody can see. Removing the class resumes from the same frame,
-// so waking costs nothing and nothing jumps.
+// Idle freeze: off-view cards keep their box tree but stop animating (pitfall 54).
 let cfIdleIO = null;
 
 function cfIdleObserver() {
@@ -226,10 +206,7 @@ function cfIdleObserver() {
   return cfIdleIO;
 }
 
-// Watches every card, not only the ones the scheduler owns: the heavy
-// JS-painted extensions are exactly the ones with animations worth freezing.
-// Same trap as the poller: apply the class from geometry at once, because an
-// observer whose first entry never arrives would leave a visible card paused.
+// Freeze every card, not only the scheduler's: geometry first, the observer is only the fast path.
 function cfIdleApply(card) {
   if (!card || !card.isConnected) return;
   const r = card.getBoundingClientRect();
@@ -303,8 +280,7 @@ function cfPollFire(e) {
 
 // Called after the grid is rebuilt.
 function cfPollRebuild(data) {
-  // cfPollRegisterAll resets (and drops) the current observer, so creating one
-  // here would only be disconnected in the same task - the exact poison.
+  // cfPollRegisterAll resets (and drops) the current observer, so creating one here would only be disconnected in the same task - the exact poison.
   cfPollRegisterAll(data);
 }
 
@@ -322,14 +298,12 @@ function cfPollPrime(extId, ext) {
   cfPollArm();
 }
 
-// Scene switch: everything in the new scene is stale, but only what is on
-// screen actually fires. Replaces the old per-widget loop that fired N fetches.
+// Scene switch: everything in the new scene is stale, but only what is on screen actually fires. Replaces the old per-widget loop that fired N fetches.
 function cfPollInvalidateScene(ids) {
   const now = Date.now();
   for (let i = 0; i < (ids || []).length; i++) {
     const extId = ids[i];
-    // The cards were just revealed: settle their visibility from geometry before
-    // deciding, so a dead observer cannot leave a visible card cold on a switch.
+    // The cards were just revealed: settle their visibility from geometry before deciding, so a dead observer cannot leave a visible card cold on a switch.
     const card = cfPollCard(extId);
     if (card) cfPollSetHot(extId, cfPollVisible(card));
     const keys = cfPollExt[extId] || [];
@@ -409,17 +383,13 @@ document.addEventListener('visibilitychange', function () {
   cfPollRecheck();
 });
 
-// Re-settle visibility from geometry. A resize, a restore or a scene switch can
-// change what is on screen while the observers stay silent; this is the path that
-// does not depend on them. Debounced: a drag-resize fires dozens of times.
+// Re-settle from geometry on resize/restore/switch, debounced: observers may stay silent.
 let cfPollRecheckTimer = null;
 function cfPollRecheck() {
   if (cfPollRecheckTimer) clearTimeout(cfPollRecheckTimer);
   cfPollRecheckTimer = setTimeout(function () {
     cfPollRecheckTimer = null;
-    // Read every rect before writing anything: cfPollSetHot may flush a pending
-    // socket value into the DOM, and interleaving writes with reads would force a
-    // reflow per card.
+    // Read every rect before any write, or each flush forces its own reflow.
     const plan = [];
     for (const extId in cfPollExt) {
       const card = cfPollCard(extId);

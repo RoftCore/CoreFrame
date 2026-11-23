@@ -69,8 +69,7 @@
     var levelEl = document.getElementById('ctx-menu-ext-level');
     if (extData && headerEl && nameEl && levelEl) {
       nameEl.textContent = extData.name || extId;
-      // The version decides what the user is looking at: two builds of the same
-      // extension differ only by this number.
+      // The version decides what the user is looking at: two builds of the same extension differ only by this number.
       if (verEl) verEl.textContent = extData.version ? 'v' + extData.version : '';
       if (extData.permissions && extData.permissions.level >= 0 && window.__permissions) {
         var lvl = extData.permissions.level;
@@ -241,9 +240,7 @@
 
     renderExtList('');
 
-    // The panel used to render whatever /api/extensions returned at boot, so an
-    // extension that finished loading later was missing until a full reload.
-    // Fetch on open: the list has to describe the app as it is now.
+    // Fetch on open: the boot snapshot missed any extension that finished loading later.
     apiFetch('/api/extensions').then(function (fresh) {
       if (!fresh || fresh.error) return;
       window.extensionsData = fresh;

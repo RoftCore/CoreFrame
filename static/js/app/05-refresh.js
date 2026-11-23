@@ -46,8 +46,7 @@ function cfNeedsWidgetPriming(ext, extId) {
 }
 
 function refreshAllWidgets(data) {
-  // Registering is the priming now (cfPollRebuild). Only js extensions keep the
-  // deferred first call, so their script can claim the card before the core writes.
+  // Registering is priming now; only js extensions keep a deferred first call.
   for (const [extId, ext] of Object.entries(data || {})) {
     if (ext.disabled) continue;
     if (!cfNeedsWidgetPriming(ext, extId)) continue;

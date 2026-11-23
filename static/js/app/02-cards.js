@@ -1,7 +1,6 @@
 // ── Extension UI ──────────────────────────────────────────────────
 
-// True when the card body is no longer the host's bare widget scaffold.
-// Skeleton and shimmer bars do not count: they are host paint, not extension paint.
+// True when the body is no longer the host's bare scaffold; skeleton bars do not count.
 function cfCardBodyClaimed(card) {
   if (!card) return false;
   const body = card.querySelector('.widget-body');
@@ -12,13 +11,11 @@ function cfCardBodyClaimed(card) {
     if (child.classList.contains('cf-loading-bars')) continue;
     return true;  // non-scaffold child
   }
-  return false;
+  // A js extension that only fills sub-widgets proves itself with text, or a late asset load re-marks it (pitfall 65).
+  return body.textContent.trim().length > 0;
 }
 
-// Drop the loading shimmer on the first paint, which is a DOM mutation here.
-// One observer and one sweep for every card instead of one observer and one 8 s
-// timer per card: with a thousand extensions loading, the per-card version left a
-// thousand observers and a thousand timers alive until each card painted.
+// One observer and one sweep for every card, never a timer per card (pitfall 54).
 const cfPaintWatch = new Map();   // card -> deadline (ms)
 let cfPaintMO = null;
 let cfPaintSweep = null;
@@ -62,8 +59,7 @@ function cfPaintOnMutations(records) {
   hit.forEach(cfPaintClear);
 }
 
-// Safety net: whatever happens, a card must never stay hidden forever. One timer
-// for the whole queue, rescheduled to the earliest deadline.
+// Safety net: whatever happens, a card must never stay hidden forever. One timer for the whole queue, rescheduled to the earliest deadline.
 function cfPaintArmSweep() {
   if (cfPaintSweep || !cfPaintWatch.size) return;
   let next = Infinity;
@@ -151,13 +147,13 @@ function addExtensionToUI(extId, ext) {
         }
         const card = createExtensionCard({ ...ext, id: extId });
         if (existing) {
-          // The placeholder element survives the swap, so everything the real card was
-          // built with (scroll, overlayable, grid size) is lost unless copied over.
-          // The rewrite also drops .cf-offscene, and the slot is already in the grid:
-          // without this, a card that belongs to another scene paints for a frame.
+          // The placeholder survives the swap: copy the card's classes and geometry over (pitfall 59).
           const wasHidden = typeof cfHidden === 'function' && cfHidden(existing);
+          const wasLoading = existing.classList.contains('cf-loading');
           existing.className = card.className;
           if (wasHidden && typeof cfHide === 'function') cfHide(existing);
+          // The rewrite drops every class, including the loading flag: without this the bars below survive with nothing left to clear them.
+          if (wasLoading) existing.classList.add('cf-loading');
           existing.style.gridColumn = card.style.gridColumn;
           existing.style.gridRow = card.style.gridRow;
           existing.style.minWidth = card.style.minWidth;

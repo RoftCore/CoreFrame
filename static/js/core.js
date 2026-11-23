@@ -1,9 +1,6 @@
 // CoreFrame Bootstrap. Logic lives in app/ (lifecycle) and widgets/ (construction).
 
-// Self-scheduling health poll. 1 Hz while an extension is still loading (so the
-// dashboard appears as soon as it is ready), 5 s once everything has settled.
-// The response carries one entry per extension, so a 1 Hz poll at a thousand
-// extensions is the heaviest thing the idle app does for no visible gain.
+// Self-scheduling health poll: 1 Hz while loading, 5 s once settled (pitfall 54).
 let cfHealthTimer = null;
 function cfHealthSchedule(ms) {
   if (cfHealthTimer) clearTimeout(cfHealthTimer);
@@ -93,7 +90,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 } catch (e) {}
 
-// Any main-thread block over 200ms is reported with its culprit URL (pitfall 27).
+// Any main-thread block over 200ms is reported with its culprit (pitfall 27).
   try {
     if (typeof PerformanceObserver !== 'undefined') {
       var _ltBuf = [];
@@ -108,23 +105,54 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         } catch (e) {}
       };
+      // long-animation-frame names the script and the render cost; longtask only says "self".
+      var _ltWorst = function (e) {
+        var best = null;
+        try {
+          var sc = e.scripts || [];
+          for (var j = 0; j < sc.length; j++) {
+            if (!best || (sc[j].duration || 0) > (best.duration || 0)) best = sc[j];
+          }
+        } catch (_) {}
+        var where = '';
+        try {
+          if (best && best.sourceURL) {
+            var u = String(best.sourceURL);
+            where = u.substring(u.lastIndexOf('/') + 1).split('?')[0];
+            if (best.sourceFunctionName) where += ':' + best.sourceFunctionName;
+            if ((best.forcedStyleAndLayoutDuration || 0) > 4) {
+              where += ' forced-style ' + Math.round(best.forcedStyleAndLayoutDuration) + 'ms';
+            }
+          } else if (best && best.invoker) {
+            where = best.invoker;
+          }
+        } catch (_) {}
+        var lay = 0;
+        try {
+          if (e.styleAndLayoutStart > 0) lay = Math.round(e.styleAndLayoutStart - e.renderStart);
+        } catch (_) {}
+        if (!where) {
+          try {
+            var at = e.attribution && e.attribution[0];
+            where = (at && (at.containerSrc || at.containerType)) || e.name || '';
+          } catch (_) {}
+        }
+        if (lay > 0) where += (where ? ' +' : '') + 'render ' + lay + 'ms';
+        return { d: Math.round(e.duration), src: String(where).slice(-160) };
+      };
       new PerformanceObserver(function (list) {
         var es = list.getEntries();
         for (var i = 0; i < es.length; i++) {
           var e = es[i];
           if (e.duration < 200) continue;
-          var src = '';
-          try {
-            var at = e.attribution && e.attribution[0];
-            src = (at && (at.containerSrc || at.containerName)) || e.name || '';
-          } catch (_) {}
-          _ltBuf.push({ d: Math.round(e.duration), src: String(src).slice(-120) });
+          _ltBuf.push(_ltWorst(e));
         }
         if (_ltBuf.length) {
           try { clearTimeout(_ltTimer); } catch (_) {}
           _ltTimer = setTimeout(_ltFlush, 2000);
         }
-      }).observe({ entryTypes: ['longtask'] });
+      }).observe({ entryTypes: [(PerformanceObserver.supportedEntryTypes || []).indexOf('long-animation-frame') > -1
+        ? 'long-animation-frame' : 'longtask'] });
     }
   } catch (e) {}
 });
@@ -155,9 +183,7 @@ document.getElementById('btn-reload').addEventListener('click', async () => {
   const btn = document.getElementById('btn-reload');
   btn.textContent = '↻';
   btn.style.animation = 'spin 0.6s linear infinite';
-  // The endpoint answers 202 at once and drains the children behind it, so this
-  // never waits for the reload itself. The cap is a safety net for a wedged
-  // server: the button reloads even if the call never comes back.
+  // The route answers 202 at once; the cap only stops a wedged server from blocking the reload.
   try { await apiFetch('/api/restart', { method: 'POST', timeout: 3000 }); } catch (e) {}
   setTimeout(() => location.reload(), 300);
 });
