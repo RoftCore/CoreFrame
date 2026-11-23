@@ -50,8 +50,7 @@ def register_status_routes(app, socketio):
             pass
         perm = get_permission_manager()
         result = {}
-        # Snapshots: loader threads add to these dicts while this request reads them,
-        # and iterating live raised "dictionary changed size during iteration" -> 500.
+        # Snapshot before iterating: live iteration raises "changed size" -> 500.
         for ext_id, ext_data in list(extensions.items()):
             cfg = ext_data['config']
             result[ext_id] = _ext_payload(
@@ -103,8 +102,7 @@ def register_status_routes(app, socketio):
                     consent_granted=False, consent_denied=True,
                     loadError='Consent denied by user')
 
-        # Installed but impossible to load (no main.py, broken manifest). These
-        # were invisible everywhere; a red card that can be deleted is better.
+        # Installed but impossible to load (no main.py, broken manifest). These were invisible everywhere; a red card that can be deleted is better.
         from coreframe.extensions.loader import unloadable_candidates
         for ext_id, cfg, reason in unloadable_candidates():
             if ext_id in result:
@@ -161,8 +159,7 @@ def register_status_routes(app, socketio):
 
     @app.route('/api/window/focus', methods=['POST'])
     def api_window_focus():
-# Host-side wake first: while minimized the renderer is suspended and cannot run JS.
-# The socket emit below stays as the relay for the frontend's own focus handling.
+# Host-side wake first: while minimized the renderer is suspended and cannot run JS. The socket emit below stays as the relay for the frontend's own focus handling.
         try:
             from coreframe import app as _host
             _cb = getattr(_host, '_focus_callback', None)

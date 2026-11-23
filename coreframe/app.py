@@ -38,8 +38,7 @@ if getattr(sys, 'frozen', False):
 # Host window-destroy hook, set by run_coreframe.pyw; called by /api/quit.
 _shutdown_callback = None
 
-# Host window-wake hook, set by run_coreframe.pyw; called by /api/window/focus.
-# A suspended renderer cannot run the JS relay, so the wake must come from the host.
+# /api/window/focus wakes the host directly: a suspended renderer runs no JS (pitfall 50).
 _focus_callback = None
 
 app = Flask(__name__, static_folder=STATIC_DIR)
@@ -78,8 +77,7 @@ def _save_registry():
             'version': cfg.get('version', '1.0'),
             'author': cfg.get('author', ''),
             'category': cfg.get('category', 'general'),
-            # Truth comes from extensions.state.json. Reading it back from the
-            # file being rewritten is what dropped four flags when the heal ran.
+            # Truth comes from extensions.state.json. Reading it back from the file being rewritten is what dropped four flags when the heal ran.
             'disabled': is_disabled(ext_id),
         }
     # Heal: adopt extension dirs present on disk but missing from registry.
@@ -128,10 +126,7 @@ _restart_lock = threading.Lock()
 def api_restart():
     if not _restart_lock.acquire(blocking=False):
         return jsonify({'ok': False, 'error': 'restart already in progress'}), 409
-    # The reload drains every child and spawns it again: 5.8 s measured on
-    # 2026-11-09, and the join deadline allows up to 10 s more when one refuses
-    # to die. The button awaited this response before reloading, so it spun for
-    # the whole drain and looked dead. Answer now; the work runs behind it.
+    # Answer before the 5.8 s drain; the button used to spin and look dead (pitfall 14).
     threading.Thread(target=_restart_worker, daemon=True, name='restart').start()
     return jsonify({'ok': True, 'status': 'reloading'}), 202
 
@@ -161,9 +156,7 @@ def _do_restart():
     except Exception:
         pass
 
-    # Drop the registry before the drain, not after it. A page that reloads while
-    # the children are being stopped then sees the pending manifests and paints
-    # skeletons, instead of the real cards whose processes are already dying.
+    # Clear the registry before the drain so a reload mid-restart paints skeletons, not dying cards.
     old = list(extensions.items())
     for ext_id, _ in old:
         _ext_isolation.mark_dead(ext_id, 'Restart')

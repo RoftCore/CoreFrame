@@ -244,15 +244,7 @@ def _invoke(fn, params):
 
 
 def _run_rpc_loop(instance, ext_id, hb_interval=10):
-    """
-    Main JSON-RPC loop. Reads requests from stdin, calls methods on the
-    extension instance, writes responses to stdout.
-
-    Dispatch is concurrent: one reader thread plus a worker pool, correlating
-    responses by id as JSON-RPC 2.0 requires. Serving calls in order froze the
-    whole child for the duration of the slowest one, so a 0.8s widget call
-    timed out behind an 8s call that had nothing to do with it.
-    """
+    """Main JSON-RPC loop: read a request from stdin, dispatch it, write the reply."""
     import sys
     import threading
     from concurrent.futures import ThreadPoolExecutor

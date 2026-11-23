@@ -31,9 +31,7 @@ class ExtensionIsolation:
     RESTART_COOLDOWN = 10.0
     RESTART_BACKOFF = (10.0, 30.0, 120.0)
     MONITOR_TICK = 2.0
-    # A tick this much longer than MONITOR_TICK means the machine slept, not
-    # that the extensions died. Well above any scheduler hiccup, well below
-    # MAX_HEARTBEAT_AGE so the guard runs before the fleet is degraded.
+    # A tick this long is a suspend, not a death: above any hiccup, below MAX_HEARTBEAT_AGE.
     SUSPEND_GAP = 30.0
 
     def __init__(self):
@@ -72,16 +70,7 @@ class ExtensionIsolation:
             self._check_health(gap)
 
     def _restamp_after_suspend(self, gap):
-        """The machine slept: every heartbeat is stale by the same amount.
-
-        time.monotonic() keeps counting through an OS suspend, so the first tick
-        after a wake found every extension hours past MAX_HEARTBEAT_AGE, degraded
-        the whole fleet at once and burned the restart budget until they were
-        quarantined for the session (log 2026-11-10 10:03 and 10:26, both right
-        after a resume). The children were suspended too, so re-stamp instead of
-        restarting them. A child that really died while the lid was closed still
-        times out normally 60 s later.
-        """
+        """The machine slept: re-stamp every heartbeat by the gap instead of degrading the fleet."""
         now = time.monotonic()
         with self._lock:
             healed = 0
@@ -89,8 +78,7 @@ class ExtensionIsolation:
                 if health.status in ('healthy', 'degraded'):
                     health.last_heartbeat = now
                     healed += 1
-                # The sleep is not backoff: without this a pending restart fires
-                # the instant the machine wakes, on a fleet still warming up.
+                # Not backoff: without it a pending restart fires the moment the machine wakes.
                 if health.last_restart_attempt:
                     health.last_restart_attempt += gap
             log.info("[isolation] monitor tick gap %.0fs (suspend/resume), %d heartbeats re-stamped",
@@ -201,10 +189,7 @@ class ExtensionIsolation:
             health = self.health.get(ext_id)
             if not health:
                 return
-            # A quarantined extension that is still talking is not dead. The
-            # quarantine came from a false timeout (a sleep cycle or a stalled
-            # monitor), the process never stopped, and its widgets kept working
-            # under a badge that said dead. Admit it back.
+            # A quarantined extension that still answers never died: admit it back (pitfall 56).
             if health.quarantined:
                 health.quarantined = False
                 health.restart_count = 0

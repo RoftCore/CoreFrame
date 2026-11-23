@@ -49,9 +49,7 @@ def register_serving_routes(app, socketio):
 
     @app.route('/ext-data/<ext_id>/<path:path>')
     def ext_data(ext_id, path):
-        """Serve an extension's own data dir (libraries, downloads).
-        Requires "serve_data": true in the extension's own manifest, and
-        conditional=True keeps HTTP Range (206) so <audio>/<video> can seek."""
+        """Serve an extension's own data directory, only when its manifest allows it."""
         from flask import Response, send_from_directory
         from coreframe.config import DATA_DATA_DIR
         if '..' in ext_id or '/' in ext_id or '\\' in ext_id:

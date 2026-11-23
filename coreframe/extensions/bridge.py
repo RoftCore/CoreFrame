@@ -19,6 +19,7 @@ import subprocess as _subprocess
 import json as json  # keep stdlib json for .dump/.load file ops (orjson has no dump)
 
 from coreframe.config import log
+from coreframe.extensions.bridge_elevation import _ADMIN_METHODS, call_elevated
 
 # Force no console windows on any subprocess
 if sys.platform.startswith('win'):
@@ -33,137 +34,6 @@ if sys.platform.startswith('win'):
     _subprocess.Popen.__init__ = _patched_init
 subprocess = _subprocess
 
-
-# Methods that inherently require admin; bash/exec elevate only when they fail.
-_ADMIN_METHODS = {
-    'registry_write', 'service_control', 'adapter_control',
-    'delete_file',
-}
-
-
-def _get_helper_path():
-    """Find coreframe_helper.exe next to the main executable."""
-    if getattr(sys, 'frozen', False):
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.abspath(__file__))
-    # Go up from coreframe/extensions/ to project root
-    if not getattr(sys, 'frozen', False):
-        base = os.path.dirname(os.path.dirname(base))
-    return os.path.join(base, 'coreframe_helper.exe')
-
-
-def _call_elevated(method, params, timeout=30):
-    """Execute an admin operation by launching coreframe_helper.exe with UAC elevation.
-
-    Uses ShellExecuteW("runas") to trigger the Windows UAC prompt for a
-    separate helper process. The helper reads the operation from a temp file
-    and writes the result to another temp file.
-    """
-    if not sys.platform.startswith('win'):
-        return {'error': 'Elevation only supported on Windows'}
-
-    helper = _get_helper_path()
-    if not os.path.isfile(helper):
-        return {'error': f'Helper not found: {helper}'}
-
-    tmp_dir = tempfile.gettempdir()
-    ts = int(time.time() * 1000)
-    op_file = os.path.join(tmp_dir, f'coreframe_op_{ts}.json')
-    result_file = os.path.join(tmp_dir, f'coreframe_result_{ts}.json')
-
-    op_data = {'type': method, 'params': params or {}}
-    with open(op_file, 'w', encoding='utf-8') as f:
-        json.dump(op_data, f)
-
-    try:
-        result = _elevated_run(helper, op_file, result_file, timeout)
-    except Exception as e:
-        result = {'error': f'Elevation failed: {e}'}
-    finally:
-        for p in (op_file, result_file):
-            try:
-                if os.path.exists(p):
-                    os.remove(p)
-            except OSError:
-                pass
-
-    return result
-
-
-def _elevated_run(helper_path, op_file, result_file, timeout):
-    """Launch helper.exe with ShellExecuteW('runas') and wait for result."""
-    shell32 = ctypes.windll.shell32
-    kernel32 = ctypes.windll.kernel32
-
-    SEE_MASK_NOCLOSEPROCESS = 0x00000040
-    INFINITE = 0xFFFFFFFF
-
-    class SHELLEXECUTEINFO(ctypes.Structure):
-        _fields_ = [
-            ('cbSize', ctypes.c_ulong),
-            ('fMask', ctypes.c_ulong),
-            ('hwnd', ctypes.c_void_p),
-            ('lpVerb', ctypes.c_wchar_p),
-            ('lpFile', ctypes.c_wchar_p),
-            ('lpParameters', ctypes.c_wchar_p),
-            ('lpDirectory', ctypes.c_wchar_p),
-            ('nShow', ctypes.c_int),
-            ('hInstApp', ctypes.c_void_p),
-            ('lpIDList', ctypes.c_void_p),
-            ('lpClass', ctypes.c_wchar_p),
-            ('hkeyClass', ctypes.c_void_p),
-            ('dwHotKey', ctypes.c_ulong),
-            ('hIconOrMonitor', ctypes.c_void_p),
-            ('hProcess', ctypes.c_void_p),
-        ]
-
-    params = f'"{op_file}" "{result_file}"'
-    sei = SHELLEXECUTEINFO()
-    sei.cbSize = ctypes.sizeof(SHELLEXECUTEINFO)
-    sei.fMask = SEE_MASK_NOCLOSEPROCESS
-    sei.lpVerb = 'runas'
-    sei.lpFile = helper_path
-    sei.lpParameters = params
-    sei.nShow = 0  # SW_HIDE
-
-    if not shell32.ShellExecuteExW(ctypes.byref(sei)):
-        err = kernel32.GetLastError()
-        # ERROR_CANCELLED = 1223 (user clicked No on UAC)
-        if err == 1223:
-            return {'error': 'UAC denied by user'}
-        return {'error': f'ShellExecuteExW failed: error {err}'}
-
-    h_process = sei.hProcess
-
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if os.path.exists(result_file):
-            time.sleep(0.1)
-            try:
-                with open(result_file, 'r', encoding='utf-8') as f:
-                    result = json.load(f)
-                kernel32.CloseHandle(h_process)
-                return result
-            except (json.JSONDecodeError, OSError):
-                pass
-        # Check if process exited
-        exit_code = kernel32.WaitForSingleObject(h_process, 100)
-        if exit_code != 258:  # WAIT_TIMEOUT
-            break
-        # Process exited, try to read result one more time
-        if os.path.exists(result_file):
-            try:
-                with open(result_file, 'r', encoding='utf-8') as f:
-                    result = json.load(f)
-                kernel32.CloseHandle(h_process)
-                return result
-            except (json.JSONDecodeError, OSError):
-                pass
-            break
-
-    kernel32.CloseHandle(h_process)
-    return {'error': f'Helper timed out after {timeout}s'}
 
 
 # Methods that require escalation when called via bridge
@@ -198,10 +68,7 @@ class SubprocessBridge:
         self._proc = None
         self._lock = threading.Lock()
         self._reader_lock = threading.Lock()
-        # Responses arrive on the reader thread; the caller waits on this instead
-        # of re-checking the buffer every 10 ms. On a slow machine that spin was
-        # half the cost of a trivial action, and the console pays two actions per
-        # keystroke.
+        # The caller waits here instead of spinning on the buffer every 10 ms (pitfall 49).
         self._resp_cv = threading.Condition(self._reader_lock)
         self._read_buffer = {}
         # Monotonic request ids: time-derived ones collided in _read_buffer under concurrency.
@@ -273,12 +140,7 @@ class SubprocessBridge:
             self._hb_thread.start()
 
     def _wait_for_ready(self, timeout=30):
-        """Wait for the runner's 'ready' signal after startup.
-
-        30s (not 15s): on spinning disks under login-storm load, spawning
-        + importing a child can take a while. Still well under the 60s
-        health-monitor cap. A truly dead runner fails fast via poll().
-        """
+        """Wait for the child's ready line, failing fast if it died meanwhile."""
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self._proc.poll() is not None:
@@ -295,11 +157,7 @@ class SubprocessBridge:
         raise RuntimeError(f"Runner for {self.ext_id} did not become ready within {timeout}s")
 
     def _start_isolated(self, ext_path, interpreter):
-        """Create temp config file and return cmd for ext_runner.
-
-        In frozen mode, the exe itself acts as the runner via --ext-runner flag.
-        In dev mode, ext_runner.py is invoked as a separate Python script.
-        """
+        """Write the child's temp config and return the argv that starts the runner."""
         # Find runner: in dev mode, ext_runner.py is next to this file
         if not getattr(sys, 'frozen', False):
             runner_path = os.path.join(os.path.dirname(__file__), 'ext_runner.py')
@@ -462,7 +320,7 @@ class SubprocessBridge:
 
         # ── Admin methods → elevated helper.exe with UAC ───────────
         if method in _ADMIN_METHODS:
-            return _call_elevated(method, params)
+            return call_elevated(method, params)
 
         with self._lock:
             self._rid_seq += 1
@@ -478,13 +336,9 @@ class SubprocessBridge:
                  'get_disk', 'get_fortune', 'get_notes', 'get_ping')
 # 4s because get_ip median is 1.46s cold and exceeds 2.0s in 15% of calls.
         _MEDIUM = ('get_ip', 'check_vpn', 'get_open_ports')
-# get_processes walks the whole process table and its icons: 6-12s by design, so
-# a 4s budget could never succeed and every poll painted "degradado" (measured
-# 2026-11-09: 4144 ms, timeout error, on every visible refresh). 30s covers the
-# cold scan after boot, measured at 17.1s while the page's own first poll ran.
+        # get_processes needs 6-12 s, 17 s cold: a 4 s budget could never succeed (pitfall 57).
         _SLOW = ('get_processes',)
-        # An extension can declare its own budget in extension.json:
-        # "timeouts": {"get_processes": 20}. Beats guessing for the next method.
+        # The manifest may declare its own budget: "timeouts": {"get_processes": 20}.
         try:
             declared = self.config.get('timeouts') or {}
         except Exception:

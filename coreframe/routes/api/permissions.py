@@ -24,10 +24,7 @@ def register_permissions_routes(app, socketio):
 
     @app.route('/api/extensions/<ext_id>/disable', methods=['POST'])
     def api_disable_extension(ext_id):
-        """Stop an extension without touching its files or its registry entry.
-
-        Re-enabling is the mirror image: clear the flag and load it again.
-        """
+        """Stop an extension without touching its files or its registry entry."""
         from coreframe.extensions.loader import (is_disabled, set_disabled,
                                                  unload_disabled, load_disabled)
         ext_path = os.path.join(EXTENSIONS_DIR, ext_id)

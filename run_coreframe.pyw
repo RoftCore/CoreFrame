@@ -357,15 +357,7 @@ def _invoke(fn, params):
 
 
 def _run_rpc_loop(instance, ext_id, hb_interval=10):
-    """
-    Main JSON-RPC loop. Reads requests from stdin, calls methods on the
-    extension instance, writes responses to stdout.
-
-    Dispatch is concurrent: one reader thread plus a worker pool, correlating
-    responses by id as JSON-RPC 2.0 requires. Serving calls in order froze the
-    whole child for the duration of the slowest one, so a 0.8s widget call
-    timed out behind an 8s call that had nothing to do with it.
-    """
+    """Main JSON-RPC loop: read a request from stdin, dispatch it, write the reply."""
     import sys
     import threading
     from concurrent.futures import ThreadPoolExecutor
@@ -926,8 +918,7 @@ _frameless_ok = False
 _boot_mode_applied = False
 
 def _ui(i, WinForms, fn):
-    """Run fn on the UI thread WITHOUT risking Invoke-deadlock:
-    if caller is already the UI thread, execute directly."""
+    """Run fn on the UI thread through BeginInvoke, which cannot deadlock like Invoke."""
     try:
         if i.InvokeRequired:
             i.Invoke(WinForms.MethodInvoker(fn))
@@ -957,8 +948,7 @@ def _try_dark_webview_background(i):
     return False
 
 def _on_loaded():
-    """Fires when the app page DOM is ready. NEVER do work inline: pywebview
-    may dispatch this on the UI thread — hop to a worker thread immediately."""
+    """Fires when the page DOM is ready; never do work inline, pywebview awaits it."""
     if _shown.is_set():
         return
     _shown.set()
@@ -966,11 +956,7 @@ def _on_loaded():
     threading.Thread(target=_do_reveal, daemon=True, name='reveal').start()
 
 def _apply_initial_frameless():
-    """Apply frameless + maximize at startup.  Safe to call multiple times.
-    Retries up to 2s waiting for the WinForms form to become available —
-    pywebview may not have registered it in BrowserView.instances yet.
-    Uses the EXACT same logic as _ui_set_mode (BeginInvoke, center then
-    maximize) — that path is proven to work."""
+    """Apply frameless + maximize once, after the window is shown; safe to call again."""
     i, WinForms = None, None
     for attempt in range(10):
         i, WinForms = _get_winform()
@@ -1096,10 +1082,7 @@ def _get_winform():
         _winforms_available = False
         return None, None
 
-# ---- renderer sleep: give the memory back while minimized ----
-# WebView2 only releases renderer memory when the controller is invisible and the
-# renderer is suspended. pywebview's minimize() changes WindowState and nothing else,
-# so the renderer kept every byte (pitfall 50).
+# WebView2 frees the renderer only when suspended; minimize() alone does nothing (pitfall 50).
 _renderer = {'state': 'awake', 'gen': 0}   # awake | pending | asleep
 
 
@@ -1212,9 +1195,7 @@ def _on_minimized():
 
 
 def _on_window_back():
-    # Restoring a maximized window (the normal mode here) lands on Maximized, so the
-    # `restored` event never fires - only `maximized` does. Hook both or the controller
-    # stays hidden and the window comes back blank until something resizes it (pitfall 52).
+    # A restore from maximized fires `maximized`, not `restored`: hook both or the window returns blank (pitfall 52).
     if _renderer['state'] == 'awake':
         return
     _renderer['gen'] += 1            # any in-flight suspend is now stale
@@ -1267,8 +1248,7 @@ def _set_window_mode_impl(new_mode):
     _post_ui(_apply)
 
 def _ui_set_mode(i, WinForms, new_mode):
-    """Runs on the serialized uiq worker. All form mutations are marshaled to
-    the real UI thread via BeginInvoke (fire-and-forget, cannot deadlock)."""
+    """Apply a window mode on the serialized uiq worker, marshaling every form mutation."""
     def _mutate():
         try:
             screen = WinForms.Screen.FromHandle(i.Handle)
@@ -1422,8 +1402,7 @@ def _shutdown():
     except Exception:
         os._exit(0)
 _app_mod._shutdown_callback = _shutdown
-# /api/window/focus reaches the host through this hook: a suspended renderer
-# cannot run the JS relay, and that route is also the second-instance handshake.
+# /api/window/focus reaches the host through this hook: a suspended renderer cannot run the JS relay, and that route is also the second-instance handshake.
 _app_mod._focus_callback = lambda: _post_ui(_focus_impl)
 
 print('[BOOT] Calling webview.start...', flush=True)

@@ -89,12 +89,7 @@ def show_error(title, msg):
 
 
 def ensure_persistent_runner(data_dir):
-    """Extract the lightweight ext_runner once (stamp-guarded).
-
-    Skipped for --ext-runner children and dev mode. Old children keep
-    running from the previous dir until the next boot; extraction only
-    ever happens here, before any child spawns.
-    """
+    """Extract runner.zip into DATA_DIR once, guarded by a size-mtime stamp."""
     try:
         if '--ext-runner' in sys.argv or not getattr(sys, 'frozen', False):
             return

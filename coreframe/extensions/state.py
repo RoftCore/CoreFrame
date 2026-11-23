@@ -1,26 +1,4 @@
-"""User decisions about extensions, kept apart from the generated registry.
-
-`extensions.json` is metadata: `coreframe/app.py::_save_registry()` rewrites it
-on every boot, heals entries from the manifests on disk, and every install
-path recreates the entry it touched. A `disabled` flag stored only there is
-lost the moment that file cannot be parsed: the boot heals it from disk, the
-flag is not part of any manifest, and the extension comes back on its own.
-
-That is not hypothetical. On 2026-10-22 10:45 the log shows
-
-    Registry saved: 25 extensions
-    ... audio_recorder | msd_deck | overlay_windows | spotify_player
-        -> subprocess isolation
-
-with those four disabled since 2026-10-15, and no "is disabled, skipping" line
-in between: the file had been truncated by a non-atomic write, the heal
-rebuilt it from the manifests, and every flag was gone.
-
-So the decision lives in its own file (`extensions.state.json`), is written
-atomically with a `.bak`, and is never rebuilt from memory. `extensions.json`
-keeps a mirror of the flag for anything that reads it, but the state file is
-what decides.
-"""
+"""User decisions kept apart from the generated registry, written atomically with a .bak (pitfall 47)."""
 
 import json
 import os
@@ -32,9 +10,7 @@ from coreframe.config import DATA_DIR, REGISTRY_PATH, log
 STATE_PATH = os.path.join(DATA_DIR, 'extensions.state.json')
 STATE_VERSION = 1
 
-# mtime_ns of the state file as last read, plus the parsed set. is_disabled()
-# runs once per extension at boot and again on every load, so a full re-parse
-# each time is waste; the mtime check keeps it honest after an external edit.
+# mtime_ns + parsed set: re-parsing on every call is waste, and the mtime keeps it honest.
 _cache = {'mtime': None, 'disabled': set()}
 
 
@@ -55,25 +31,12 @@ def read_json_status(path):
 
 
 def read_json(path):
-    """Tolerant read: anything unreadable is an empty dict, and it says so.
-
-    Callers must not treat the result as "the file said nothing": a corrupt
-    file is logged with the path, and `write_json` keeps the old bytes as
-    `<path>.bak` before replacing it. Use `read_json_status` when overwriting
-    a corrupt file would destroy data.
-    """
+    """Tolerant read: anything unreadable is an empty dict, and the log says so."""
     return read_json_status(path)[0]
 
 
 def write_json(path, data):
-    """Atomic write with a backup of the previous content.
-
-    `open(path, 'w')` truncates before anything is written: a crash, a full
-    disk or a killed process between the truncate and the dump leaves an empty
-    file, which is exactly how the disabled flags were lost. Writing to a
-    temp file in the same directory and renaming makes the swap atomic on both
-    Windows and POSIX, and the `.bak` keeps the last good copy.
-    """
+    """Write atomically and keep the previous content as .bak."""
     folder = os.path.dirname(path) or '.'
     tmp = None
     try:
@@ -120,8 +83,7 @@ def _load():
         return _cache['disabled']
 
     if mtime is None:
-        # No state file yet: the first boot after the upgrade. Seed from the
-        # registry, which is the only place the flag was kept until today.
+        # First boot after the upgrade: seed from the registry, the only place the flag lived.
         disabled = {ext_id for ext_id, entry in read_json(REGISTRY_PATH).items()
                     if isinstance(entry, dict) and entry.get('disabled')}
         if disabled:
@@ -136,9 +98,7 @@ def _load():
 
     data, status = read_json_status(STATE_PATH)
     if status == 'corrupt':
-        # The state file is the only copy of the decision: a corrupt one used to
-        # mean "nothing is disabled", which is the resurrection this module
-        # exists to prevent. Recover from the last atomic write's backup.
+        # The state file is the only copy: a corrupt one means resurrection, so recover from the .bak (pitfall 47).
         data, status = read_json_status(STATE_PATH + '.bak')
         if status == 'ok':
             log.warning("extensions.state.json was corrupt: recovered from the .bak")
@@ -163,8 +123,7 @@ def _save(disabled):
         'disabled': sorted(disabled),
     })
     if ok:
-        # The cache is what the next is_disabled() answers from: without this it
-        # returns the set from before the write until the mtime changes.
+        # The cache is what the next is_disabled() answers from: without this it returns the set from before the write until the mtime changes.
         _cache['disabled'] = set(disabled)
         try:
             _cache['mtime'] = os.stat(STATE_PATH).st_mtime_ns
@@ -173,21 +132,12 @@ def _save(disabled):
     return ok
 
 
-def disabled_ids():
-    return sorted(_load())
-
-
 def is_disabled(ext_id):
     return ext_id in _load()
 
 
 def set_disabled(ext_id, flag):
-    """Persist the decision, then mirror it into extensions.json.
-
-    The mirror is best-effort: if the registry is unreadable it is left alone
-    instead of being replaced by a single-entry file, and the state file still
-    holds the answer.
-    """
+    """Persist the decision and mirror it into extensions.json; an unreadable registry is left alone."""
     disabled = set(_load())
     if flag:
         if ext_id in disabled:
@@ -210,8 +160,7 @@ def _mirror(ext_id, flag):
     try:
         registry, status = read_json_status(REGISTRY_PATH)
         if status == 'corrupt':
-            # Writing here would replace every entry with this one. The state
-            # file already holds the answer; the registry heals on next boot.
+            # Writing here would replace every entry with this one. The state file already holds the answer; the registry heals on next boot.
             log.warning("Not mirroring disabled=%s for %s: extensions.json is unreadable",
                         flag, ext_id)
             return

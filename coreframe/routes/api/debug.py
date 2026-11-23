@@ -10,8 +10,7 @@ def register_debug_routes(app, socketio):
     """Register the debug API routes."""
     @app.route('/api/debug/switch', methods=['POST'])
     def api_debug_switch():
-        """Receives scene-switch timing telemetry from the frontend.
-        Lets us attribute slow switches (commit vs paint) without DevTools."""
+        """Scene-switch timing telemetry posted by the page."""
         try:
             from coreframe.config import log as _log
             data = request.get_json(silent=True) or {}
@@ -24,8 +23,7 @@ def register_debug_routes(app, socketio):
 
     @app.route('/api/debug/longtask', methods=['POST'])
     def api_debug_longtask():
-        """Receives main-thread freeze attribution from the frontend
-        longtask observer (script URL + duration)."""
+        """Main-thread freeze attribution posted by the page."""
         try:
             from coreframe.config import log as _log
             data = request.get_json(silent=True) or {}
@@ -38,13 +36,7 @@ def register_debug_routes(app, socketio):
 
     @app.route('/api/debug/console', methods=['POST'])
     def api_debug_console():
-        """Console errors and warnings from the page.
-
-        Extension JS runs inside the webview, so a throw in its boot script has
-        no other way out: the card simply never renders and the host logs
-        nothing. The remote-debugging port is ignored when the host runs
-        elevated, so the page posts its own errors here.
-        """
+        """Console errors and warnings posted by the page, so a throw in extension JS is visible."""
         try:
             from coreframe.config import log as _log
             data = request.get_json(silent=True) or {}
@@ -57,8 +49,7 @@ def register_debug_routes(app, socketio):
 
     @app.route('/api/debug/drag', methods=['POST'])
     def api_debug_drag():
-        """Geometry dump from the widget drag path (grid tracks, pitch, kids).
-        Lets us check what the browser actually resolved instead of guessing."""
+        """Geometry dump from the widget drag path."""
         try:
             from coreframe.config import log as _log
             d = request.get_json(silent=True) or {}

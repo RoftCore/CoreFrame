@@ -10,14 +10,7 @@ from coreframe.config import log, SHARED_LIB_DIR
 
 
 def _restore_coreframe_logging():
-    """Re-attach our log file handler if pip disturbed global logging state.
-
-    Measured: after an in-process `_pip_main()` call, ZERO logging-framework
-    lines are ever written again (faulthandler direct-writes continue), so
-    every subsequent log.error/log.info is silently lost for the rest of the
-    process. Re-add our FileHandler to the CoreFrame logger when missing and
-    make sure its effective level still allows INFO.
-    """
+    """Re-attach our log handler after pip disturbed global logging state."""
     try:
         from coreframe.config import LOG_PATH
         core = logging.getLogger('CoreFrame')
@@ -38,12 +31,7 @@ def _restore_coreframe_logging():
 
 
 def _patch_pip_for_frozen():
-    """distlib.resources.finder() only knows standard loaders (SourceFileLoader,
-    FileFinder, zipimporter). Under PyInstaller the modules for pip._vendor.distlib
-    are loaded by a frozen importer, so finder() raises
-    "Unable to locate finder for 'pip._vendor.distlib'". We instead register the
-    frozen loader and point ResourceFinder at the extracted package dir in
-    _MEIPASS (collect_all('pip') ships those files as data)."""
+    """Point pip's distlib finder at the frozen package dir, which its own loader cannot locate."""
     if not getattr(sys, 'frozen', False):
         return
     try:
@@ -81,9 +69,7 @@ def _patch_pip_for_frozen():
 
 
 def _find_distribution(name):
-    """Return (canonical name, version) for an installed distribution, if any,
-    trying a few name spellings (case/normalization mismatches like
-    `SpotipyFree` vs `spotipyfree`)."""
+    """Return (canonical name, version) for an installed distribution, or (None, None)."""
     candidates = {name, name.replace('-', '_'), name.replace('_', '-')}
     for cand in candidates:
         try:
@@ -106,10 +92,7 @@ def _version_satisfies(spec_str, version, name):
 
 
 def _compute_missing_deps(ext_path):
-    """Parse requirements.txt and return requirement lines not yet satisfied.
-
-    Raises on unreadable requirements.txt (caller decides how to surface it).
-    """
+    """Requirement lines from requirements.txt that are not importable yet."""
     req_path = os.path.join(ext_path, 'requirements.txt')
     if not os.path.exists(req_path):
         return []
@@ -140,11 +123,7 @@ def _compute_missing_deps(ext_path):
 
 
 def _pip_install_missing(missing):
-    """Run pip install --prefix SHARED_LIB_DIR in the calling thread.
-
-    Returns (ok, error): ok is True only if pip exits 0/None. Unlike the
-    old fire-and-forget behavior, failures are reported, never swallowed.
-    """
+    """Run pip install --prefix SHARED_LIB_DIR in the calling thread."""
     _patch_pip_for_frozen()
     try:
         from pip._internal.cli.main import main as _pip_main
@@ -187,15 +166,7 @@ def _ensure_extension_deps_async(ext_path, ext_id):
 
 
 def _pip_install_supervised(missing, timeout=120):
-    """Run pip in a worker and abandon it after `timeout` seconds.
-
-    Frozen pip can hang silently (TLS stalls, AV interception) with no
-    exception and no return — which used to leave the install flow stuck
-    forever with zero logs. A supervised timeout converts every failure
-    mode (hang, crash, exception) into a loud (False, error) that the
-    caller turns into rollback + visible error. Never hangs the caller
-    beyond `timeout` seconds.
-    """
+    """Run pip in a worker and abandon it after `timeout` seconds."""
     result = {}
 
     def _target():
@@ -217,12 +188,7 @@ def _pip_install_supervised(missing, timeout=120):
 
 
 def _ensure_extension_deps_sync(ext_path, ext_id, timeout=120):
-    """Blocking dependency installation for the install flow.
-
-    Returns (ok, error). The caller (_bg_install) rolls back the extracted
-    files + registry entry on failure so a broken dep never leaves a ghost
-    install behind.
-    """
+    """Blocking dependency installation for the install flow."""
     try:
         missing = _compute_missing_deps(ext_path)
     except Exception as e:

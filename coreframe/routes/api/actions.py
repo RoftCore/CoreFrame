@@ -8,12 +8,7 @@ from coreframe.extensions.permissions import PERMISSION_LEVELS, PERMISSION_NAMES
 from coreframe.extensions.permissions import get_permission_manager
 
 def _ext_is_booting(ext_id):
-    """True if the extension is on disk but has not registered yet.
-
-    Extensions load asynchronously, so the frontend's first calls can land
-    before the instance is in `extensions`. The extension is there, just not
-    ready.
-    """
+    """True while the extension is on disk but has not registered yet."""
     try:
         return os.path.isfile(os.path.join(EXTENSIONS_DIR, ext_id, 'main.py'))
     except Exception:

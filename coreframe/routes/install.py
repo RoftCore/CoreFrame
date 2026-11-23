@@ -21,12 +21,7 @@ from coreframe.extensions import state as ext_state
 
 
 def _install_dbg(ext_id, msg):
-    """Direct-file marker bypassing the logging module.
-
-    If a background install thread dies silently (BaseException, native
-    crash in frozen pip, AV thread-kill), the logging pipeline may never
-    flush — this file always shows exactly how far the flow got.
-    """
+    """Direct file marker that bypasses logging, for installs that die before the log."""
     try:
         with open(os.path.join(tempfile.gettempdir(), 'cf_install_dbg.log'),
                   'a', encoding='utf-8') as f:
@@ -36,11 +31,7 @@ def _install_dbg(ext_id, msg):
 
 
 def _rollback_install(ext_id, ext_path):
-    """Remove extracted files + registry entry after a failed install.
-
-    Returns True if nothing remains (no ghost). Best-effort on Windows
-    file locks: verify removal instead of trusting ignore_errors.
-    """
+    """Remove extracted files and the registry entry after a failed install."""
     log.info("Rollback starting for %s (%s)", ext_id, ext_path)
     clean = True
     try:
@@ -145,8 +136,7 @@ def register_install_routes(app, socketio):
                 'version': cfg_data.get('version', '1.0'),
                 'author': cfg_data.get('author', ''),
                 'category': cfg_data.get('category', 'general'),
-                # An explicit install means "run it": clear any flag left from
-                # a previous state, or the loader silently refuses to start it.
+                # An explicit install means "run it": clear any stale flag or the loader refuses.
                 'disabled': False,
             }
             if not ext_state.write_json(REGISTRY_PATH, registry):

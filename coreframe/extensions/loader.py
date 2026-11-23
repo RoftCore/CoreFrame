@@ -3,145 +3,38 @@ import sys
 import json
 import shutil
 import time
-import importlib.util
 import threading
 
 from coreframe.config import (
     log, EXTENSIONS_DIR, DATA_DATA_DIR, SHARED_LIB_DIR, REGISTRY_PATH
 )
-from coreframe.extensions.health import ExtensionIsolation
 from coreframe.extensions.bridge import SubprocessBridge
 from coreframe.extensions.deps import _ensure_extension_deps_async
 from coreframe.extensions.permissions import get_permission_manager, PERMISSION_LEVELS, REQUIRES_CONSENT
 from coreframe.extensions import state as ext_state
 
-# Global state — set by app.py
-extensions = {}
-# Disabled extensions: on disk and registered, but not loaded and not failed.
-disabled_extensions = {}
-failed_extensions = {}
-pending_consent = {}  # Extensions waiting for user consent
-pending_migration = {}  # Legacy extensions waiting for migration
-denied_consent = {}  # Extensions whose consent was denied (store config for UI)
-_poll_stop_events = {}
-# Poller threads and last emit time: the only way to tell a dead poller from a lost event.
-_poll_threads = {}
-_poll_last_emit = {}
-# One-shot marker so a dead transport logs once, not every tick.
-_poll_no_socket_logged = {}
-# Stop reason and owning stop event: the supervisor resumes only hidden exits.
-_poll_exit_reason = {}
-_poll_thread_event = {}
-# Manifests read once from disk to reserve grid space; see pending_manifests().
-_pending_scan_cache = {}
-# The load waits for the frontend to ask for the list so it can reserve the grid; the timeout covers minimized mode.
-_load_gate = threading.Event()
-LOAD_START_TIMEOUT = 8.0
-_ext_isolation = ExtensionIsolation()
+# State lives in runtime.py, pollers in polls.py; both re-exported here (pitfall 68).
+from coreframe.extensions.runtime import (
+    extensions, disabled_extensions, failed_extensions, pending_consent,
+    pending_migration, denied_consent, _poll_stop_events, _poll_threads,
+    _poll_last_emit, _poll_no_socket_logged, _poll_exit_reason, _poll_thread_event,
+    _pending_scan_cache, _load_gate, LOAD_START_TIMEOUT, _ext_isolation,
+)
+from coreframe.extensions.polls import (
+    widget_visible_anywhere, poller_running, resume_hidden_polls, pollers_status,
+    stop_all_polls, start_polling as _start_polling,
+    supervisor_loop as _poll_supervisor_loop,
+)
 
 
 def request_initial_load():
-    """Open the gate for the initial extension load. Idempotent and cheap.
-
-    Called from /api/extensions on every poll, so it must do nothing after the
-    first time.
-    """
+    """Open the load gate; called on every /api/extensions poll, so it must stay cheap."""
     _load_gate.set()
 
 
 def wait_for_load_gate(timeout=LOAD_START_TIMEOUT):
     """True when the frontend asked (or the timeout fired), False on timeout."""
     return _load_gate.wait(timeout=timeout)
-
-
-def widget_visible_anywhere(ext_id):
-    """True when the widget is not hidden in at least one scene.
-
-    Single source of truth: the poller used to carry its own copy of this and
-    the supervisor needs the same answer, and two copies of a visibility rule
-    always drift.
-    """
-    try:
-        import json as _json
-        from coreframe.config import WIDGET_STATE_PATH
-        if not os.path.exists(WIDGET_STATE_PATH):
-            return True
-        with open(WIDGET_STATE_PATH, encoding='utf-8') as f:
-            ws = _json.load(f)
-        for sc in ws.get('scenes', {}).values():
-            w = (sc.get('widgets') or {}).get(ext_id)
-            if w and not w.get('hidden'):
-                return True
-        return False
-    except Exception:
-        return True
-
-
-def _exited_while_hidden(ext_id):
-    """True when this poller stopped because its widget was hidden everywhere.
-
-    Prefix match: the reason is written as 'hidden in every scene', and an exact
-    test against a shorter string never matches, leaving the widget frozen.
-    """
-    reason = _poll_exit_reason.get(ext_id) or ''
-    return reason.startswith('hidden')
-
-
-def poller_running(ext_id):
-    """True only when the tracked thread is alive AND owns the current stop event.
-
-    A replaced thread stays alive for a moment, so is_alive() alone reports a
-    healthy poller for an extension that has none.
-    """
-    th = _poll_threads.get(ext_id)
-    if not (th and th.is_alive()):
-        return False
-    return _poll_thread_event.get(ext_id) is _poll_stop_events.get(ext_id)
-
-
-def resume_hidden_polls():
-    """Restart realtime pollers whose widget is visible again but whose poller
-    stopped while hidden.
-
-    Without this, switching to a scene where the widget is hidden killed the
-    poller for good and switching back left the widget frozen until CoreFrame
-    was reloaded.
-    """
-    resumed = []
-    for ext_id, ext_data in list(extensions.items()):
-        cfg = ext_data.get('config') or {}
-        if not cfg.get('realtime'):
-            continue
-        interval = cfg.get('refresh_interval', 0)
-        if not interval or not cfg.get('widgets'):
-            continue
-        if not _exited_while_hidden(ext_id):
-            continue
-        if poller_running(ext_id):
-            continue
-        if not widget_visible_anywhere(ext_id):
-            continue
-        _start_polling(ext_id, ext_data)
-        resumed.append(ext_id)
-    if resumed:
-        log.info("Resumed realtime polling for %s (widget visible again)",
-                 ', '.join(resumed))
-    return resumed
-
-
-def _poll_supervisor_loop():
-    """Watches for pollers that stopped while hidden and resumes them.
-
-    Scene switches, unhiding and adding a widget to a scene all change
-    visibility without telling the backend, so recovery cannot hang off a
-    frontend callback.
-    """
-    while True:
-        time.sleep(2.0)
-        try:
-            resume_hidden_polls()
-        except Exception as e:
-            log.debug("poll supervisor: %s", e)
 
 
 def _sync_extension_lib(ext_path):
@@ -164,13 +57,7 @@ def _sync_extension_lib(ext_path):
 
 
 def _check_permissions(ext_id: str, config: dict, ext_path: str) -> tuple:
-    """
-    Check extension permissions before loading.
-    Returns: (can_load, status, detail)
-        can_load: True if extension can be loaded
-        status: 'ok' | 'needs_consent' | 'legacy' | 'denied'
-        detail: additional info (error message, level info, etc.)
-    """
+    """Permission gate: (ok, message, needs) before an extension is loaded."""
     perm = get_permission_manager()
     level = perm.get_required_level(config)
 
@@ -319,60 +206,6 @@ def _load_extension_core(ext_id: str, ext_path: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def pollers_status():
-    """Per-extension poller liveness, for /api/debug/pollers.
-
-    alive=false means the thread is gone and nothing restarts it, which is
-    the one failure mode that silently kills a widget for the session.
-    """
-    import time as _t
-    now = _t.time()
-    from coreframe.websocket import latest_update
-# The bound server lives on the isolation object; there is no module-level `si` here.
-    _si = getattr(_ext_isolation, '_socketio', None)
-    transport = {
-        'socketio_bound': _si is not None,
-        'socketio_type': type(_si).__name__ if _si is not None else None,
-    }
-    out = {}
-    for ext_id, ev in list(_poll_stop_events.items()):
-        src = extensions.get(ext_id)
-        if not src:
-            src = disabled_extensions.get(ext_id) or {}
-        cfg = src.get('config') or {}
-        th = _poll_threads.get(ext_id)
-        last = _poll_last_emit.get(ext_id)
-        entry = {
-            'alive': bool(th and th.is_alive()),
-            'realtime': bool(cfg.get('realtime')),
-            'interval': cfg.get('refresh_interval', 0),
-            'widgets': len(cfg.get('widgets', []) or []),
-            'has_values': ext_id in latest_update,
-            'seconds_since_emit': round(now - last, 1) if last else None,
-            'exit_reason': _poll_exit_reason.get(ext_id),
-            'visible': widget_visible_anywhere(ext_id),
-        }
-        entry.update(transport)
-        out[ext_id] = entry
-    return out
-
-
-def stop_all_polls(timeout=3.0):
-    """Signal every realtime poll thread to exit and wait briefly.
-    Must be called before any full reload so orphan pollers cannot pile up."""
-    evs = list(_poll_stop_events.items())
-    for _, ev in evs:
-        try:
-            ev.set()
-        except Exception:
-            pass
-    _poll_stop_events.clear()
-    _poll_threads.clear()
-    # Clear reasons so a restart does not resume pollers for extensions it is replacing.
-    _poll_thread_event.clear()
-    _poll_exit_reason.clear()
-
-
 def load_extensions():
     """NON-BLOCKING: Starts async loading of all extensions."""
     log.info("load_extensions: Starting async load (EXTENSIONS_DIR=%s)", EXTENSIONS_DIR)
@@ -421,12 +254,7 @@ def load_extensions():
 
 
 def _scan_candidates():
-    """Every extension directory load_extensions() will actually load.
-
-    One scan, one rule: a looser test here promised loads that never happen and
-    left a placeholder card on the dashboard forever (a Node extension has no
-    main.py).
-    """
+    """Every extension directory load_extensions() will actually load, from one scan."""
     found = []
     try:
         names = sorted(os.listdir(EXTENSIONS_DIR))
@@ -444,15 +272,7 @@ def _scan_candidates():
 
 
 def unloadable_candidates():
-    """Directories that carry a manifest but can never load, with the reason.
-
-    These used to vanish from every surface at once: the scanner skipped them,
-    so they were neither loaded nor failed, and the Extensions panel (built
-    from /api/extensions) never showed them. An installed extension that
-    cannot run has to be visible and deletable, not silent.
-
-    Returns [(id, config, reason)].
-    """
+    """Manifest directories that can never load, with the reason, so they stay visible."""
     out = []
     try:
         names = sorted(os.listdir(EXTENSIONS_DIR))
@@ -483,12 +303,7 @@ def unloadable_candidates():
 
 
 def pending_manifests():
-    """Manifests of extensions installed but not loaded yet.
-
-    Lets the host reserve the real grid slot while an extension is still
-    loading; anything load_extensions() will never load is excluded, because a
-    placeholder nothing replaces is worse than no placeholder.
-    """
+    """Manifests installed but not loaded yet, so the host can hold the real grid slot."""
     if not _pending_scan_cache:
         for name, ext_path in _scan_candidates():
             cfg_path = os.path.join(ext_path, 'extension.json')
@@ -506,15 +321,8 @@ def pending_manifests():
             and eid not in pending_migration and eid not in denied_consent}
 
 
-def _read_registry():
-    # Tolerant by design, and loud when the file is corrupt: state.py owns the
-    # flags that must survive, so an unreadable registry is no longer fatal.
-    return ext_state.read_json(REGISTRY_PATH)
-
-
 def is_disabled(ext_id):
-    # The flag lives in extensions.state.json, not in the generated registry:
-    # see coreframe/extensions/state.py for the boot that lost four of them.
+    # The flag lives in extensions.state.json, not in the generated registry (pitfall 47).
     return ext_state.is_disabled(ext_id)
 
 
@@ -533,12 +341,7 @@ def _remember_disabled(ext_id, ext_path):
 
 
 def unload_disabled(ext_id):
-    """Stop a disabled extension that happens to be running.
-
-    Same order as the delete path (see routes/install.py): stop the poller and
-    the child BEFORE anything else, otherwise the isolation monitor keeps
-    heartbeating and restarting something that is supposed to be off.
-    """
+    """Stop a disabled extension that happens to be running."""
     from coreframe.extensions.loader import _poll_stop_events
     stop_evt = _poll_stop_events.pop(ext_id, None)
     if stop_evt:
@@ -603,25 +406,6 @@ def _load_single_extension(ext_id):
     return ext_id in extensions
 
 
-def _start_polling(ext_id, ext_data):
-    """Start realtime polling for an extension if configured."""
-    # Lazy import to avoid circular dependency
-    from coreframe.websocket import _poll_extension
-    cfg = ext_data['config']
-    interval = cfg.get('refresh_interval', 0)
-    if cfg.get('realtime', False) and interval > 0 and cfg.get('widgets', []):
-        stop_event = threading.Event()
-        _poll_stop_events[ext_id] = stop_event
-        t = threading.Thread(target=_poll_extension, args=(ext_id, ext_data, interval),
-                             name="poll-%s" % ext_id, daemon=True)
-        _poll_threads[ext_id] = t
-        _poll_thread_event[ext_id] = stop_event
-        _poll_exit_reason.pop(ext_id, None)
-        _poll_last_emit.pop(ext_id, None)
-        t.start()
-
-
-
 # ── Consent migration helpers ──────────────────────────────────────
 
 def load_after_consent(ext_id: str):
@@ -650,8 +434,7 @@ def load_after_consent(ext_id: str):
     thread = _ext_isolation.start_load(ext_id, loader)
     thread.join(timeout=15.0)
     loaded = ext_id in extensions
-    # A terminal event, or the install toast waits forever: this path runs after
-    # consent, when the install job has already emitted 'needs_consent' and returned.
+    # A terminal event, or the install toast waits forever: this path runs after consent, when the install job has already emitted 'needs_consent' and returned.
     _si = getattr(_ext_isolation, '_socketio', None)
     if _si:
         if loaded:
