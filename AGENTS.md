@@ -50,10 +50,14 @@ CoreFrame/
 │   │   ├── scenes.py          # /api/scenes CRUD, activate, backgrounds
 │   │   ├── static.py          # /ext-static/<id>/<path> and /ext-data/<id>/<path>
 │   │   ├── install.py         # /api/install_extension, /api/package_extension
-│   │   └── marketplace.py     # /api/marketplace/*
+│   │   └── marketplace.py     # /api/marketplace/* (catalog routes)
+│   │       └── marketplace_install.py  # replace a version on disk, roll back
 │   └── extensions/
-│       ├── loader.py          # Discovery, consent gate, migration, poller threads
+│       ├── runtime.py         # Shared state: loaded/failed/consent dicts, pollers, isolation
+│       ├── loader.py          # Discovery, permission gate, load orchestration, consent
+│       ├── polls.py           # Realtime pollers: visibility, supervision, start/stop
 │       ├── bridge.py          # Per-extension process supervision, restart, drain
+│       ├── bridge_elevation.py # UAC: ShellExecuteW('runas') + coreframe_helper.exe
 │       ├── ext_runner.py      # The child process: restrictions + JSON-RPC loop
 │       ├── permissions.py     # Permission levels, consent, escalation
 │       ├── health.py          # Heartbeats, isolation accounting
@@ -95,7 +99,10 @@ CoreFrame/
 ├── scaffolds/template-extension/
 ├── tools/
 │   ├── build_runner.py        # Builds the lightweight runner into runner.zip
+│   ├── build_host_zip.py      # Zips the onedir host into dist/host.zip
+│   ├── build_stub.py          # Compiles launcher/CoreFrameStub.cs + host.zip -> dist/CoreFrame.exe
 │   └── sync_ext_runner_source.py  # Mirrors ext_runner.py into run_coreframe.pyw
+├── launcher/CoreFrameStub.cs   # The single .exe: deploys the host once, then spawns it
 ├── runner.spec, runner.zip, runner_version_info.txt   # The child-process build
 ├── coreframe_helper.spec       # The elevated helper build
 ├── hooks/                      # PyInstaller hooks for gi.repository.WebKit2
@@ -161,6 +168,20 @@ A poller exits when its widget is hidden in every scene, so `loader.py` runs a `
 The initial extension load waits on a gate opened by the first `GET /api/extensions`, with `LOAD_START_TIMEOUT` as a fallback for minimized mode (no frontend to ask). Without the gate the extensions finished before the webview asked, so the host had no pending entries to reserve and every card appeared in one frame.
 
 `GET /api/extensions` reports not-yet-loaded extensions with `pending: true` and their real manifest, using `loader.pending_manifests()` — which shares `_scan_candidates()` with `load_extensions()` so it can never promise a load that will not happen. The host renders `createPlaceholderCard()` for those and swaps the real card in place, never growing the grid. `cfApplyAppearAnimation()` plays the host-owned entrance (`components.css`), staggered by grid position via `CF_APPEAR_STAGGER_MS`; extensions may name one with `appear_animation`, they cannot define their own. Skeletons honour `CF_PLACEHOLDER_MIN_MS` so a fast extension does not turn them into a flicker.
+
+## Launcher and build outputs
+
+`dist/CoreFrame.exe` is **not** the server: it is `launcher/CoreFrameStub.cs`, compiled with `csc` (C# 5, .NET Framework 4.x, no extra toolchain) with `host.zip` and `splash.png` embedded as resources. The contract:
+
+- **First run, or any new payload:** unpacks `host.zip` into `%USERPROFILE%\Documents\CoreFrame\bin\host`, writes `host.stamp` (`size-mtime` of the zip, the same convention as `runner.zip`), then spawns `bin\host\CoreFrame.exe`. Measured 2026-11-21: **9.24 s** to `/api/health`, once.
+- **Every later run:** reads the stamp, it matches, **spawns and exits**. Measured: `/api/health` at **3.58-3.72 s** against 9.0-10.7 s for the old onefile, and **zero `_MEI*` directories** in `%TEMP%` (the onefile host wrote 2,071 files / 74.3 MB on every launch, pitfall 62).
+- **The stub owns the boot splash** and closes it when the `CoreFrame` window appears, which is why `CoreFrame.spec` builds no `Splash` any more.
+- **Updating = replacing `dist/CoreFrame.exe`:** the new stamp forces exactly one re-deploy. A deploy that cannot swap the tree (`Directory.Move` fails while the host runs from it) leaves the old tree in place, keeps the staged one and completes the swap on the next launch without re-extracting (measured: 7.9 s the first attempt with the app open, 0.8 s the retry, 4.2 s to `/api/health` once closed).
+- **Build:** `py -3.13 -m PyInstaller --noconfirm CoreFrame.spec` → `dist/host/`; `py -3.13 -m PyInstaller --noconfirm coreframe_helper.spec` → `dist/coreframe_helper.exe`; `py -3.13 tools/build_host_zip.py` (puts the helper in the tree, then zips) → `dist/host.zip`; `py -3.13 tools/build_stub.py` → `dist/CoreFrame.exe`. `dist/host/` alone is not a deliverable.
+- **The payload is the program.** A version bump replaces `bin\host` whole: 1.1 → 1.2 is a full swap, not a patch, so there are no half-updated trees and no orphans, and a downgrade works the same way. User data never lives there and survives untouched: `extensions/`, `data/`, `lib/`, `coreframe.json`, `widget_state.json`, `permissions_consent.json`, `extensions.state.json`, the log. `bin\host\host.version` records what is deployed (the stub carries the same string as its FileVersion, read from `version_info.txt`), and deleting `bin\host` is the repair path — the next launch re-deploys.
+- **The one thing an update cannot fix by itself:** `DATA_DIR\lib` holds extension wheels built for one interpreter and is never replaced. `coreframe/config.py` writes `lib\.python-version` and warns when the payload runs a different Python, because those wheels would stop importing; deleting `lib` makes the extensions reinstall their requirements.
+- In the deployed onedir `sys._MEIPASS` is `bin/host/_internal`, so `BASE_DIR`, `STATIC_DIR` and `runner.zip` resolve there; `bin/runner` is still extracted by `ensure_persistent_runner` on the host's first start.
+- Linux still builds a onefile binary (there is no stub for it), so the Linux artifact stays a bare executable.
 
 ## Menus and hooks
 
