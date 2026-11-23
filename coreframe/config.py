@@ -119,6 +119,26 @@ logging.basicConfig(
 )
 log = logging.getLogger('CoreFrame')
 
+# Extension wheels belong to one interpreter: a payload that changes it must warn (pitfall 66).
+_PY_TAG = '%d.%d' % sys.version_info[:2]
+_LIB_TAG_PATH = os.path.join(SHARED_LIB_DIR, '.python-version')
+try:
+    _prev_tag = ''
+    if os.path.isfile(_LIB_TAG_PATH):
+        with open(_LIB_TAG_PATH, encoding='utf-8') as _f:
+            _prev_tag = _f.read().strip()
+    if not _prev_tag:
+        with open(_LIB_TAG_PATH, 'w', encoding='utf-8') as _f:
+            _f.write(_PY_TAG)
+    elif _prev_tag != _PY_TAG:
+        log.warning("Shared lib was installed for Python %s but this build runs %s: "
+                    "extension dependencies may fail to import. Delete %s and let "
+                    "the extensions reinstall their requirements.",
+                    _prev_tag, _PY_TAG, SHARED_LIB_DIR)
+except OSError:
+    pass
+
+
 # ── Thread-safe widget state lock ─────────────────────────────────
 
 _widget_state_lock = threading.Lock()

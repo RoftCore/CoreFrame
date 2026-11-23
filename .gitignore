@@ -38,4 +38,9 @@ widget_state.json
 # Extensions (users install their own)
 extensions/*
 downloads/
-launcher/
+
+# Launcher build leftovers, but the stub source is tracked: CI compiles it.
+launcher/bin/
+launcher/obj/
+launcher/*.exe
+launcher/*.pdb

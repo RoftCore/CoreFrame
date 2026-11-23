@@ -63,10 +63,23 @@ jobs:
         shell: pwsh
         run: python tools/build_runner.py
 
-      - name: Build (Windows)
+      - name: Build host tree (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: pyinstaller --noconfirm --clean CoreFrame.spec
+
+      # One distributable .exe: the stub embeds host.zip and deploys it once under
+      # Documents\CoreFrame\bin\host. Onedir host + stub is what removes the ~6.5 s
+      # the old onefile EXE spent unpacking 74 MB into %TEMP% on every launch.
+      # The elevated helper is a separate spec because it must stay tiny and must
+      # sit next to the host exe (bridge._get_helper_path).
+      - name: Build single-file launcher (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm coreframe_helper.spec
+          python tools/build_host_zip.py
+          python tools/build_stub.py
 
       - name: Build (Linux)
         if: runner.os == 'Linux'

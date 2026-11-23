@@ -100,6 +100,9 @@ a = Analysis(
     excludes=[
         'numpy',
         'pythoncom',
+        # No Splash object in this build: the module only prints a traceback and a
+        # "cannot connect to the splash screen" warning on every boot (pitfall 67).
+        'pyi_splash',
         'dns.win32util',
         'yt_dlp',
         'SpotipyFree',
@@ -116,33 +119,15 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-# Bootloader splash: static image shown DURING MEIPASS extraction, before
-# any Python runs. Closed via pyi_splash.close() in run_coreframe.pyw once the
-# main window reveals (children close it immediately, they have no window).
-splash = Splash(
-    'splash.png',
-    binaries=a.binaries,
-    datas=a.datas,
-    # Single small centered loading screen (440x330). Status lines are
-    # pushed at runtime via pyi_splash.update_text(); closed via
-    # pyi_splash.close() once the main window reveals.
-    text_pos=(24, 288),
-    text_size=11,
-    text_color='#A0A0B0',
-    text_default='Starting...',
-    max_img_size=(440, 330),
-    minify_script=True,
-    # Never cover other windows (login screen, etc.): plain centered dialog.
-    always_on_top=False,
-)
-
+# Onedir on purpose: the launcher stub (launcher/CoreFrameStub.cs) deploys this
+# tree once under DATA_DIR\bin\host and then spawns it directly, so no boot pays
+# the 6.5 s a onefile EXE spends unpacking 74 MB into %TEMP% (pitfall 62). The
+# boot splash belongs to the stub now; this build has none.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    splash,
-    splash.binaries,
+    [],
+    exclude_binaries=True,
     name='CoreFrame',
     icon='CoreFrame.ico',
     version='version_info.txt',
@@ -156,4 +141,14 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='host',
 )

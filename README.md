@@ -88,7 +88,8 @@ python app.py
 | `static/` | Frontend (HTML, CSS, JS) |
 | `docs/` | Guides (EXTENSIONS.md, BRIDGE.md) |
 | `scaffolds/template-extension/` | Extension scaffold template |
-| `CoreFrame.spec` | PyInstaller config |
+| `CoreFrame.spec` | PyInstaller config (onedir host tree) |
+| `launcher/CoreFrameStub.cs` | Single-exe launcher: deploys the host once, then just spawns it |
 | `requirements.txt` | Python dependencies |
 
 ### Where your data lives
@@ -126,9 +127,11 @@ pip install -r requirements.txt --upgrade
 
 ```bash
 pip install pyinstaller
-pyinstaller CoreFrame.spec
-# ./dist/CoreFrame.exe  (Windows)
-# ./dist/CoreFrame      (Linux / macOS)
+pyinstaller CoreFrame.spec            # onedir host tree -> dist/host/
+pyinstaller coreframe_helper.spec     # UAC helper -> dist/coreframe_helper.exe
+python tools/build_host_zip.py        # helper into the tree, tree -> dist/host.zip
+python tools/build_stub.py            # host.zip + launcher/*.cs -> dist/CoreFrame.exe
+# ./dist/CoreFrame.exe  (Windows, single file)
 ```
 
 ### Tests
@@ -142,6 +145,15 @@ They run against the real application object with a throwaway data root
 (`COREFRAME_DATA_DIR`), so nothing touches `~/Documents/CoreFrame`. CI runs the
 same command on every push, before the build: the API surface, the extension
 scanner, the disabled-state file and the permission table.
+
+`dist/CoreFrame.exe` is the launcher: the first run unpacks the host into
+`Documents/CoreFrame/bin/host/`, writes `host.stamp` and `host.version`, and every
+later run only checks the stamp and starts `bin/host/CoreFrame.exe` — nothing is
+unpacked again. Replacing the exe with a newer build changes the stamp and swaps
+the whole program tree once; your extensions, data, settings and consents live in
+`Documents/CoreFrame/` and are never touched. The C# step needs nothing but
+`csc.exe` from .NET Framework 4.x, which ships with Windows. On Linux the build is
+still a onefile EXE (no launcher stub).
 
 ---
 
