@@ -86,6 +86,7 @@ def _poll_extension(ext_id, ext_data, interval_ms):
     stop_event = _poll_stop_events.get(ext_id)
     _err_last_log = 0.0
     _err_count = 0
+    _slow_last_log = 0.0
     def _note_error(action, e):
         nonlocal _err_last_log, _err_count
         _err_count += 1
@@ -158,10 +159,23 @@ def _poll_extension(ext_id, ext_data, interval_ms):
                                       "(isolation id=%x): values update the cache but "
                                       "no client ever receives them",
                                       ext_id, id(_ei))
-            next_tick = max(next_tick + interval, tick + interval)
+            # A tick that outran its own budget must not fire again at once: a slow extension
+            # otherwise pins one core, because next_tick is already in the past.
+            work = time.monotonic() - tick
+            if work > interval:
+                next_tick = time.monotonic() + interval
+                if time.monotonic() - _slow_last_log >= 60.0:
+                    log.warning("%s poll tick took %.1fs for a %.1fs budget: backing off",
+                                ext_id, work, interval)
+                    _slow_last_log = time.monotonic()
+            else:
+                next_tick = max(next_tick + interval, tick + interval)
             remaining = next_tick - time.monotonic()
             if remaining > 0:
-                time.sleep(remaining)
+                if stop_event is not None:
+                    stop_event.wait(remaining)
+                else:
+                    time.sleep(remaining)
         except Exception as e:
             # One bad tick must not cost us the poller for the rest of the session.
             _note_error('tick', e)

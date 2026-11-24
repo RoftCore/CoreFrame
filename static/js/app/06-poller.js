@@ -251,7 +251,7 @@ function cfPollRun() {
   for (const key in cfPollRegistry) {
     if (cfPollActive >= CF_POLL_PARALLEL) break;
     const e = cfPollRegistry[key];
-    if (!e.hot) continue;
+    if (!e.hot || e.inflight) continue;
     if (e.nextAt > now && !(e.once && !e.fired)) continue;
     if (e.once && e.fired) continue;
     cfPollFire(e);
@@ -260,8 +260,10 @@ function cfPollRun() {
 }
 
 function cfPollFire(e) {
+  if (e.inflight) return;
   const started = Date.now();
   e.lastAt = started;
+  e.inflight = true;
   if (e.once) e.fired = true;
   const cadence = e.once ? 0 : cfPollEffectiveEvery(e);
   // Jitter keeps a resumed wave from landing on the same millisecond.
@@ -271,7 +273,11 @@ function cfPollFire(e) {
     .then(function () { return refreshWidget(e.extId, e.wDef); })
     .catch(function () {})
     .then(function () {
+      e.inflight = false;
       cfPollActive = Math.max(0, cfPollActive - 1);
+      // A call that outran its own cadence must not fire again at once: never more than 50% duty.
+      const took = Date.now() - started;
+      if (!e.once && took > cadence) e.nextAt = Math.max(e.nextAt, Date.now() + took);
       cfPollArm();
     });
 }
