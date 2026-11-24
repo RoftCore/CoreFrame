@@ -57,7 +57,7 @@ extensions/mi_extension/
 | `menu_items` | array | `[]` | ❌ | Items in the side menu |
 | `js_modules` | string[] | `[]` | ❌ | JS files in `static/` |
 | `css_modules` | string[] | `[]` | ❌ | CSS files in `static/` |
-| `script_scope` | string | `"classic"` | — | How `js_modules` are injected. `"classic"` (default) is a plain `<script>` in the page's **shared global scope**, which is what published extensions expect. `"module"` loads them as ES modules, so each extension gets its own top-level scope and two extensions may declare the same function name without one overwriting the other. Under `"module"` the scripts are strict mode and anything an inline `onclick="fn()"` attribute in your own HTML needs must be assigned explicitly (`window.fn = fn`); use `addEventListener` instead. Measured: two classic extensions sharing one function name made the first card paint with the second's value; under `"module"` each painted its own and nothing leaked to `window` |
+| `script_scope` | string | `"classic"` | — | How `js_modules` are injected: `"classic"` (default) is a plain `<script>` in the page's **shared global scope**, which is what published extensions expect; `"module"` gives the extension its own top-level scope, so two extensions may declare the same function name without one overwriting the other. **Recommended for every new extension** — see [Script scope](#script-scope) for the tradeoffs (strict mode, inline handlers, `window.X = X`) |
 | `widgets` | array | `[]` | ✅ | Array of widget definitions |
 | `permissions` | object | — | ❌ | Permission declaration (see [Permissions](#permissions)) |
 | `serve_data` | bool | `false` | — | Publishes the extension's **data dir** over `/ext-data/<id>/` (with Range/206, so `<audio>`/`<video>` can seek). Use it to serve local media, sessions or exports without putting them in the extension folder, which gets packaged and copied on install |
@@ -519,7 +519,7 @@ To extend core styles, use the extension selector:
 
 ## JavaScript and CSS
 
-Files in `static/` are automatically injected when the page loads.
+Files in `static/` are served from `/ext-static/<id>/` and injected when the extension's card approaches the viewport, not at page load: with a thousand extensions, loading every stylesheet up front is the most expensive thing the page does. A card keeps its skeleton until its assets land, and a scene switch prefetches the cards it is about to show, so nothing is missing on screen.
 
 ```javascript
 // static/script.js
@@ -546,6 +546,36 @@ Files in `static/` are automatically injected when the page loads.
   wait();
 })();
 ```
+
+### Script scope
+
+`js_modules` are injected as classic `<script>` tags unless you say otherwise, and **classic scripts share the page's global scope**: a top-level `function ensureCard()` declared by two extensions is *one* function, and whichever loads last replaces the other. This is not theoretical. It bit `dirsync` and `razer_mouse`, which both declared `ensureCard` and `markInteraction`, so one of them silently ran the other's code. A `let`/`const`/`class` collision is worse than a silent overwrite: the second declaration throws `SyntaxError: Identifier 'X' has already been declared` and takes that entire script down.
+
+**New extensions should set `"script_scope": "module"`.** It loads your scripts as ES modules, each with its own top-level scope:
+
+```json
+{
+  "js_modules": ["script.js"],
+  "script_scope": "module"
+}
+```
+
+What you get:
+
+- Two extensions may use the same helper name without fighting.
+- Your `let`/`const`/`class` cannot collide with anyone.
+- Nothing you declare leaks to `window`, so you cannot break another widget by accident.
+- No cost: the core never reads an extension's globals (0 references), so isolation is free.
+
+What changes:
+
+- Your code runs in **strict mode**. Assigning to an undeclared variable throws instead of creating a global.
+- An inline handler in HTML you generate (`onclick="myFn()"`) cannot see a module-scoped function. Use `addEventListener`, or expose it deliberately: `window.myFn = myFn`.
+- Anything the host or another script must reach has to be assigned explicitly: `window.myExtApi = {...}`.
+
+Keep `"classic"` only when your own HTML uses inline `on*` attributes bound to your functions and you are not going to change it. `ideas_canvas` is that case here: it declares `var IC` and renders `onclick="IC.addNode(...)"`, so under `module` it needs `window.IC = IC;` first. Extensions published before the field existed default to `classic`, so nothing breaks; the recommendation is for new work.
+
+**Name things as if there were no isolation anyway.** Prefix whatever you export or share with your extension id (`ds*`, `rz*`, `sz*`), keep helpers inside your own scope, and never assume a global you did not create exists. That is what keeps your code working if a user drops it into a `classic` page, and it makes stack traces readable.
 
 ---
 
@@ -672,7 +702,7 @@ On first load CoreFrame installs it in the background (`pip install --prefix <DA
 | Platform | Shared lib | `pip --prefix` layout |
 |----------|-----------|----------------------|
 | Windows | `~/Documents/CoreFrame/lib/` | `lib/` + `lib/Lib/site-packages/` |
-| Linux | `~/.local/share/CoreFrame/lib/` | `lib/` + `lib/python3.11/site-packages/` |
+| Linux | `~/.local/share/CoreFrame/lib/` | `lib/` + `lib/python3.13/site-packages/` |
 
 The child process `sys.path` already includes, in order: your extension folder, the shared lib, and its `site-packages` subdir. So this just works:
 
@@ -738,6 +768,12 @@ The server polls at the same `refresh_interval` and emits via WebSocket to all c
 ---
 
 ## Publishing
+
+Before you upload, three things that cost nothing and save a support thread:
+
+- **`"script_scope": "module"`** in `extension.json`, unless you need `classic` for inline handlers (see [Script scope](#script-scope)).
+- **Unique names** for anything that leaves your scope, prefixed with your extension id. Two extensions with the same top-level helper name is a bug that shows up on someone else's machine, not yours, because it depends on load order.
+- **Test with a full dashboard**, not an empty one: install it next to the extensions your users already have and open the console. A name collision appears as one widget painting another's data, which looks like your bug.
 
 1. From the interface: **Package** button → select extension → download `.zip`
 2. Or manually: compress the extension folder

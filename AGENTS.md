@@ -114,6 +114,7 @@ CoreFrame/
 3. **The core provides generic mechanisms:** 12-column grid, extension card, sub-widgets, realtime transport, menu hooks, scenes, permission levels, process supervision. No per-extension knowledge.
 4. **Extensions run out of process.** In-process execution is not an option: a crash, hang or native fault in one extension must never take the host down (pitfalls 21, 26, 28).
 5. **Data lives in `DATA_DIR`, not in the extension folder.** `config.get('data_dir')` points at `Documents/CoreFrame/data/<id>/`. Packaged or downloaded media goes there and is published with `"serve_data": true` → `/ext-data/<id>/<path>`.
+6. **New extensions declare `"script_scope": "module"`.** Without it every extension's `js_modules` share one global scope and two extensions naming a helper the same are one function (pitfall 60). The field is opt-in with `"classic"` as the default only so extensions published before it keep running; anything written from now on goes in a module and exposes what it must share as `window.<ext>X`. The guide that ships to authors is `docs/EXTENSIONS.md#script-scope`.
 
 ## Code style
 

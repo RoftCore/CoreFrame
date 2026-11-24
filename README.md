@@ -3,7 +3,7 @@
 **Open-source modular dashboard.** Extensions in Python, Node.js and more. Grid widgets, scenes, customizable styles. A control center for systems, networks, development and daily tools.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version">
+  <img src="https://img.shields.io/github/v/release/RoftCore/CoreFrame?label=release&color=blue" alt="Latest release">
     <img src="https://img.shields.io/badge/python-3.13-blue" alt="Python">
   <img src="https://img.shields.io/badge/HTML-5+-E34F26?logo=html5" alt="Html">
   <img src="https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black" alt="Javascript">
@@ -273,7 +273,7 @@ CoreFrame installs it in the background on first load (`pip install --prefix <DA
 
 **Option B — ship a `lib/` folder** inside the extension. On load it is copied into the shared lib and removed from the extension. Useful for vendored or offline packages.
 
-**Using them:** just `import` normally. The child process `sys.path` already includes the extension folder, the shared lib, and its `Lib/site-packages` (Windows) / `lib/python3.11/site-packages` (Linux):
+**Using them:** just `import` normally. The child process `sys.path` already includes the extension folder, the shared lib, and its `Lib/site-packages` (Windows) / `lib/python3.13/site-packages` (Linux):
 
 ```python
 import yt_dlp  # works if installed via A or B
@@ -350,11 +350,16 @@ extensions/my_extension/
   "author": "Your name",
   "category": "general",
   "permissions": { "level": "basic" },
+  "js_modules": ["script.js"],
+  "css_modules": ["style.css"],
+  "script_scope": "module",
   "widgets": [
     { "id": "greeting", "type": "text", "label": "Greeting", "action": "get_greeting" }
   ]
 }
 ```
+
+**`script_scope: "module"` is the recommendation, and it is cheap to follow.** Without it, every extension shares one global scope and a helper with the same name in two extensions is a single function - whichever loads last wins, so one widget silently runs the other's code. With it, your script gets its own scope. The two things it changes: strict mode, and an inline `onclick="fn()"` in your HTML needs `window.fn = fn` (prefer `addEventListener`). Details in [Script scope](docs/EXTENSIONS.md#script-scope).
 
 **main.py:**
 ```python
