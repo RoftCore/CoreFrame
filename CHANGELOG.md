@@ -1,5 +1,15 @@
 # Changelog
 
+## License
+
+- **From `v1.1.0` onward CoreFrame is GPL-3.0-or-later.** Releases `v1.0.0` to
+  `v1.0.2` were published under the MIT license and remain MIT; nothing is
+  retracted from anyone who already had them. The change is recorded here so
+  that no version is ambiguous about which terms apply.
+- Why: MIT allowed a fork to close the code and ship it without ever naming the
+  author. GPL keeps the 1.1 line and everything after it free, and section 5(a)
+  forces a modified version to state that it was modified.
+
 ## v1.1.0 — Permission System, Subprocess Isolation, Autoruns & the Scale Pass
 
 **Release date:** 2026-11-10 — first release since 1.0.2. Everything below shipped between 2026-08-26 and today, in two waves: the September security overhaul and the October/November scale pass. The 1.1.0 notes used to sit in their own section, dated 2026-09-01 and never tagged; that draft is now the closing part of this release instead of a version of its own.

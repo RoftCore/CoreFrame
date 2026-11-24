@@ -1,0 +1,19 @@
+# Authors
+
+CoreFrame was created by **RoftCore**, and every commit in this repository is
+theirs: the baseline project and the whole 1.1.0 line (permissions, process
+isolation, autoruns, the scale pass, the marketplace and the runner).
+
+## Copyright holder
+
+    RoftCore <roftcore@gmail.com>
+
+## Contributors
+
+None yet. Because the copyright is held in full by a single party, the project
+can be relicensed, dual-licensed or sold as a whole without asking anyone else.
+
+That stays true only while every external contribution goes through the CLA in
+`CONTRIBUTING.md`. A merged pull request without it would make a third party
+co-owner of their part, and from that day the license of the project is no
+longer something the maintainer can decide alone.

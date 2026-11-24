@@ -1,0 +1,32 @@
+CoreFrame
+Copyright (C) 2025-2026 RoftCore
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+The full license text is in LICENSE.md, which is the authoritative copy.
+
+---
+
+## Attribution
+
+CoreFrame is the original work of RoftCore:
+<https://github.com/RoftCore/CoreFrame>
+
+If you distribute this program or a work based on it, keep this file and state
+the origin in your about box, help output or equivalent legal notices. That is
+asked as an additional term under GPL-3.0 section 7(b).
+
+Be aware of what that term is worth: a downstream distributor may remove
+additional terms, so this is a norm, not a lock. What the license does bind
+anyone to is section 5(a) - a modified version must carry prominent notices
+stating that it was changed, and the date - and section 4, which forbids
+stripping the copyright notices. Removing an author's name from the source is a
+license violation, not a style choice. The name and logo are a separate matter:
+the GPL grants no trademark rights (section 7(e)).
