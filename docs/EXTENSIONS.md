@@ -57,6 +57,7 @@ extensions/mi_extension/
 | `menu_items` | array | `[]` | ❌ | Items in the side menu |
 | `js_modules` | string[] | `[]` | ❌ | JS files in `static/` |
 | `css_modules` | string[] | `[]` | ❌ | CSS files in `static/` |
+| `script_scope` | string | `"classic"` | — | How `js_modules` are injected. `"classic"` (default) is a plain `<script>` in the page's **shared global scope**, which is what published extensions expect. `"module"` loads them as ES modules, so each extension gets its own top-level scope and two extensions may declare the same function name without one overwriting the other. Under `"module"` the scripts are strict mode and anything an inline `onclick="fn()"` attribute in your own HTML needs must be assigned explicitly (`window.fn = fn`); use `addEventListener` instead. Measured: two classic extensions sharing one function name made the first card paint with the second's value; under `"module"` each painted its own and nothing leaked to `window` |
 | `widgets` | array | `[]` | ✅ | Array of widget definitions |
 | `permissions` | object | — | ❌ | Permission declaration (see [Permissions](#permissions)) |
 | `serve_data` | bool | `false` | — | Publishes the extension's **data dir** over `/ext-data/<id>/` (with Range/206, so `<audio>`/`<video>` can seek). Use it to serve local media, sessions or exports without putting them in the extension folder, which gets packaged and copied on install |

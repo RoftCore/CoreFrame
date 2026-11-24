@@ -53,7 +53,10 @@ function cfLoadExtAssetsNow(extId, ext) {
       if (document.querySelector('script[src="' + src + '"]')) return;
       var script = document.createElement('script');
       // async=false restores declaration order: dynamic classic scripts default to async=true.
-      script.async = false;
+      // A "module" script instead gets its own top-level scope, so two extensions can
+      // declare the same function without one overwriting the other.
+      if (ext.script_scope === 'module') script.type = 'module';
+      else script.async = false;
       script.src = src;
       // Ask for a repaint once the code has actually run: a notification sent at
       // append time races the script, and the handler is registered while it loads.

@@ -20,6 +20,9 @@ def _ext_payload(ext_id, cfg, perm_info, **extra):
         'platforms': cfg.get('platforms'),
         'js_modules': cfg.get('js_modules', []),
         'css_modules': cfg.get('css_modules', []),
+        # "module" isolates the extension's script in its own scope; "classic" is the
+        # old shared global scope, kept as the default so published extensions still run.
+        'script_scope': cfg.get('script_scope', 'classic'),
         'author': cfg.get('author', ''),
         'version': cfg.get('version', '1.0'),
         'language': cfg.get('language', 'python'),
