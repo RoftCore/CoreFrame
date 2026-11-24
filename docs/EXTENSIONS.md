@@ -776,9 +776,9 @@ Before you upload, three things that cost nothing and save a support thread:
 - **Test with a full dashboard**, not an empty one: install it next to the extensions your users already have and open the console. A name collision appears as one widget painting another's data, which looks like your bug.
 
 1. From the interface: **Package** button → select extension → download `.zip`
-2. Or manually: compress the extension folder
-3. Upload to GitHub or any host
-4. Add to the marketplace registry (PR in the extensions-coreframe repo)
+2. Or manually: compress the extension folder, with the folder containing `extension.json` as the only wrapper (or no wrapper at all)
+3. Upload to GitHub Releases or any host, and treat the asset as immutable: new code means a new version and a new URL
+4. Open a submission issue in the marketplace repo: <https://explotador72.github.io/roftcore-marketplace/> → "Submit an extension". Only the maintainer edits the registry, and every submission is reviewed first ([checklist](https://github.com/Explotador72/roftcore-marketplace/blob/main/docs/VERIFY.md))
 
 The registry entry takes an optional `versions` array, newest first. It is what feeds the version dropdown and the **Update** button in the marketplace:
 

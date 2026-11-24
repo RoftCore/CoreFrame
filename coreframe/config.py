@@ -34,7 +34,28 @@ SHARED_LIB_DIR = os.path.join(DATA_DIR, 'lib')
 DATA_DATA_DIR = os.path.join(DATA_DIR, 'data')
 PROVIDERS_PATH = os.path.join(DATA_DIR, 'providers.json')
 LOG_PATH = os.path.join(DATA_DIR, 'coreframe.log')
-MARKETPLACE_URL = 'https://raw.githubusercontent.com/RoftCore/extensions-coreframe/main/registry.json'
+
+# Registry CoreFrame reads. The official one is the RoftCore marketplace; the env
+# var wins over coreframe.json so a mirror can be tested without editing data.
+MARKETPLACE_DEFAULT_URL = 'https://explotador72.github.io/roftcore-marketplace/registry.json'
+
+
+def _marketplace_url():
+    """Env override, then coreframe.json's marketplace_url, then the official registry."""
+    override = os.environ.get('COREFRAME_MARKETPLACE_URL')
+    if override and override.startswith(('http://', 'https://')):
+        return override
+    try:
+        with open(os.path.join(DATA_DIR, 'coreframe.json'), encoding='utf-8') as handle:
+            url = json.load(handle).get('marketplace_url')
+        if url and str(url).startswith(('http://', 'https://')):
+            return str(url)
+    except Exception:
+        pass
+    return MARKETPLACE_DEFAULT_URL
+
+
+MARKETPLACE_URL = _marketplace_url()
 
 # Ensure dirs exist
 os.makedirs(DATA_DIR, exist_ok=True)

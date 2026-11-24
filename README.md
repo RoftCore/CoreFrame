@@ -39,6 +39,7 @@
 - [Usage & options](#usage--options)
   - [Extensions](#extensions)
   - [Options](#options)
+  - [Marketplace](#marketplace)
   - [Creating an extension](#creating-an-extension)
 - [License](#license)
 
@@ -57,7 +58,7 @@ Download the latest [CoreFrame release](https://github.com/RoftCore/CoreFrame/re
 **macOS:** grab `CoreFrame-macOS` — if macOS blocks it, go to System Settings → Privacy & Security → allow anyway.
 
 > No dependencies required. No Python, no pip, no terminal. Just download and run.
-- Marketplace: https://github.com/RoftCore/extensions-coreframe/releases
+- **Marketplace:** <https://explotador72.github.io/roftcore-marketplace/> — the registry CoreFrame reads by default, and where extensions are submitted for review.
 
 ### Running from source
 
@@ -322,6 +323,26 @@ Extensions that fail to load don't block the system. They appear in the Extensio
 | Resize | Drag bottom-right corner of widget |
 | Move | Context menu → move mode → click destination |
 | F11 | Toggle fullscreen |
+
+### Marketplace
+
+CoreFrame reads one registry URL and renders the Marketplace panel from it. The default is the
+official one:
+
+```
+https://explotador72.github.io/roftcore-marketplace/registry.json
+```
+
+To point an install at a mirror or a private marketplace, add the key to
+`~/Documents/CoreFrame/coreframe.json` (or set `COREFRAME_MARKETPLACE_URL`, which wins):
+
+```json
+{ "marketplace_url": "https://example.org/my-registry.json" }
+```
+
+A registry is a JSON file with an `extensions` array; see the
+[format](https://github.com/Explotador72/roftcore-marketplace/blob/main/docs/FORMAT.md). The
+registry is cached for 120 seconds, so a change shows up within two minutes of a push.
 
 ### Creating an extension
 
