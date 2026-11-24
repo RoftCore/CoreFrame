@@ -8,7 +8,8 @@ import urllib.request
 import threading
 from flask import request, jsonify
 
-from coreframe.config import log, EXTENSIONS_DIR, DATA_DIR, REGISTRY_PATH, MARKETPLACE_URL, PROVIDERS_PATH
+from coreframe.config import (log, EXTENSIONS_DIR, DATA_DIR, REGISTRY_PATH, MARKETPLACE_URL,
+                             MARKETPLACE_DEFAULT_URL, MARKETPLACE_FALLBACK_URL, PROVIDERS_PATH)
 from coreframe.utils import _is_safe_url
 from coreframe.extensions import extensions, failed_extensions, _ext_isolation
 from coreframe.extensions.loader import _load_single_extension, _sync_extension_lib
@@ -16,6 +17,30 @@ from coreframe.extensions.deps import _ensure_extension_deps_async, _ensure_exte
 
 MARKETPLACE_CACHE = None
 MARKETPLACE_CACHE_TIME = 0
+
+
+def _registry_urls():
+    """Configured registry first, then the official Pages host when nothing was overridden."""
+    urls = [MARKETPLACE_URL]
+    if MARKETPLACE_URL == MARKETPLACE_DEFAULT_URL and MARKETPLACE_FALLBACK_URL not in urls:
+        urls.append(MARKETPLACE_FALLBACK_URL)
+    return urls
+
+
+def _fetch_registry(timeout=10):
+    """First URL that answers wins; if none does, raise the last error so the panel can show it."""
+    last_error = None
+    for url in _registry_urls():
+        try:
+            request_url = urllib.request.Request(url)
+            with urllib.request.urlopen(request_url, timeout=timeout) as response:
+                return json.loads(response.read())
+        except Exception as exc:
+            last_error = exc
+            if len(_registry_urls()) > 1:
+                log.warning("Marketplace fetch failed for %s: %s", url, exc)
+    raise last_error
+
 
 # Previous version parked outside EXTENSIONS_DIR: a backup left inside it would
 # be discovered as an extension by _scan_candidates (it has extension.json + main.py).
@@ -258,9 +283,7 @@ def register_marketplace_routes(app, socketio):
         if MARKETPLACE_CACHE and now - MARKETPLACE_CACHE_TIME < 120:
             return jsonify(MARKETPLACE_CACHE)
         try:
-            req = urllib.request.Request(MARKETPLACE_URL)
-            with urllib.request.urlopen(req, timeout=10) as r:
-                data = json.loads(r.read())
+            data = _fetch_registry()
             MARKETPLACE_CACHE = data
             MARKETPLACE_CACHE_TIME = now
             return jsonify(data)
@@ -271,9 +294,7 @@ def register_marketplace_routes(app, socketio):
     @app.route('/api/marketplace/install/<ext_id>', methods=['POST'])
     def api_marketplace_install(ext_id):
         try:
-            req = urllib.request.Request(MARKETPLACE_URL)
-            with urllib.request.urlopen(req, timeout=10) as r:
-                registry = json.loads(r.read())
+            registry = _fetch_registry()
         except Exception as e:
             return jsonify({'error': f'Failed to fetch registry: {e}'}), 502
 

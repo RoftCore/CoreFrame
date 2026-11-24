@@ -58,7 +58,7 @@ Download the latest [CoreFrame release](https://github.com/RoftCore/CoreFrame/re
 **macOS:** grab `CoreFrame-macOS` — if macOS blocks it, go to System Settings → Privacy & Security → allow anyway.
 
 > No dependencies required. No Python, no pip, no terminal. Just download and run.
-- **Marketplace:** <https://explotador72.github.io/roftcore-marketplace/> — the registry CoreFrame reads by default, and where extensions are submitted for review.
+- **Marketplace:** <https://coreframe-marketplace.roftcore.work/> — the registry CoreFrame reads by default, and where extensions are submitted for review.
 
 ### Running from source
 
@@ -327,22 +327,30 @@ Extensions that fail to load don't block the system. They appear in the Extensio
 ### Marketplace
 
 CoreFrame reads one registry URL and renders the Marketplace panel from it. The default is the
-official one:
+official RoftCore marketplace:
 
 ```
-https://explotador72.github.io/roftcore-marketplace/registry.json
+https://coreframe-marketplace.roftcore.work/registry.json
 ```
+
+If that host does not answer (DNS not ready, certificate, or a network that cannot resolve the
+domain), CoreFrame falls back to the GitHub Pages copy at
+`https://explotador72.github.io/coreframe-marketplace/registry.json` before giving up.
 
 To point an install at a mirror or a private marketplace, add the key to
-`~/Documents/CoreFrame/coreframe.json` (or set `COREFRAME_MARKETPLACE_URL`, which wins):
+`~/Documents/CoreFrame/coreframe.json` (or set `COREFRAME_MARKETPLACE_URL`, which wins). An
+override is used alone: the official fallback is not appended to it.
 
 ```json
 { "marketplace_url": "https://example.org/my-registry.json" }
 ```
 
 A registry is a JSON file with an `extensions` array; see the
-[format](https://github.com/Explotador72/roftcore-marketplace/blob/main/docs/FORMAT.md). The
-registry is cached for 120 seconds, so a change shows up within two minutes of a push.
+[format](https://github.com/Explotador72/coreframe-marketplace/blob/main/docs/FORMAT.md) and the
+[browse page](https://coreframe-marketplace.roftcore.work/). The registry is cached for 120
+seconds, so a change shows up within two minutes of a push. Submissions go through an issue in the
+[marketplace repo](https://github.com/Explotador72/coreframe-marketplace/issues/new?template=submission.yml)
+and are reviewed before they are listed.
 
 ### Creating an extension
 
