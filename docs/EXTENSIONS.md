@@ -778,7 +778,7 @@ Before you upload, three things that cost nothing and save a support thread:
 1. From the interface: **Package** button → select extension → download `.zip`
 2. Or manually: compress the extension folder, with the folder containing `extension.json` as the only wrapper (or no wrapper at all)
 3. Upload to GitHub Releases or any host, and treat the asset as immutable: new code means a new version and a new URL
-4. Open a submission issue in the marketplace repo: <https://coreframe-marketplace.roftcore.work/> → "Submit an extension". Only the maintainer edits the registry, and every submission is reviewed first ([checklist](https://github.com/Explotador72/coreframe-marketplace/blob/main/docs/VERIFY.md))
+4. Open a submission issue in the marketplace repo: <https://coreframe-marketplace.roftcore.work/> → "Submit an extension". Only the maintainer edits the registry, and every submission is reviewed first ([checklist](https://github.com/RoftCore/coreframe-marketplace/blob/main/docs/VERIFY.md))
 
 The registry entry takes an optional `versions` array, newest first. It is what feeds the version dropdown and the **Update** button in the marketplace:
 

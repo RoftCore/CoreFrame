@@ -40,7 +40,7 @@ LOG_PATH = os.path.join(DATA_DIR, 'coreframe.log')
 # The custom domain is canonical; the Pages URL answers while DNS or the
 # certificate is not ready, and for a network that cannot resolve the domain.
 MARKETPLACE_DEFAULT_URL = 'https://coreframe-marketplace.roftcore.work/registry.json'
-MARKETPLACE_FALLBACK_URL = 'https://explotador72.github.io/coreframe-marketplace/registry.json'
+MARKETPLACE_FALLBACK_URL = 'https://roftcore.github.io/coreframe-marketplace/registry.json'
 
 
 def _marketplace_url():

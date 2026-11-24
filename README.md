@@ -335,7 +335,7 @@ https://coreframe-marketplace.roftcore.work/registry.json
 
 If that host does not answer (DNS not ready, certificate, or a network that cannot resolve the
 domain), CoreFrame falls back to the GitHub Pages copy at
-`https://explotador72.github.io/coreframe-marketplace/registry.json` before giving up.
+`https://roftcore.github.io/coreframe-marketplace/registry.json` before giving up.
 
 To point an install at a mirror or a private marketplace, add the key to
 `~/Documents/CoreFrame/coreframe.json` (or set `COREFRAME_MARKETPLACE_URL`, which wins). An
@@ -346,10 +346,10 @@ override is used alone: the official fallback is not appended to it.
 ```
 
 A registry is a JSON file with an `extensions` array; see the
-[format](https://github.com/Explotador72/coreframe-marketplace/blob/main/docs/FORMAT.md) and the
+[format](https://github.com/RoftCore/coreframe-marketplace/blob/main/docs/FORMAT.md) and the
 [browse page](https://coreframe-marketplace.roftcore.work/). The registry is cached for 120
 seconds, so a change shows up within two minutes of a push. Submissions go through an issue in the
-[marketplace repo](https://github.com/Explotador72/coreframe-marketplace/issues/new?template=submission.yml)
+[marketplace repo](https://github.com/RoftCore/coreframe-marketplace/issues/new?template=submission.yml)
 and are reviewed before they are listed.
 
 ### Creating an extension
