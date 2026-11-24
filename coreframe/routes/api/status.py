@@ -1,4 +1,5 @@
 from flask import jsonify
+from coreframe.config import APP_VERSION
 from coreframe.extensions import extensions, failed_extensions, _ext_isolation
 from coreframe.extensions.permissions import get_permission_manager
 
@@ -117,6 +118,7 @@ def register_status_routes(app, socketio):
         from coreframe.websocket import _client_count
         return jsonify({
             'status': 'ok',
+            'version': APP_VERSION,
             'extensions': len(extensions),
             'clients': _client_count,
         })

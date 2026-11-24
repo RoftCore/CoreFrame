@@ -87,6 +87,22 @@
 .ctx-menu-item:active {
   background: rgba(0, 212, 255, 0.15);
 }
+/* Build label at the bottom of the settings menu; hidden until the version lands */
+.ctx-menu-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  padding: 6px 14px 4px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+}
+.ctx-menu-footer:empty {
+  display: none;
+}
 /* Autostart ON/OFF badge next to the menu item */
 .autostart-state {
   margin-left: auto;

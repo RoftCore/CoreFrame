@@ -464,7 +464,8 @@
     '<div class="ctx-menu-separator"></div>' +
     '<div class="ctx-menu-item" data-action="window"><i data-feather="square" width="16" height="16"></i>  Window settings</div>' +
     '<div class="ctx-menu-separator"></div>' +
-    '<div class="ctx-menu-item" id="autostart-item" data-action="autostart"><i data-feather="clock" width="16" height="16"></i>  Loading...</div>';
+    '<div class="ctx-menu-item" id="autostart-item" data-action="autostart"><i data-feather="clock" width="16" height="16"></i>  Loading...</div>' +
+    '<div class="ctx-menu-footer" id="settings-version"></div>';
 
   s._updateWindowHTML = function () {
     var m = typeof currentWindowMode !== 'undefined' ? currentWindowMode : 'windowed';
@@ -496,6 +497,23 @@
     return out;
   };
 
+  // Version footer: one /api/health per session, and empty (so hidden) against a
+  // host that predates the field.
+  s._appVersion = '';
+  s._renderVersionLabel = function () {
+    var el = document.getElementById('settings-version');
+    if (el) el.textContent = s._appVersion ? 'CoreFrame v' + s._appVersion : '';
+  };
+  s._loadVersion = function () {
+    if (s._appVersion) { s._renderVersionLabel(); return; }
+    apiFetch('/api/health').then(function (res) {
+      if (res && res.version) {
+        s._appVersion = String(res.version);
+        s._renderVersionLabel();
+      }
+    }).catch(function () {});
+  };
+
   s.openSettingsDropdown = function (e) {
     e.stopPropagation();
     s.closeCtxMenu();
@@ -520,6 +538,7 @@
         } else if (action === 'back') {
           menu.innerHTML = s._settingsMainHTML;
           s._renderAutostartItem();
+          s._renderVersionLabel();
         } else if (action === 'scenes') {
           s.closeSettingsDropdown();
           s.openSceneSettings();
@@ -548,6 +567,8 @@
     }
     menu.innerHTML = s._settingsMainHTML;
     s._renderAutostartItem();
+    s._renderVersionLabel();
+    s._loadVersion();
     menu.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
     menu.style.top = Math.min(rect.bottom + 4, window.innerHeight - 100) + 'px';
     menu.classList.add('visible');

@@ -5,6 +5,10 @@ import logging
 import logging.handlers
 import threading
 
+# Shown in the UI (Settings menu footer). Keep in sync with version_info.txt and
+# runner_version_info.txt, which is the file version the binaries carry.
+APP_VERSION = '1.1.0'
+
 # ── Paths ──────────────────────────────────────────────────────────
 
 if getattr(sys, 'frozen', False):
