@@ -51,6 +51,12 @@ _stdlib_all = _collect_full_stdlib()
 # the main exe per extension child.
 _runner_datas = [('runner.zip', '.')] if os.path.isfile('runner.zip') else []
 
+# The license and notices travel inside the bundle: GPL-3 requires the license to
+# accompany the binary, and the BSD/Apache dependencies require their notices to
+# ship with it. Missing files are skipped so a checkout without them still builds.
+_legal_datas = [(f, '.') for f in ('LICENSE.md', 'NOTICE', 'AUTHORS', 'THIRD_PARTY_NOTICES.md')
+                if os.path.isfile(f)]
+
 a = Analysis(
     ['run_coreframe.pyw'],
     pathex=[],
@@ -59,7 +65,7 @@ a = Analysis(
         ('static', 'static'),
         ('extensions\\fortune_cookie', 'extensions\\fortune_cookie'),
         (_WEBVIEW_LIB, 'webview\\lib'),
-    ] + _runner_datas + _pip_datas + _st_datas + _w_datas + _tk_datas,
+    ] + _runner_datas + _legal_datas + _pip_datas + _st_datas + _w_datas + _tk_datas,
     hiddenimports=[
         'ssl',
         '_ssl',

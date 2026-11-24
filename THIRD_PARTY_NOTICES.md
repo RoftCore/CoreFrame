@@ -50,13 +50,33 @@ build environment. Licenses were read from each package's own metadata
 Feather is loaded from jsDelivr at runtime and is not redistributed by this
 repository; the notice is kept because the app depends on it.
 
-## What is still missing before a public binary release
+## What the bundle already carries, and what it does not
 
-GPL-compatible or not, the license texts of the components above must travel
-with the binaries, not only with this file. BSD-3-Clause and Apache-2.0 require
-the notice to appear in binary distributions, and Apache-2.0 additionally
-requires its `NOTICE` file when one exists upstream. The wheels installed here
-ship a `LICENSE` file for only some of the packages (Werkzeug, psutil,
-`itsdangerous`, `requests`, `blinker`), so the texts have to be collected at
-build time from PyPI metadata or from the installed distributions. Until that
-step exists, a public release does not fully satisfy their terms.
+CoreFrame's own `LICENSE.md`, `NOTICE` and `AUTHORS` are packed into the exe by
+`_legal_datas` in `CoreFrame.spec` / `CoreFrame-onedir.spec`, together with this
+file.
+
+For the dependencies, PyInstaller copies whatever license metadata the wheel
+itself ships. Measured on a real Windows build (2026-11-24, `pyi-archive_viewer`
+against `dist/CoreFrame.exe`), the bundle contains exactly these:
+
+    click-8.5.0         licenses/LICENSE.txt
+    flask-3.1.2         licenses/LICENSE.txt
+    itsdangerous-2.2.0  LICENSE.txt
+    markupsafe-3.0.4    licenses/LICENSE.txt
+    werkzeug-3.1.9      licenses/LICENSE.txt
+    _tk_data/license.terms   (Tcl/Tk)
+
+Everything else in the table above does **not** travel inside the exe: requests
+(Apache-2.0, which also requires its upstream `NOTICE`), urllib3, certifi,
+charset-normalizer, idna, psutil, Pillow, eventlet, greenlet, GPUtil, hidapi,
+pywebview, bottle, proxy-tools, dnspython, typing_extensions, Jinja2, blinker and
+the Socket.IO stack. The `LICENSE` files that show up under `pip-*` and
+`setuptools-*` belong to pip's own vendored copies and do not cover the runtime
+package of the same name.
+
+A public binary release is therefore still not fully compliant for those
+packages. The fix is a build step that collects each distribution's license from
+its `dist-info`, writes them into a `licenses/` folder and packs that folder the
+same way the files above are packed.
+
