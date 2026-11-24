@@ -170,9 +170,12 @@
           requestAnimationFrame(function(){
             requestAnimationFrame(function(){
               var paintMs = Math.round((now() - t0) * 10) / 10;
+              // A suspended renderer stops the frame clock: 24 s of "paint" is a sleep, not a slow switch.
+              var suspended = paintMs > 3000;
               if (typeof apiFetch !== 'undefined') {
                 apiFetch('/api/debug/switch', { method: 'POST',
-                  body: JSON.stringify({ scene: sid, commit_ms: commitMs, paint_ms: paintMs, phases: phases }) }
+                  body: JSON.stringify({ scene: sid, commit_ms: commitMs, paint_ms: paintMs,
+                                         suspended: suspended, phases: phases }) }
                 ).catch(function(){});
               }
             });

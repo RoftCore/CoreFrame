@@ -14,9 +14,10 @@ def register_debug_routes(app, socketio):
         try:
             from coreframe.config import log as _log
             data = request.get_json(silent=True) or {}
-            _log.info("[SwitchTelemetry] scene=%s commit_ms=%s paint_ms=%s phases=%s",
-                      data.get('scene'), data.get('commit_ms'),
-                      data.get('paint_ms'), data.get('phases'))
+            _log.info("[SwitchTelemetry] scene=%s commit_ms=%s paint_ms=%s%s phases=%s",
+                      data.get('scene'), data.get('commit_ms'), data.get('paint_ms'),
+                      ' (renderer was suspended: paint_ms is a sleep, ignore it)'
+                      if data.get('suspended') else '', data.get('phases'))
         except Exception:
             pass
         return jsonify({'ok': True})

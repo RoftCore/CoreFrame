@@ -313,11 +313,13 @@ function cfPollInvalidateScene(ids) {
     const card = cfPollCard(extId);
     if (card) cfPollSetHot(extId, cfPollVisible(card));
     const keys = cfPollExt[extId] || [];
+    // Stagger: a whole scene firing in the same frames lands inside the switch paint.
+    const due = now + Math.min(i * 80, 800);
     for (let j = 0; j < keys.length; j++) {
       const e = cfPollRegistry[keys[j]];
       if (!e) continue;
       e.touched = 0;            // back to full cadence
-      if (e.hot) e.nextAt = 0;
+      if (e.hot) e.nextAt = due;
       else if (e.once) { /* one-shot cards refresh when they scroll in */ }
     }
   }
