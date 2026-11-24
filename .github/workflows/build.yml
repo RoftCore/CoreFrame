@@ -21,6 +21,11 @@ jobs:
         with:
           python-version: '3.13'
 
+      # The frozen host carries the UI and reports its own version, so the three
+      # files that carry it have to agree or the Settings label lies.
+      - name: Verify version sync
+        run: python tools/bump_version.py --check
+
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |

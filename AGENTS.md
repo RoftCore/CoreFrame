@@ -7,6 +7,7 @@
 - **`main`**: ONLY tested, released versions (tagged `vX.Y.Z`). No direct pushes.
 - **`development`**: all feature work, bug fixes, experiments. PRs target `development`.
 - **Release flow**: `development` → tested → merge to `main` → tag `vX.Y.Z` → GitHub Actions builds the release.
+- **Version bumps**: anything that changes the built host bumps the patch with `python tools/bump_version.py` (one command, it rewrites `coreframe/config.py`, `version_info.txt` and `runner_version_info.txt` together). `MAJOR.MINOR` belong to official releases; the patch is a **number, not a digit** - `1.1.37` is valid, so ten or a hundred builds do not force a release. CI runs `--check` and fails when the three disagree, and the Settings menu shows `CoreFrame vX.Y.Z` read from `/api/health`.
 - **CI** (`.github/workflows/build.yml`) runs on push to `main`, push to `development` and on `v*` tags, on Python 3.13 and Windows + Linux. It always verifies the ext_runner mirror (see [Process model](#process-model)) and builds the exe; only the release job is tag-gated. So `development` is already built on every push: a local `py -3.13 -m PyInstaller --noconfirm CoreFrame.spec` is only needed to test a change before pushing.
 
 ## Identity
