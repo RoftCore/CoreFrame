@@ -673,6 +673,31 @@ SAVED_MODE = _read_mode_early()
 
 import urllib.request  # deferred: keep pre-splash boot minimal
 
+HOST = '127.0.0.1'
+PORT = 8420
+DATA_DIR = DATA_DIR_EARLY
+CONFIG_PATH = os.path.join(DATA_DIR, 'coreframe.json')
+
+if getattr(sys, 'frozen', False):
+    STATIC_DIR = os.path.join(sys._MEIPASS, 'static')
+else:
+    STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+
+# The Flask import and the CLR/WinForms import each cost over a second and do not
+# depend on each other, so the server boots in its own thread while this one loads
+# the UI: measured 1.26 s (clr) + 1.38 s (coreframe.app) serial before.
+import coreframe.extensions.bridge  # patches Popen before anything spawns
+debug_mode = not getattr(sys, 'frozen', False)
+
+def _boot_server():
+    from app import start_server  # patches subprocess to hide consoles
+    _trace('app imported')
+    _splash_text('Loading application...')
+    start_server(host=HOST, port=PORT, debug=debug_mode)
+
+threading.Thread(target=_boot_server, daemon=True, name='flask').start()
+_trace('server thread started')
+
 # Deferred until the splash paints: initializing .NET costs ~1s of black screen.
 try:
     import clr
@@ -685,27 +710,6 @@ except Exception:
     WinFormsTimer = None
 _trace('clr imported')
 _splash_text('Starting UI...')
-
-from app import start_server  # patches subprocess to hide consoles
-_trace('app imported')
-_splash_text('Loading application...')
-
-HOST = '127.0.0.1'
-PORT = 8420
-DATA_DIR = DATA_DIR_EARLY
-CONFIG_PATH = os.path.join(DATA_DIR, 'coreframe.json')
-
-if getattr(sys, 'frozen', False):
-    STATIC_DIR = os.path.join(sys._MEIPASS, 'static')
-else:
-    STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-
-# Boot Flask in parallel with the webview imports below; _wait_for_server needs it up.
-debug_mode = not getattr(sys, 'frozen', False)
-threading.Thread(target=start_server,
-                 kwargs={'host': HOST, 'port': PORT, 'debug': debug_mode},
-                 daemon=True, name='flask').start()
-_trace('server thread started')
 
 import webview.util
 import webview
