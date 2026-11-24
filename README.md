@@ -394,4 +394,18 @@ Extensions are packaged as `.zip` from the UI (Package button, visible in dev mo
 
 ## License
 
-GPL-3.0-or-later
+CoreFrame is free software: you can redistribute it and/or modify it under the
+terms of the **GNU General Public License, version 3 or (at your option) any
+later version**, as published by the Free Software Foundation.
+
+Copyright (C) 2025-2026 RoftCore. The full text is in [LICENSE.md](LICENSE.md);
+authors in [AUTHORS](AUTHORS), attribution in [NOTICE](NOTICE), third-party
+components in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+There is no warranty, to the extent permitted by law.
+
+**License history:** releases up to and including `v1.0.2` were published under
+the MIT license. From `v1.1.0` onward the project is GPL-3.0-or-later, so any
+fork of the 1.1 line has to stay free. Extensions are separate programs: they
+run in their own process and talk JSON-RPC over stdio, so they are not derived
+works of the core and keep whatever license their author chooses.
