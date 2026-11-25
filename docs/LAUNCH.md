@@ -30,6 +30,7 @@ file honest: it is the checklist a stranger would run before trusting a download
 - **Three dependencies ship no license text** (dnspython ISC, GPUtil MIT, proxy-tools MIT). `licenses/INDEX.md` lists them; the text has to be fetched from the package source.
 - **`script_scope` migration**: 2 of 13 installed extensions declare `"module"`. The rest still share the global scope (pitfall 60). New extensions must declare it.
 - **Windows is the only runtime anyone has exercised.** Linux builds, but nobody has run it end to end.
+- **A Linux child that fails to load reports nothing useful**: the bridge says `Runner process died during startup` with an empty stderr, while Windows names the reason (`Module has no Extension class`). The failure is caught, the diagnosis is not; same family as pitfall 44 (a piped stderr nobody drains).
 
 ## What "released" means here
 
