@@ -430,14 +430,18 @@
 .mkt-hidden:hover { opacity: 1; }
 
 .mkt-dialog {
+  /* The marketplace is a browsing panel, not a form: it uses the width it is given.
+     Capped so the cards keep a readable measure on a very wide monitor. */
+  width: 94vw;
   min-width: 560px;
-  max-width: 720px;
+  max-width: min(1400px, 94vw);
+  max-height: 84vh;
 }
 
 .mkt-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
   padding: 4px 0;
 }
 
