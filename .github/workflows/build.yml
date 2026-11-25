@@ -46,6 +46,12 @@ jobs:
       - name: Run tests
         run: python -m pytest -q tests
 
+      # A frozen exe redistributes its dependencies; BSD-3 and Apache-2.0 require
+      # their texts to travel with it. Collected from the build env, so a new
+      # dependency cannot be forgotten.
+      - name: Collect license texts
+        run: python tools/collect_licenses.py
+
       # The --ext-runner child source is mirrored into run_coreframe.pyw because
       # it must run before coreframe/__init__.py pulls in Flask. Drift means the
       # fallback child silently diverges from the shipped runner.

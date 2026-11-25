@@ -50,33 +50,21 @@ build environment. Licenses were read from each package's own metadata
 Feather is loaded from jsDelivr at runtime and is not redistributed by this
 repository; the notice is kept because the app depends on it.
 
-## What the bundle already carries, and what it does not
+## What the bundle carries
 
-CoreFrame's own `LICENSE.md`, `NOTICE` and `AUTHORS` are packed into the exe by
-`_legal_datas` in `CoreFrame.spec` / `CoreFrame-onedir.spec`, together with this
-file.
+CoreFrame's own `LICENSE.md`, `NOTICE`, `AUTHORS` and this file are packed by
+`_legal_datas` in `CoreFrame.spec` / `CoreFrame-onedir.spec`, and `tools/collect_licenses.py`
+copies every bundled dependency's license text into `licenses/`, which the spec packs too.
+CI runs the collector before the build, so a new dependency cannot be forgotten.
 
-For the dependencies, PyInstaller copies whatever license metadata the wheel
-itself ships. Measured on a real Windows build (2026-11-24, `pyi-archive_viewer`
-against `dist/CoreFrame.exe`), the bundle contains exactly these:
+Measured on a real Windows build (2026-11-25, `pyi-archive_viewer` against
+`dist/CoreFrame.exe`): 57 files under `licenses/`, 44 packages with their text.
+`licenses/INDEX.md` is the generated list, with the package, version, declared license
+and file for each one.
 
-    click-8.5.0         licenses/LICENSE.txt
-    flask-3.1.2         licenses/LICENSE.txt
-    itsdangerous-2.2.0  LICENSE.txt
-    markupsafe-3.0.4    licenses/LICENSE.txt
-    werkzeug-3.1.9      licenses/LICENSE.txt
-    _tk_data/license.terms   (Tcl/Tk)
-
-Everything else in the table above does **not** travel inside the exe: requests
-(Apache-2.0, which also requires its upstream `NOTICE`), urllib3, certifi,
-charset-normalizer, idna, psutil, Pillow, eventlet, greenlet, GPUtil, hidapi,
-pywebview, bottle, proxy-tools, dnspython, typing_extensions, Jinja2, blinker and
-the Socket.IO stack. The `LICENSE` files that show up under `pip-*` and
-`setuptools-*` belong to pip's own vendored copies and do not cover the runtime
-package of the same name.
-
-A public binary release is therefore still not fully compliant for those
-packages. The fix is a build step that collects each distribution's license from
-its `dist-info`, writes them into a `licenses/` folder and packs that folder the
-same way the files above are packed.
+Three dependencies declare a license but ship no file for it, so their text is listed in
+`licenses/INDEX.md` under "No license file shipped by the wheel" and has to be fetched
+from the package source before a public release: **dnspython** (ISC), **GPUtil** (MIT) and
+**proxy-tools** (MIT). Their code is bundled today; adding three text files is the whole
+of that gap.
 

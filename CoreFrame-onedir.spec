@@ -61,6 +61,9 @@ _runner_datas = [('runner.zip', '.')] if os.path.isfile('runner.zip') else []
 # ship with it. Missing files are skipped so a checkout without them still builds.
 _legal_datas = [(f, '.') for f in ('LICENSE.md', 'NOTICE', 'AUTHORS', 'THIRD_PARTY_NOTICES.md')
                 if os.path.isfile(f)]
+# Every bundled dependency's license text, collected by tools/collect_licenses.py.
+if os.path.isdir('licenses'):
+    _legal_datas.append(('licenses', 'licenses'))
 
 a = Analysis(
     ['run_coreframe.pyw'],
