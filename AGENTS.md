@@ -116,6 +116,16 @@ CoreFrame/
 5. **Data lives in `DATA_DIR`, not in the extension folder.** `config.get('data_dir')` points at `Documents/CoreFrame/data/<id>/`. Packaged or downloaded media goes there and is published with `"serve_data": true` → `/ext-data/<id>/<path>`.
 6. **New extensions declare `"script_scope": "module"`.** Without it every extension's `js_modules` share one global scope and two extensions naming a helper the same are one function (pitfall 60). The field is opt-in with `"classic"` as the default only so extensions published before it keep running; anything written from now on goes in a module and exposes what it must share as `window.<ext>X`. The guide that ships to authors is `docs/EXTENSIONS.md#script-scope`.
 
+## Tests
+
+`python -m pytest -q tests`, after `pip install -r requirements-dev.txt`. CI runs the same command on Windows and Linux, before the build, so a broken route or scanner fails in a minute instead of shipping.
+
+- **The data root is a seam, not a global.** `COREFRAME_DATA_DIR` repoints `config.DATA_DIR`, and `tests/conftest.py` sets it to a temp directory *before* importing anything. A test must never read or write the real `Documents/CoreFrame`.
+- **`coreframe.app` goes through `importlib`.** The package's lazy `__getattr__` answers `from coreframe import app` with the Flask object, so `app.app` does not exist; `importlib.import_module('coreframe.app')` returns the module.
+- **`/api/token` and `/api/health` are unauthenticated on purpose** - the second-instance handshake and the connection dot need them before a token exists. Every other `/api/*` path is 403 without the header, and `tests/test_api.py` asserts both halves so a new route cannot quietly join the open list.
+- **The loader caches its scan** (`_pending_scan_cache`). A test that adds an extension clears it through the `fresh_scans` fixture; without that, the second test to write a directory sees the first test's scan.
+- **A failing test is a decision, not an errand.** Decide which side is wrong (contract or code) before changing either one: the test exists to force that question.
+
 ## Code style
 
 - **Split code into multiple files.** Structured and ordered; use folders when needed.

@@ -38,6 +38,14 @@ jobs:
         run: |
           pip install -r requirements.txt pyinstaller==6.17.0
 
+      # The tests run against the real app object with a throwaway DATA_DIR, so a
+      # broken route, scanner or state write fails here and not in the build.
+      - name: Install test deps
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest -q tests
+
       # The --ext-runner child source is mirrored into run_coreframe.pyw because
       # it must run before coreframe/__init__.py pulls in Flask. Drift means the
       # fallback child silently diverges from the shipped runner.

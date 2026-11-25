@@ -131,6 +131,18 @@ pyinstaller CoreFrame.spec
 # ./dist/CoreFrame      (Linux / macOS)
 ```
 
+### Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q tests
+```
+
+They run against the real application object with a throwaway data root
+(`COREFRAME_DATA_DIR`), so nothing touches `~/Documents/CoreFrame`. CI runs the
+same command on every push, before the build: the API surface, the extension
+scanner, the disabled-state file and the permission table.
+
 ---
 
 ## How it works

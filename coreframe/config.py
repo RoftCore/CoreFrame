@@ -7,7 +7,7 @@ import threading
 
 # Shown in the UI (Settings menu footer). Keep in sync with version_info.txt and
 # runner_version_info.txt, which is the file version the binaries carry.
-APP_VERSION = '1.1.2'
+APP_VERSION = '1.1.3'
 
 # ── Paths ──────────────────────────────────────────────────────────
 
@@ -25,6 +25,13 @@ if sys.platform.startswith('win'):
     DATA_DIR = os.path.join(_buf.value, 'CoreFrame')
 else:
     DATA_DIR = os.path.join(os.path.expanduser('~'), '.local', 'share', 'CoreFrame')
+
+# COREFRAME_DATA_DIR points an install (or a test run) at another data root: the
+# tests use it to keep a throwaway tree out of the real one, and a portable copy
+# can carry its data next to the exe.
+_override_data_dir = os.environ.get('COREFRAME_DATA_DIR')
+if _override_data_dir:
+    DATA_DIR = os.path.abspath(os.path.expanduser(_override_data_dir))
 
 STATIC_DIR = os.path.join(BASE_DIR, 'static')
 EXTENSIONS_DIR = os.path.join(DATA_DIR, 'extensions')
