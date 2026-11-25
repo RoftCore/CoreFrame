@@ -1,3 +1,4 @@
+import hashlib
 import io
 import os
 import json
@@ -342,6 +343,24 @@ def register_marketplace_routes(app, socketio):
                 data = r.read()
         except Exception as e:
             return jsonify({'error': f'Download failed: {e}'}), 502
+
+        # Integrity before anything touches the disk: a release republished under
+        # the same URL is the one thing a reviewed registry cannot see.
+        expected_sha = next(
+            (str(v.get('sha256') or '').lower() for v in (ext_info.get('versions') or [])
+             if str(v.get('version')) == str(version)),
+            '',
+        )
+        if expected_sha:
+            actual_sha = hashlib.sha256(data).hexdigest()
+            if actual_sha != expected_sha:
+                log.error("Marketplace integrity check failed for %s %s: registry %s, download %s",
+                          ext_id, version, expected_sha, actual_sha)
+                return jsonify({'error': (
+                    f'Integrity check failed for {ext_name} {version}: the download does not '
+                    f'match the hash published in the registry, so nothing was installed. '
+                    f'expected {expected_sha[:16]}… got {actual_sha[:16]}…'
+                )}), 502
 
         backup = None
         try:
