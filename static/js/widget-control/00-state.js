@@ -52,6 +52,20 @@
     return ext.keep_alive !== false;
   }
 
+  // Off-scene cards keep their decoded images on purpose: display:none throws the
+  // decode away and a photo-heavy scene costs ~1 s to come back (pitfall 29). Keeping
+  // it forever costs memory instead - one renderer reached 506 MB - so the decode is
+  // kept for a while and released per card, without touching the grid.
+  var CF_OFFSCENE_RELEASE_MS = (typeof window.__cfOffsceneReleaseMs === 'number')
+    ? window.__cfOffsceneReleaseMs : 120000;
+
+  function releaseDecode(el) {
+    if (!el || !el.isConnected) return;
+    if (!el.classList.contains('cf-offscene')) return;  // it came back meanwhile
+    el.dataset.cfDecodeReleased = '1';
+    el.style.display = 'none';
+  }
+
   s.cfHidden = function (el) {
     if (!el) return true;
     return el.style.display === 'none' || el.classList.contains('cf-offscene');
@@ -61,7 +75,14 @@
     if (!el) return;
     if (keepAlive(el.dataset.extId)) {
       el.classList.add('cf-offscene');
-      el.style.display = '';
+      // A released card stays released: restoring display would decode it again.
+      if (!el.dataset.cfDecodeReleased) el.style.display = '';
+      if (!el._cfReleaseTimer) {
+        el._cfReleaseTimer = setTimeout(function () {
+          el._cfReleaseTimer = null;
+          releaseDecode(el);
+        }, CF_OFFSCENE_RELEASE_MS);
+      }
     } else {
       el.classList.remove('cf-offscene');
       el.style.display = 'none';
@@ -70,8 +91,13 @@
 
   s.cfShow = function (el) {
     if (!el) return;
+    if (el._cfReleaseTimer) {
+      clearTimeout(el._cfReleaseTimer);
+      el._cfReleaseTimer = null;
+    }
     el.classList.remove('cf-offscene');
     el.style.display = '';
+    if (el.dataset.cfDecodeReleased) delete el.dataset.cfDecodeReleased;
   };
 
   // Short globals: app.js and the layout module ask constantly.
