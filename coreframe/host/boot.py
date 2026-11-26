@@ -5,11 +5,8 @@ Bodies are moved verbatim from run_coreframe.pyw; paths arrive as arguments.
 """
 import json
 import os
-import shutil
 import sys
 import time
-import urllib.request
-import zipfile
 
 _splash_closed = False
 
@@ -68,6 +65,7 @@ def destroy_splash():
 
 
 def wait_for_server(host, port, timeout=20):
+    import urllib.request  # deferred: it drags email and http.client onto the pre-window path
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -90,6 +88,8 @@ def show_error(title, msg):
 
 def ensure_persistent_runner(data_dir):
     """Extract runner.zip into DATA_DIR once, guarded by a size-mtime stamp."""
+    import shutil  # deferred: zipfile and shutil are only needed on the boot that unpacks
+    import zipfile
     try:
         if '--ext-runner' in sys.argv or not getattr(sys, 'frozen', False):
             return
