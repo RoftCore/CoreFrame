@@ -28,6 +28,7 @@
 
 ### Renderer
 
+- **Off-scene cards release their decoded images after two minutes.** A single renderer held **506 MB of the 673 MB** the whole WebView2 tree used, because hidden cards kept their decode forever: that is what pitfall 29 bought (a photo-heavy scene comes back in ~0.8-1.1 s instead of re-decoding). The decode is now released per card 120 s after it leaves the scene (`CF_OFFSCENE_RELEASE_MS`, overridable per page), so the scene in use keeps its fast return and the rest stops paying rent. Measured in headless Chrome: 19 hidden cards released, the visible set unchanged, the grid at the same six rows, `cfHidden()` still true for a released card and `cfShow()` restoring it in place. If Task Manager shows a second WebView2 tree next to CoreFrame, it is `SearchHost.exe`, not us.
 - **The animated scanline is gone: it cost 57% of a core in the GPU process.** Attributed per WebView2 child on the built exe: 86.6% of a core with the sweep at 60 fps, 29.5% with it hidden, 22.3% with no animation. Stepping it does not save it (`steps(48)` 37%, `steps(12)` 55%) and at 4% alpha nobody could see the line.
 - **Idle repaint stopped animating layout.** `#app::after` animated `top`, which forced **74 layouts/s** (19-59% of a core at rest with 0.6% of script). It composites now: **74 → 4 layouts/s**.
 - **The loading shimmer can no longer strand itself over live values** (pitfall 62): marking replaces stale bars and clearing removes all of them, while `cfCardBodyClaimed` accepts text as proof of a paint.

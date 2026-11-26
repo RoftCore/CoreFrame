@@ -44,3 +44,7 @@ launcher/bin/
 launcher/obj/
 launcher/*.exe
 launcher/*.pdb
+
+# Legacy packaging kept locally: CoreFrameStub.cs + tools/build_stub.py replaced it.
+launcher/launcher.cs
+launcher/build-setup.ps1
