@@ -7,7 +7,7 @@ import threading
 
 # Shown in the UI (Settings menu footer). Keep in sync with version_info.txt and
 # runner_version_info.txt, which is the file version the binaries carry.
-APP_VERSION = '1.1.5'
+APP_VERSION = '1.1.6'
 
 # ── Paths ──────────────────────────────────────────────────────────
 
