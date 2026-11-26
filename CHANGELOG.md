@@ -10,6 +10,48 @@
   author. GPL keeps the 1.1 line and everything after it free, and section 5(a)
   forces a modified version to state that it was modified.
 
+## v1.1.6 — One executable, a quieter renderer and a boot that stops unpacking
+
+**Release date:** 2026-11-26 — first release since 1.1.0. Four days of measured work: the launcher stopped unpacking 74 MB on every start, the renderer stopped burning a core while idle, and the pollers stopped pinning one when an extension ran long.
+
+### Distribution
+
+- **The release is one `.exe` that deploys the host once and then behaves like a shortcut.** It is a C# stub (`launcher/CoreFrameStub.cs`, compiled with the .NET Framework `csc`, no extra toolchain) with `host.zip` embedded. The first run unpacks it into `Documents\CoreFrame\bin\host`, writes `host.stamp` and `host.version`, and spawns it; every later run reads the stamp and spawns. The old PyInstaller onefile unpacked 2,071 files / 74 MB into `%TEMP%` on **every** launch. Boot to `/api/health`: **9.0-10.7 s → 3.6 s**.
+- **An update swaps the program tree once and never touches user data.** `host.zip` replaces `bin\host` as a whole; extensions, scenes and consent live in `Documents\CoreFrame` and are left alone. `config.py` writes `lib\.python-version` and warns when the interpreter changed, because extension wheels belong to one Python.
+- **The UAC helper is in the build now.** `bridge` looks for `coreframe_helper.exe` beside the executable and it was in no build, so every admin operation failed on a missing file (pitfall 63).
+
+### Boot
+
+- **The CLR and Flask imports overlap instead of queueing.** Neither chain needs the other: the server boots in its own thread while the main thread does the CLR/WinForms import, and `coreframe.extensions.bridge` is imported first on the main thread so the console-hiding `Popen` patch is applied before anything spawns. Launch to `/api/health`: 6.2-7.7 s → **3.58 s**.
+- **Three imports left the pre-window path.** `coreframe/host/boot.py` imported `urllib.request`, `zipfile` and `shutil` at module level for symbols only used inside `wait_for_server()` and `ensure_persistent_runner()`: 515 ms → **93 ms** of source boot.
+- **The first launch of a fresh payload is 3x slower** because Defender scans the 2,074 new files, and the port accepts ~233 ms after the serve call. Both read as "slow boot" and are not.
+
+### Renderer
+
+- **The animated scanline is gone: it cost 57% of a core in the GPU process.** Attributed per WebView2 child on the built exe: 86.6% of a core with the sweep at 60 fps, 29.5% with it hidden, 22.3% with no animation. Stepping it does not save it (`steps(48)` 37%, `steps(12)` 55%) and at 4% alpha nobody could see the line.
+- **Idle repaint stopped animating layout.** `#app::after` animated `top`, which forced **74 layouts/s** (19-59% of a core at rest with 0.6% of script). It composites now: **74 → 4 layouts/s**.
+- **The loading shimmer can no longer strand itself over live values** (pitfall 62): marking replaces stale bars and clearing removes all of them, while `cfCardBodyClaimed` accepts text as proof of a paint.
+- **The Freeze log names the long frame**: `longtask` became `long-animation-frame`, so the entry carries the script, its forced style/layout time and the render cost instead of `self`.
+- **Feather icons ship locally** (4.29.2, no CDN): offline, the icons used to vanish.
+- **`?v=` is a per-boot token injected by the `/` route**, so a reload cannot mix a new shell with a cached script and nobody bumps a counter by hand.
+
+### Polling and scenes
+
+- **A poll tick that outran its own cadence pinned a core** (pitfall 66). The backend scheduled the next tick from the start of the last one, so an extension needing 6-12 s against a 2-5 s interval restarted immediately; it now backs off to the interval, logs the overrun once a minute and waits on the stop event. The frontend gained an in-flight guard and a 50% duty cap.
+- **Scene switches report the truth.** `paint_ms` keeps counting while the renderer is suspended, so one sample read 24,628 ms because the window was minimized; the page now sends `suspended` and the route labels it. Switch cost measured by driving `switchScene`: 26-266 ms, p50 ~200.
+- **The post-switch burst is staggered**: every widget of the incoming scene used to fire inside the switch frames; they are now spaced 80 ms apart, capped at 800 ms.
+
+### Refactors
+
+- **`loader`, `bridge` and `marketplace` split by concern.** `loader.py` (655 lines) became `runtime.py` (the objects created once), `polls.py` (visibility, supervision, start/stop) and a 447-line `loader.py` that re-exports every moved name — nine modules import them from there, and the split was verified by identity, not just by imports. `bridge_elevation.py` owns UAC; `marketplace_install.py` owns backup, rollback and kill-locks.
+- **`ext_runner.py` stays one file on purpose:** the child `exec`s an embedded copy, so a second module would be invisible to it (pitfall 69).
+- **Style pass over the tree**: every comment is one line, every docstring one sentence (65 → 0 and 43 → 0), dead code removed (`loader._read_registry`, `state.disabled_ids`).
+
+### Fixes
+
+- **The elevated helper was one directory short in dev mode**, a latent bug the split exposed.
+- **`lib\.python-version`** warns when the runtime interpreter changed under existing wheels.
+
 ## v1.1.0 — Permission System, Subprocess Isolation, Autoruns & the Scale Pass
 
 **Release date:** 2026-11-10 — first release since 1.0.2. Everything below shipped between 2026-08-26 and today, in two waves: the September security overhaul and the October/November scale pass. The 1.1.0 notes used to sit in their own section, dated 2026-09-01 and never tagged; that draft is now the closing part of this release instead of a version of its own.
